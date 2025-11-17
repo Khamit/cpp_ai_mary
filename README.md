@@ -214,3 +214,5 @@ GitHub Issues: Create an issue
 
 Email: gercules@gmail.com, khamit@combi.kz
 
+Telegram: @lordekz
+
