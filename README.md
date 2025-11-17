@@ -73,18 +73,21 @@ cpp_ai_mary/
 
 ### macOS
 
-```bash
-# Install dependencies using Homebrew
-brew install cmake sfml
 
+# Install dependencies using Homebrew
+```bash
+brew install cmake sfml
+```
 # Clone and build
+```bash
 git clone https://github.com/Khamit/cpp_ai_mary.git
 cd cpp_ai_mary
 mkdir build && cd build
 cmake ..
 make -j4
-
+```
 # Run the simulation
+```bash
 ./neural_field_sim
 ```
 
@@ -93,23 +96,26 @@ make -j4
 # Install dependencies
 sudo apt update
 sudo apt install cmake libsfml-dev build-essential
-
+```
 # Clone and build
+```bash
 git clone https://github.com/Khamit/cpp_ai_mary.git
 cd cpp_ai_mary
 mkdir build && cd build
 cmake ..
 make -j4
-
+```
 # Run
+```bash
 ./neural_field_sim
 ```
 ### Windows
 
 # Using vcpkg for dependencies
+```bash
 vcpkg install sfml
-
-# Or download SFML manually from https://www.sfml-dev.org/
+```
+Or download SFML manually from https://www.sfml-dev.org/
 
 # Build with CMake
 ```bash
@@ -120,24 +126,25 @@ cmake ..
 cmake --build . --config Release
 ```
 # Run
+```bash
 .\Release\neural_field_sim.exe
-
+```
 ### 🎮 Usage
-bash
 # Basic simulation
+```bash
 ./neural_field_sim
-
+```
 # With custom configuration
+```bash
 ./neural_field_sim --config config/custom_config.json
-
+```
 # Headless mode (no visualization)
+```bash
 ./neural_field_sim --headless
-
+```
 Controls
 Click on grid: Perturb neural field at specific locations
-
 Start/Stop: Control simulation execution
-
 Reset: Reinitialize the system with random conditions
 
 -------------------------------------------------------
