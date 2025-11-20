@@ -46,11 +46,11 @@ research/ - Experimental research branches
 
 ### History
 
-v1.0: Basic neural field simulation with static modules - in old folder
+v1.0: Basic neural field simulation with static modules - in old folder v0.1
 
-v2.0: Self-evolving system with autonomous optimization - deleted
+v2.0: Self-evolving system with autonomous optimization ← You are here
 
-v3.0+: External code optimization and AI-enhanced evolution ← You are here
+v3.0+: External code optimization and AI-enhanced evolution - maybe
 
 ### Whats new in v3
 ### Intelligent Resource Awareness
