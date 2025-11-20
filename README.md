@@ -1,187 +1,40 @@
-# Neural Field Dynamics Simulator
+### Neural Field Dynamics Simulator v2.0 - "Evolving Intelligence"
 
 A sophisticated C++ simulation framework for studying neural field dynamics with applications in biomedical research and computational neuroscience.
 
 ![Neural Field Simulation](docs/simulation_preview.png)
 
-## 🧠 Overview
+# 🧠 Overview
 
-This project implements a modular neural field system that simulates the dynamics of neural populations using Hamiltonian mechanics and synaptic plasticity rules. The system provides a flexible platform for investigating pattern formation, synchronization, and learning in neural networks.
+A revolutionary C++ simulation framework that implements self-evolving neural field dynamics with real-time code optimization and adaptive learning capabilities. This system represents a significant breakthrough in computational neuroscience by introducing autonomous code evolution based on performance metrics.
 
-## 🎯 Key Features
+# 🎯 What's New in v2.0 - "Evolving Intelligence"
+Revolutionary Self-Evolution Capabilities
+The system now features autonomous code evolution that optimizes itself based on three key performance metrics:
 
-- **Hamiltonian Dynamics**: Symplectic integration for energy-conserving simulations
-- **Synaptic Plasticity**: Hebbian and Oja learning rules with configurable parameters
-- **Interactive Visualization**: Real-time SFML-based visualization with mouse interaction
-- **Modular Architecture**: Separated core system, dynamics, learning, and visualization modules
-- **Cross-Platform**: Compatible with macOS, Windows, and Linux
-- **Real-time Monitoring**: Comprehensive statistics and energy tracking
+- Code Efficiency Score: Evaluates code size and complexity
 
-## 🔬 Biomedical Research Applications
+- Performance Score: Measures computational efficiency and speed
 
-### Advantages in Neuroscience & Biomedicine
+- Energy Score: Tracks energy consumption and optimization
 
-1. **Neurological Disorder Modeling**
-   - Simulate pathological synchronization in epilepsy
-   - Model cortical spreading depression in migraine
-   - Investigate neural dynamics in Parkinson's disease
+# EvolutionModule - The Brain Behind the Evolution
+Real-time Fitness Evaluation: Continuously assesses system performance
+Adaptive Mutation System: Proposes and applies intelligent code modifications
+Automated Backups: Creates versioned backups before each evolution cycle
+Stasis Management: Enters low-power mode during resource constraints
 
-2. **Learning and Memory Research**
-   - Study synaptic plasticity mechanisms
-   - Explore pattern formation in neural networks
-   - Investigate memory encoding and retrieval dynamics
+# ResourceMonitor - Intelligent Resource Management
+Adaptive Thresholds: Self-adjusting CPU (85%) and memory (90%) limits
+Debounce Protection: Prevents false overload triggers
+Performance Scaling: Dynamically adjusts computational intensity
 
-3. **Drug Development**
-   - Test computational models of drug effects on neural dynamics
-   - Simulate neurotransmitter modulation
-   - Predict system responses to pharmacological interventions
+# ImmutableCore - Secure Evolution Foundation
+Permission System: Controls mutation and optimization requests
+Safety Protocols: Ensures stable evolution cycles
+Rollback Mechanisms: Automatic recovery from failed optimizations
 
-4. **Brain-Computer Interfaces**
-   - Develop control algorithms for neural prosthetics
-   - Optimize stimulation patterns for neurostimulation devices
-   - Train machine learning models on synthetic neural data
-
-## 🏗️ Project Structure
-
-```
-cpp_ai_mary/
-├── core/ # Core simulation engine
-│ ├── NeuralFieldSystem.hpp
-│ └── NeuralFieldSystem.cpp
-├── modules/ # Modular components
-│ ├── DynamicsModule.hpp/.cpp
-│ ├── LearningModule.hpp/.cpp
-│ ├── VisualizationModule.hpp/.cpp
-│ ├── InteractionModule.hpp/.cpp
-│ ├── StatisticsModule.hpp/.cpp
-│ └── UIModule.hpp/.cpp
-├── config/ # Configuration files
-│ └── system_config.json
-├── docs/ # Documentation
-├── scripts/ # Build and utility scripts
-└── tests/ # Unit tests
-```
-
-
-## 🚀 Installation & Setup
-
-### Prerequisites
-
-- **C++17** compatible compiler
-- **CMake** (version 3.15+)
-- **SFML** (Simple and Fast Multimedia Library)
-
-### macOS
-
-
-# Install dependencies using Homebrew
-```bash
-brew install cmake sfml
-```
-# Clone and build
-```bash
-git clone https://github.com/Khamit/cpp_ai_mary.git
-cd cpp_ai_mary
-mkdir build && cd build
-cmake ..
-make -j4
-```
-# Run the simulation
-```bash
-./neural_field_sim
-```
-
-### Ubuntu/Debian Linux
-```bash
-# Install dependencies
-sudo apt update
-sudo apt install cmake libsfml-dev build-essential
-```
-# Clone and build
-```bash
-git clone https://github.com/Khamit/cpp_ai_mary.git
-cd cpp_ai_mary
-mkdir build && cd build
-cmake ..
-make -j4
-```
-# Run
-```bash
-./neural_field_sim
-```
-### Windows
-
-# Using vcpkg for dependencies
-```bash
-vcpkg install sfml
-```
-Or download SFML manually from https://www.sfml-dev.org/
-
-# Build with CMake
-```bash
-git clone https://github.com/Khamit/cpp_ai_mary.git
-cd cpp_ai_mary
-mkdir build && cd build
-cmake ..
-cmake --build . --config Release
-```
-# Run
-```bash
-.\Release\neural_field_sim.exe
-```
-### 🎮 Usage
-# Basic simulation
-```bash
-./neural_field_sim
-```
-# With custom configuration
-```bash
-./neural_field_sim --config config/custom_config.json
-```
-# Headless mode (no visualization)
-```bash
-./neural_field_sim --headless
-```
-Controls
-Click on grid: Perturb neural field at specific locations
-Start/Stop: Control simulation execution
-Reset: Reinitialize the system with random conditions
-
--------------------------------------------------------
-
-### 🔧 Configuration
-Edit config/system_config.json to customize:
-
-Learning rates and rules
-
-Dynamics parameters
-
-Visualization settings
-
-Interaction behavior
-
-### 📊 Output
-The simulation generates:
-
-Real-time visualization of neural field states
-
-CSV files with simulation statistics
-
-Energy and state classification data
-
-### 🧪 Research Extensions
-Potential Biomedical Extensions:
-Multi-layer Networks: Add hierarchical neural structures
-
-Biophysical Models: Incorporate Hodgkin-Huxley type dynamics
-
-Clinical Data Integration: Interface with EEG/fMRI data formats
-
-Therapeutic Simulation: Model deep brain stimulation effects
-
-Network Analysis: Add graph theory metrics for connectivity analysis
-
-### 🤝 Contributing
+## 🤝 Contributing
 We welcome contributions! Please see our Contributing Guidelines for details.
 
 Branch Structure:
@@ -195,22 +48,22 @@ bugfix/ - Bug fixes
 
 research/ - Experimental research branches
 
-### 📜 License
-This project is licensed under the GPL v3 License - see the LICENSE file for details.
+# 📜 License
+This project is licensed under the GPL v3 License - see the [GPL v3 License](LICENSE). file for details.
 
 For commercial licensing inquiries, please contact the maintainer.
 
-### 📚 References
+# 📚 References
 Wilson, H. R., & Cowan, J. D. (1972). Excitatory and inhibitory interactions in localized populations of model neurons.
 
 Ermentrout, G. B., & Cowan, J. D. (1979). A mathematical theory of visual hallucination patterns.
 
 Coombes, S. (2005). Waves, bumps, and patterns in neural field theories.
 
-## Contact
+# Contact
 For questions and collaborations:
 
-GitHub Issues: Create an issue
+GitHub Issues: [khamit/cpp_ai_mary#](Create an issue).
 
 Email: gercules@gmail.com, khamit@combi.kz
 
