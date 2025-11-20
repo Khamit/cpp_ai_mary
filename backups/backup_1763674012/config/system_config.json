@@ -1,0 +1,68 @@
+{
+    "system": {
+        "Nside": 20,
+        "dt": 0.001,
+        "m": 1.0,
+        "lam": 0.5,
+        "windowWidth": 600,
+        "windowHeight": 500
+    },
+    "modules": {
+        "learning": {
+            "enabled": true,
+            "learning_rate": 0.001,
+            "weight_decay": 0.999,
+            "max_weight": 0.1,
+            "min_weight": -0.1,
+            "rule": "hebbian"
+        },
+        "dynamics": {
+            "enabled": true,
+            "damping_enabled": true,
+            "damping_factor": 0.999,
+            "limits_enabled": true,
+            "max_phi": 2.0,
+            "min_phi": -2.0,
+            "max_pi": 10.0,
+            "min_pi": -10.0
+        },
+        "visualization": {
+            "enabled": true,
+            "dynamic_normalization": true,
+            "color_scheme": "blue_red",
+            "min_range": 0.1
+        },
+        "interaction": {
+            "enabled": true,
+            "mouse_impact": 0.1,
+            "local_spread": true,
+            "spread_radius": 2
+        },
+        "monitoring": {
+            "enabled": true,
+            "energy_calculation": true,
+            "classification": true,
+            "log_interval": 100
+        }
+    },
+    "ui": {
+        "show_controls": true,
+        "show_stats": true,
+        "control_panel_width": 200
+    },
+    "resource_monitor": {
+        "cpu_threshold": 85,
+        "memory_threshold": 90,
+        "overload_debounce_seconds": 5,
+        "max_overloads_per_minute": 2,
+        "adaptive_thresholds": true
+    },
+    "evolution": {
+        "reduction_cooldown_seconds": 30,
+        "max_reductions_per_minute": 2,
+        "min_fitness_for_optimization": 0.8,
+        "evolution_interval_steps": 1000,
+        "backup_on_improvement": true,
+        "enable_adaptive_mutations": true
+    }
+}
