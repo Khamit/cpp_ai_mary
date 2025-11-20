@@ -49,27 +49,34 @@ v1.0: Basic neural field simulation with static modules - in old folder
 v2.0: Self-evolving system with autonomous optimization - deleted
 v3.0+: External code optimization and AI-enhanced evolution ← You are here
 
- Whats new in v3
-Intelligent Resource Awareness
+### Whats new in v3
+### Intelligent Resource Awareness
+
 Adaptive Load Balancing: Automatically adjusts to system capabilities
+
 Smart Throttling: Prevents excessive evolution cycles
+
 Context-Aware Optimization: Tailors improvements to current performance
 
-Evolutionary Metrics System
+### Evolutionary Metrics System
+
 Multi-objective Optimization: Balances code size, speed, and energy
+
 Degradation Detection: Identifies and rolls back unsuccessful mutations
+
 Progressive Improvement: Builds upon successful evolutionary steps
 
 ### Current Capabilities
+
 ✅ Real-time code optimization
+
 ✅ Autonomous performance tuning
+
 ✅ Resource-aware evolution
+
 ✅ Safe rollback mechanisms
+
 ✅ Multi-metric fitness evaluation
-### Real-time Monitoring Dashboard
-Resource Utilization: Live CPU/memory tracking
-Evolution Progress: Fitness scores and generation tracking
-System Status: Stasis mode and optimization state
 
 ===================================================================
 
