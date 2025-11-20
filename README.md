@@ -102,5 +102,5 @@ GitHub Issues: [Create a new issue](https://github.com/khamit/cpp_ai_mary/issues
 
 Email: gercules@gmail.com, khamit@combi.kz
 
-Telegram: @lordekz
+Telegram: [@lordekz](https:/t.me/lordekz)
 
