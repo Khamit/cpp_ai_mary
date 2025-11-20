@@ -1,14 +1,14 @@
-### Neural Field Dynamics Simulator v2.0 - "Evolving Intelligence"
+# Neural Field Dynamics Simulator v2.0 - "Evolving Intelligence"
 
 A sophisticated C++ simulation framework for studying neural field dynamics with applications in biomedical research and computational neuroscience.
 
 ![Neural Field Simulation](docs/simulation_preview.png)
 
-# 🧠 Overview
+### 🧠 Overview
 
 A revolutionary C++ simulation framework that implements self-evolving neural field dynamics with real-time code optimization and adaptive learning capabilities. This system represents a significant breakthrough in computational neuroscience by introducing autonomous code evolution based on performance metrics.
 
-# 🎯 What's New in v2.0 - "Evolving Intelligence"
+### 🎯 What's New in v2.0 - "Evolving Intelligence"
 Revolutionary Self-Evolution Capabilities
 The system now features autonomous code evolution that optimizes itself based on three key performance metrics:
 
@@ -18,23 +18,23 @@ The system now features autonomous code evolution that optimizes itself based on
 
 - Energy Score: Tracks energy consumption and optimization
 
-# EvolutionModule - The Brain Behind the Evolution
+### EvolutionModule - The Brain Behind the Evolution
 Real-time Fitness Evaluation: Continuously assesses system performance
 Adaptive Mutation System: Proposes and applies intelligent code modifications
 Automated Backups: Creates versioned backups before each evolution cycle
 Stasis Management: Enters low-power mode during resource constraints
 
-# ResourceMonitor - Intelligent Resource Management
+### ResourceMonitor - Intelligent Resource Management
 Adaptive Thresholds: Self-adjusting CPU (85%) and memory (90%) limits
 Debounce Protection: Prevents false overload triggers
 Performance Scaling: Dynamically adjusts computational intensity
 
-# ImmutableCore - Secure Evolution Foundation
+### ImmutableCore - Secure Evolution Foundation
 Permission System: Controls mutation and optimization requests
 Safety Protocols: Ensures stable evolution cycles
 Rollback Mechanisms: Automatic recovery from failed optimizations
 
-## 🤝 Contributing
+### 🤝 Contributing
 We welcome contributions! Please see our Contributing Guidelines for details.
 
 Branch Structure:
@@ -48,22 +48,22 @@ bugfix/ - Bug fixes
 
 research/ - Experimental research branches
 
-# 📜 License
+### 📜 License
 This project is licensed under the GPL v3 License - see the [GPL v3 License](LICENSE). file for details.
 
 For commercial licensing inquiries, please contact the maintainer.
 
-# 📚 References
+### 📚 References
 Wilson, H. R., & Cowan, J. D. (1972). Excitatory and inhibitory interactions in localized populations of model neurons.
 
 Ermentrout, G. B., & Cowan, J. D. (1979). A mathematical theory of visual hallucination patterns.
 
 Coombes, S. (2005). Waves, bumps, and patterns in neural field theories.
 
-# Contact
+### Contact
 For questions and collaborations:
 
-GitHub Issues: [khamit/cpp_ai_mary#](Create an issue).
+GitHub Issues: [Create a new issue](https://github.com/khamit/cpp_ai_mary/issues/new?title=Bug+report&body=Please+describe+the+bug+steps&labels=bug)
 
 Email: gercules@gmail.com, khamit@combi.kz
 
