@@ -45,8 +45,11 @@ bugfix/ - Bug fixes
 research/ - Experimental research branches
 
 ### History
+
 v1.0: Basic neural field simulation with static modules - in old folder
+
 v2.0: Self-evolving system with autonomous optimization - deleted
+
 v3.0+: External code optimization and AI-enhanced evolution ← You are here
 
 ### Whats new in v3
