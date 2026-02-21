@@ -12,7 +12,8 @@ CMakeFiles/
 cmake_install.cmake
 Makefile
 *.cmake
-
+backups*
+backup_*
 # Compiler outputs
 *.o
 *.obj
