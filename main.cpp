@@ -411,16 +411,18 @@ int main() {
             step++;
         }
 
-        // ВИЗУАЛИЗАЦИЯ
-        window.clear();
-        
-        if (visConfig.enabled && !system_in_stasis) {
-            visualization.updateDynamicRange(neuralSystem);
-            visualization.draw(window, neuralSystem);
-        }
-        
-        ui.draw(window, neuralSystem, statistics, simulation_running && !system_in_stasis, resources, evolution);
-        
+    // ВИЗУАЛИЗАЦИЯ
+    window.clear();
+
+    if (visConfig.enabled && !system_in_stasis) {
+        visualization.updateDynamicRange(neuralSystem);
+        visualization.draw(window, neuralSystem);
+    }
+
+        // Передаем дополнительные параметры в UI
+        ui.draw(window, neuralSystem, statistics, simulation_running && !system_in_stasis, 
+                resources, evolution, memory, step);  // Добавили memory и step
+
         window.display();
     }
 

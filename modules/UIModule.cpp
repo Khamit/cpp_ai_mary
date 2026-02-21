@@ -3,6 +3,7 @@
 #include <sstream>
 #include <iomanip>
 #include <iostream>
+#include "../data/MemoryModule.hpp"
 
 // Apple-like dark UI palette
 static const sf::Color PANEL_BG(30, 32, 34, 180);
@@ -29,7 +30,9 @@ UIModule::UIModule(const UIConfig& config, int windowWidth, int windowHeight)
       evolutionText(font),
       stasisText(font),
       resourceText(font),
-      configText(font)
+      configText(font),
+      debugButtonText(font),
+      debugInfoText(font)
 {
     if (!font.openFromFile("SF-Pro-Display-Regular.otf")) {
         std::cerr << "Failed to load font!\n";
@@ -91,6 +94,32 @@ UIModule::UIModule(const UIConfig& config, int windowWidth, int windowHeight)
     stasisText.setCharacterSize(16);
     stasisText.setFillColor(TEXT_WARNING);
     stasisText.setPosition(sf::Vector2f(startX, 500.0f));
+
+    // ОТЛАДКА!!!
+        // Добавить кнопку Debug в нижней части панели
+    debugButton.setSize(sf::Vector2f(buttonWidth, buttonHeight));
+    debugButton.setPosition(sf::Vector2f(startX, static_cast<float>(windowHeight - bottom_panel_height - 60)));
+    debugButton.setFillColor(sf::Color(70, 70, 80));
+    debugButton.setOutlineColor(sf::Color(120, 120, 130));
+    debugButton.setOutlineThickness(1.0f);
+    
+    debugButtonText.setFont(font);
+    debugButtonText.setString("🔍 Show Debug");
+    debugButtonText.setCharacterSize(16);
+    debugButtonText.setFillColor(sf::Color(200, 200, 220));
+    debugButtonText.setPosition(sf::Vector2f(startX + 20.0f, static_cast<float>(windowHeight - bottom_panel_height - 50)));
+    
+    // Панель отладки (появляется слева)
+    debugPanel.setSize(sf::Vector2f(300.0f, 400.0f));
+    debugPanel.setPosition(sf::Vector2f(10.0f, 10.0f));
+    debugPanel.setFillColor(sf::Color(20, 20, 25, 220));
+    debugPanel.setOutlineColor(sf::Color(100, 100, 150));
+    debugPanel.setOutlineThickness(1.0f);
+    
+    debugInfoText.setFont(font);
+    debugInfoText.setCharacterSize(12);
+    debugInfoText.setFillColor(sf::Color(180, 255, 180)); // Салатовый для отладки
+    debugInfoText.setPosition(sf::Vector2f(20.0f, 20.0f));
     
     // Нижняя панель
     bottomPanel.setSize(sf::Vector2f(static_cast<float>(windowWidth), bottom_panel_height));
@@ -133,6 +162,19 @@ void UIModule::handleMouseClick(const sf::Event::MouseButtonPressed& event, Neur
         static_cast<float>(event.position.y)
     };
 
+        // Проверяем клик по кнопке Debug
+    if (debugButton.getGlobalBounds().contains(mousePos)) {
+        toggleDebug();
+        debugButtonText.setString(show_debug ? "🔍 Hide Debug" : "🔍 Show Debug");
+        std::cout << "Debug panel " << (show_debug ? "shown" : "hidden") << std::endl;
+        return;
+    }
+
+    // Проверяем, что клик не в нижней панели
+    if (mousePos.y > windowHeight - bottom_panel_height) {
+        return;
+    }
+
     // Проверяем, что клик не в нижней панели
     if (mousePos.y > windowHeight - bottom_panel_height) {
         return; // Игнорируем клики в нижней панели
@@ -161,18 +203,28 @@ void UIModule::handleMouseClick(const sf::Event::MouseButtonPressed& event, Neur
 
 void UIModule::draw(sf::RenderWindow& window, const NeuralFieldSystem& system, 
                    const StatisticsModule& stats, bool simulation_running,
-                   const ResourceMonitor& resources, const EvolutionModule& evolution) {
+                   const ResourceMonitor& resources, const EvolutionModule& evolution,
+                   const MemoryController& memory, int step) {
     
     // Рисуем нижнюю панель
     window.draw(bottomPanel);
     drawBottomPanel(window, resources, evolution);
+    
+    // Рисуем кнопку Debug
+    window.draw(debugButton);
+    window.draw(debugButtonText);
+    
+    // Рисуем панель отладки если включена
+    if (show_debug) {
+        drawDebugPanel(window, evolution, memory, step);
+    }
     
     if (!config.show_controls) return;
 
     sf::RectangleShape panel;
     panel.setSize(sf::Vector2f(
         static_cast<float>(config.control_panel_width),
-        static_cast<float>(windowHeight - bottom_panel_height) // Учитываем нижнюю панель
+        static_cast<float>(windowHeight - bottom_panel_height)
     ));
     panel.setPosition(sf::Vector2f(
         static_cast<float>(windowWidth - config.control_panel_width),
@@ -187,6 +239,7 @@ void UIModule::draw(sf::RenderWindow& window, const NeuralFieldSystem& system,
         drawStatistics(window, stats);
     }
 }
+
 
 void UIModule::drawControlPanel(sf::RenderWindow& window, const StatisticsModule& stats, bool simulation_running) {
     
@@ -283,4 +336,40 @@ std::string UIModule::formatDouble(double value, int precision) const {
     std::stringstream ss;
     ss << std::fixed << std::setprecision(precision) << value;
     return ss.str();
+}
+// ДЭБАГ!!!
+void UIModule::drawDebugButton(sf::RenderWindow& window) {
+    window.draw(debugButton);
+    window.draw(debugButtonText);
+}
+
+void UIModule::drawDebugPanel(sf::RenderWindow& window, const EvolutionModule& evolution, 
+                             const MemoryController& memory, int step) {
+    window.draw(debugPanel);
+    
+    const auto& metrics = evolution.getCurrentMetrics();
+    
+    std::stringstream ss;
+    ss << "🔍 DEBUG INFO\n"
+       << "═══════════════\n\n"
+       << "📊 EVOLUTION:\n"
+       << "  Fitness: " << std::fixed << std::setprecision(4) 
+       << metrics.overall_fitness << "\n"
+       << "  Best: " << evolution.getBestFitness() << "\n"
+       << "  Code Score: " << metrics.code_size_score << "\n"
+       << "  Perf Score: " << metrics.performance_score << "\n"
+       << "  Energy Score: " << metrics.energy_score << "\n\n"
+       << "🧠 MEMORY:\n"
+       << "  Records: " << memory.size() << "/5000\n"
+       << "  Feature Dim: 64\n"
+       << "  Decay: 0.995/step\n\n"
+       << "⚙️ SYSTEM:\n"
+       << "  Step: " << step << "\n"
+       << "  Stasis: " << (evolution.isInStasis() ? "YES" : "NO") << "\n"
+       << "  Cooldown: " << evolution.getReductionCooldown() << "s\n"
+       << "  Max Reductions: " << evolution.getMaxReductionsPerMinute() << "/min\n"
+       << "  Min Fitness: " << evolution.getMinFitnessForOptimization();
+    
+    debugInfoText.setString(ss.str());
+    window.draw(debugInfoText);
 }

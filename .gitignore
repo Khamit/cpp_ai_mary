@@ -50,6 +50,7 @@ dump*
 dump/
 backups*
 backup_*
+local/
 
 # Dependencies
 deps/

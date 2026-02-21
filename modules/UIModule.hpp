@@ -8,6 +8,9 @@
 #include "EvolutionModule.hpp"
 #include <string>
 
+// Forward declaration вместо include (чтобы избежать циклических зависимостей)
+class MemoryController;  // Добавлено!
+
 struct UIConfig {
     bool show_controls = true;
     bool show_stats = true;
@@ -23,11 +26,16 @@ public:
     void handleMouseClick(const sf::Event::MouseButtonPressed& event, NeuralFieldSystem& system, 
                         bool& simulation_running, StatisticsModule& stats);
     void draw(sf::RenderWindow& window, const NeuralFieldSystem& system, 
-             const StatisticsModule& stats, bool simulation_running,
-             const ResourceMonitor& resources, const EvolutionModule& evolution);
+            const StatisticsModule& stats, bool simulation_running,
+            const ResourceMonitor& resources, const EvolutionModule& evolution,
+            const MemoryController& memory, int step);  // Добавлено
     
     int getVisualizationWidth() const { return windowWidth - config.control_panel_width; }
     int getVisualizationHeight() const { return windowHeight - bottom_panel_height; }
+    // !!!
+    // Добавить метод для переключения отладки
+    void toggleDebug() { show_debug = !show_debug; }
+    bool isDebugVisible() const { return show_debug; }
 
 private:
     UIConfig config;
@@ -44,4 +52,15 @@ private:
     void drawStatistics(sf::RenderWindow& window, const StatisticsModule& stats);
     void drawBottomPanel(sf::RenderWindow& window, const ResourceMonitor& resources, const EvolutionModule& evolution);
     std::string formatDouble(double value, int precision = 4) const;
+    //!!! Добавить новые поля
+    bool show_debug = false;  // По умолчанию скрыто
+    sf::RectangleShape debugButton;
+    sf::Text debugButtonText;
+    sf::Text debugInfoText;
+    sf::RectangleShape debugPanel;
+    
+    // Новые методы
+    void drawDebugPanel(sf::RenderWindow& window, const EvolutionModule& evolution, 
+                       const MemoryController& memory, int step);
+    void drawDebugButton(sf::RenderWindow& window);
 };

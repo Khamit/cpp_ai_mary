@@ -62,7 +62,9 @@ double NeuralFieldSystem::computeLocalEnergy(int i) const {
 double NeuralFieldSystem::computeTotalEnergy() const {
     double total = 0.0;
     for (int i = 0; i < N; i++) {
-        total += computeLocalEnergy(i);
+        double local = computeLocalEnergy(i);
+        if (local < 0) local = 0;  // Защита от отрицательной энергии?
+        total += local;
     }
     return total / N;
 }

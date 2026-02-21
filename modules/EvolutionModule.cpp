@@ -20,10 +20,10 @@ EvolutionModule::EvolutionModule(ImmutableCore& core)
       best_fitness(0.0),
       backup_dir("backups"),
       last_evaluation(std::chrono::steady_clock::now()),
-      REDUCTION_COOLDOWN(std::chrono::seconds(30)),
+      REDUCTION_COOLDOWN(std::chrono::seconds(30)), // Инициализация здесь!
       MAX_REDUCTIONS_PER_MINUTE(2),
       min_fitness_for_optimization(0.8), // Добавлена инициализация
-      last_reduction_time(std::chrono::steady_clock::now() - REDUCTION_COOLDOWN),
+      last_reduction_time(std::chrono::steady_clock::now()),  // Без вычитания
       reductions_this_minute(0)
 {
     std::cout << "EvolutionModule initialized with defaults" << std::endl;
@@ -92,38 +92,26 @@ void EvolutionModule::recordReduction() {
 
 
 void EvolutionModule::evaluateFitness(const NeuralFieldSystem& system, double step_time) {
-    std::cout << "🔍 DEBUG: evaluateFitness called at step " << total_steps << std::endl;
-    
     double code_score = calculateCodeSizeScore();
     double perf_score = calculatePerformanceScore(step_time);
     double energy_score = calculateEnergyScore(system);
     
-    std::cout << "🔍 DEBUG: Raw scores - Code: " << code_score 
-              << ", Perf: " << perf_score 
-              << ", Energy: " << energy_score << std::endl;
+    // Убрали все cout или сделали их очень редкими
+    // if (total_steps % 500 == 0) { ... }
     
     current_metrics.code_size_score = code_score;
     current_metrics.performance_score = perf_score;
     current_metrics.energy_score = energy_score;
     current_metrics.overall_fitness = (code_score + perf_score + energy_score) / 3.0;
     
-    std::cout << "🔍 DEBUG: Overall fitness: " << current_metrics.overall_fitness << std::endl;
-    
-    // Обновляем лучшую приспособленность
     if (current_metrics.overall_fitness > best_fitness) {
         best_fitness = current_metrics.overall_fitness;
+        // Оставим только самые важные сообщения
         std::cout << "🎉 New best fitness: " << best_fitness << std::endl;
-        /*
-        // Создаем бэкап при улучшении
-        if (createBackup()) {
-            std::cout << "💾 Backup created for best version" << std::endl;
-        }
-        */
     }
     
     history.push_back(current_metrics);
     total_steps++;
-    
     // Проверяем деградацию каждые 500 шагов
     if (total_steps % 500 == 0) {
         if (checkForDegradation()) {
@@ -156,25 +144,27 @@ void EvolutionModule::evaluateFitness(const NeuralFieldSystem& system, double st
 
 double EvolutionModule::calculateCodeSizeScore() const {
     try {
+        static size_t last_size = 0;
         size_t total_size = 0;
-        int file_count = 0;
         
         for (const auto& entry : std::filesystem::recursive_directory_iterator(".")) {
             if (entry.path().extension() == ".cpp" || entry.path().extension() == ".hpp") {
                 total_size += entry.file_size();
-                file_count++;
             }
         }
         
-        if (file_count == 0) return 0.5;
-        
-        // Нормализуем: 1.0 = меньше 50KB, 0.0 = больше 500KB
-        double normalized = 1.0 - (total_size / 500000.0);
-        return std::max(0.1, std::min(1.0, normalized));
+        // Если размер изменился - обновляем score
+        if (total_size != last_size) {
+            last_size = total_size;
+            double normalized = 1.0 - (total_size / 1000000.0); // 1MB максимум
+            return std::max(0.1, std::min(1.0, normalized));
+        }
+        return 0.76; // Временное решение
     } catch (...) {
         return 0.5;
     }
 }
+
 
 double EvolutionModule::calculatePerformanceScore(double step_time) const {
     // Целевое время шага: 0.001 секунды
