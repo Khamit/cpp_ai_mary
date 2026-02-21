@@ -1,38 +1,51 @@
-# Neural Field Dynamics Simulator v2.0 - "Evolving Intelligence"
+# Neural Field System v2.0 - "Evolving Intelligence"
 
-A sophisticated C++ simulation framework for studying neural field dynamics with applications in biomedical research and computational neuroscience.
+A sophisticated C++ simulation framework featuring a self-evolving neural field with **1024 neurons**, adaptive memory management, and real-time code optimization capabilities.
 
 ![Neural Field Simulation](docs/simulation_preview.png)
 
-### 🧠 Overview
+## 🧠 Overview
 
-A revolutionary C++ simulation framework that implements self-evolving neural field dynamics with real-time code optimization and adaptive learning capabilities. This system represents a significant breakthrough in computational neuroscience by introducing autonomous code evolution based on performance metrics.
+A revolutionary C++ simulation framework that implements self-evolving neural field dynamics with real-time code optimization, adaptive memory, and autonomous learning capabilities. The system features a unique **MemoryModule** that stores and retrieves past experiences, enabling true adaptive behavior.
 
-### 🎯 What's New in v2.0 - "Evolving Intelligence"
-Revolutionary Self-Evolution Capabilities
-The system now features autonomous code evolution that optimizes itself based on three key performance metrics:
+## 🎯 Key Features
 
-- Code Efficiency Score: Evaluates code size and complexity
+### 🔬 Core Neural Engine
+- **1024 neurons** (32x32 grid) for complex pattern formation
+- Symplectic integration for energy conservation
+- Real-time field visualization with SFML
+- Configurable physical parameters (mass, coupling, damping)
 
-- Performance Score: Measures computational efficiency and speed
+### 🧠 MemoryModule - Intelligent Experience Storage
+- **Priority-based memory** with automatic cleanup
+- 64-dimensional feature vectors from neural activity
+- Cosine similarity search for relevant past experiences
+- Automatic decay (forgetting) mechanism: `utility *= 0.995`
+- Persistent storage with checkpoint system
+- Memory limits: configurable up to 10,000 records
 
-- Energy Score: Tracks energy consumption and optimization
+### 🔄 EvolutionModule - Self-Optimizing Code
+Real-time fitness evaluation based on three metrics:
+- **Code Efficiency Score**: Evaluates code size and complexity
+- **Performance Score**: Measures computational efficiency
+- **Energy Score**: Tracks system energy consumption
 
-### EvolutionModule - The Brain Behind the Evolution
-Real-time Fitness Evaluation: Continuously assesses system performance
-Adaptive Mutation System: Proposes and applies intelligent code modifications
-Automated Backups: Creates versioned backups before each evolution cycle
-Stasis Management: Enters low-power mode during resource constraints
+Features:
+- Autonomous code mutation proposals
+- Fitness-based evolution triggers (threshold: 0.8)
+- Automatic backup before evolution cycles
+- Stasis mode during resource constraints
 
-### ResourceMonitor - Intelligent Resource Management
-Adaptive Thresholds: Self-adjusting CPU (85%) and memory (90%) limits
-Debounce Protection: Prevents false overload triggers
-Performance Scaling: Dynamically adjusts computational intensity
+### 📊 ResourceMonitor - Intelligent Resource Management
+- Adaptive CPU thresholds (default: 85%)
+- Memory usage tracking (default: 90%)
+- Debounce protection for overload detection
+- Dynamic performance scaling
 
-### ImmutableCore - Secure Evolution Foundation
-Permission System: Controls mutation and optimization requests
-Safety Protocols: Ensures stable evolution cycles
-Rollback Mechanisms: Automatic recovery from failed optimizations
+### 🔒 ImmutableCore - Secure Foundation
+- Permission system for mutations
+- Safety protocols for stable evolution
+- Rollback mechanisms for failed optimizations
 
 ### 🤝 Contributing
 We welcome contributions! Please see our Contributing Guidelines for details.
@@ -48,38 +61,35 @@ research/ - Experimental research branches
 
 v1.0: Basic neural field simulation with static modules - in old folder v0.1
 
-v2.0: Self-evolving system with autonomous optimization ← You are here
+v2.0: Self-evolving system with autonomous optimization ← Bug with memory
 
-v3.0+: External code optimization and AI-enhanced evolution - maybe
+v3.0+: External code optimization MemoryRecord! MemoryController, all saves in "dump/" folder ← You are here!
 
-### Whats new in v3
-### Intelligent Resource Awareness
 
-Adaptive Load Balancing: Automatically adjusts to system capabilities
+## 🚀 Quick Start
 
-Smart Throttling: Prevents excessive evolution cycles
+### Prerequisites
+- macOS with M1 chip (optimized)
+- SFML library
+- C++17 compiler
 
-Context-Aware Optimization: Tailors improvements to current performance
+### Installation
 
-### Evolutionary Metrics System
+```bash
+# Clone repository
+git clone https://github.com/khamit/cpp_ai_mary.git
+cd cpp_ai_mary
 
-Multi-objective Optimization: Balances code size, speed, and energy
+# Install SFML (Homebrew)
+brew install sfml
 
-Degradation Detection: Identifies and rolls back unsuccessful mutations
+# Compile
+make clean
+make
 
-Progressive Improvement: Builds upon successful evolutionary steps
-
-### Current Capabilities
-
-✅ Real-time code optimization
-
-✅ Autonomous performance tuning
-
-✅ Resource-aware evolution
-
-✅ Safe rollback mechanisms
-
-✅ Multi-metric fitness evaluation
+# Run simulation
+make run
+```
 
 ===================================================================
 
@@ -103,4 +113,6 @@ GitHub Issues: [Create a new issue](https://github.com/khamit/cpp_ai_mary/issues
 Email: gercules@gmail.com, khamit@combi.kz
 
 Telegram: [@lordekz](https:/t.me/lordekz)
+
+Built with ❤️ for the M1 Mac | 1024 neurons | Self-evolving code | Priority memory
 
