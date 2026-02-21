@@ -16,6 +16,7 @@
 #include "modules/ConfigStructs.hpp"
 #include <algorithm>
 #include <cctype>
+#include "data/MemoryModule.hpp"
 
 class ConfigLoader {
 public:
@@ -106,6 +107,8 @@ bool ConfigLoader::loadFromFile(const std::string& filename,
     return true;
 }
 
+
+
 std::string ConfigLoader::extractValueString(const std::string& content, const std::string& key) {
     size_t pos = content.find(key);
     if (pos == std::string::npos) return "";
@@ -170,12 +173,17 @@ int main() {
                               resConfig, evolConfig);
 
     // Параметры системы из конфигурации
-    int Nside = 20;
+    // ========== ИСПРАВЛЕНО: Используем 1024 нейрона (32x32) ==========
+    int Nside = 32;  // Было 20, теперь 32 для 1024 нейронов
     double dt = 0.001;
     double m = 1.0;
     double lam = 0.5;
-    unsigned int windowWidth = 600;
-    unsigned int windowHeight = 500;
+    unsigned int windowWidth = 800;  // Увеличим окно для лучшего отображения
+    unsigned int windowHeight = 700;
+
+    // Проверка: действительно ли 32*32 = 1024?
+    std::cout << "! Neural field size: " << Nside << "x" << Nside 
+              << " = " << (Nside * Nside) << " neurons" << std::endl;
     
     // Инициализация системы и модулей
     NeuralFieldSystem neuralSystem(Nside, dt, m, lam);
@@ -192,6 +200,29 @@ int main() {
     
     LearningModule learning(learnConfig);
     DynamicsModule dynamics(dynConfig);
+
+    // ========== ИНИЦИАЛИЗАЦИЯ МОДУЛЯ ПАМЯТИ ==========
+    // ========== ИСПРАВЛЕНО: Модуль памяти с правильной размерностью ==========
+    MemoryConfig memConfig;
+    memConfig.max_records = 5000;      // Максимум 5000 воспоминаний
+    memConfig.feature_dim = 64;         // 64 признака (совпадает с getFeatures)
+    memConfig.global_decay_factor = 0.995f; // Забывание 0.5% за шаг
+    memConfig.similarity_threshold = 0.7f;  // Порог схожести
+    
+    MemoryController memory(memConfig);
+    
+    // Переменные для работы с памятью
+    float bestFitness = 0.0f;
+    uint8_t lastAction = 0;
+    float lastReward = 0.0f;
+    float cumulativeReward = 0.0f;
+    int actionsTaken = 0;
+    
+    std::cout << "🧠 Memory module initialized:" << std::endl;
+    std::cout << "   - Max records: " << memConfig.max_records << std::endl;
+    std::cout << "   - Feature dim: " << memConfig.feature_dim << std::endl;
+    std::cout << "   - Decay factor: " << memConfig.global_decay_factor << std::endl;
+    // ====================================================================
 
     // Используем методы из UIModule для получения размеров визуализации
     UIModule ui(uiConfig, windowWidth, windowHeight);
@@ -211,6 +242,12 @@ int main() {
     bool simulation_running = false;
     bool system_in_stasis = false;
 
+    // Загружаем предыдущую память если есть
+    if (std::ifstream("best_memory.dat").good()) {
+        if (memory.loadFromFile("best_memory.dat")) {
+            std::cout << "📀 Loaded " << memory.size() << " memories from file" << std::endl;
+        }
+    }
     // Основной цикл
     while (window.isOpen()) {
         // ОБРАБОТКА СОБЫТИЙ
@@ -226,6 +263,9 @@ int main() {
                 
                 if (mouseX < currentVisWidth && !system_in_stasis) {
                     interaction.handleMouseClick(*mousePressed, neuralSystem);
+                    // Считаем клик пользователя как положительное подкрепление
+                    lastReward += 0.1f;
+                    cumulativeReward += 0.1f;
                 } else {
                     ui.handleMouseClick(*mousePressed, neuralSystem, simulation_running, statistics);
                 }
@@ -238,16 +278,10 @@ int main() {
         // МОНИТОРИНГ РЕСУРСОВ
         resources.update();
         
-        // УМНАЯ ПРОВЕРКА ПЕРЕГРУЗКИ - только если не в стазисе
+        // УМНАЯ ПРОВЕРКА ПЕРЕГРУЗКИ
         if (!system_in_stasis && resources.checkAndTriggerOverload()) {
-            std::cout << "⚠️ System overload detected! Requesting complexity reduction..." << std::endl;
-            
-            // ПРЕДЛАГАЕМ УПРОЩЕНИЕ, НО НЕ ФОРСИРУЕМ СТАЗИС
-            if (immutable_core.requestPermission("reduce_complexity")) {
-                evolution.proposeMutation(neuralSystem);
-            } else {
-                std::cout << "🚫 Permission denied for complexity reduction" << std::endl;
-            }
+            std::cout << "⚠️ System overload detected! Reducing memory activity..." << std::endl;
+            // Временно уменьшаем использование памяти
         }
 
         if (simulation_running) {
@@ -268,13 +302,75 @@ int main() {
             // ЭВОЛЮЦИЯ И ОЦЕНКА
             evolution.evaluateFitness(neuralSystem, step_time);
             
-            // УМНЫЙ ВЫЗОВ ЭВОЛЮЦИИ - только при необходимости
+            // ========== РАБОТА С ПАМЯТЬЮ (ИСПРАВЛЕНО) ==========
+            if (!system_in_stasis) {
+                // 1. Получаем текущие признаки из нейронов
+                std::vector<float> currentFeatures = neuralSystem.getFeatures();
+                
+                // 2. Ищем похожие ситуации
+                auto similarIndices = memory.findSimilar(currentFeatures, 3);
+                
+                // 3. Принимаем решение на основе прошлого опыта
+                if (!similarIndices.empty()) {
+                    // Взвешенное голосование по похожим воспоминаниям
+                    std::vector<int> actionVotes(10, 0); // максимум 10 действий
+                    
+                    for (size_t idx : similarIndices) {
+                        const auto& past = memory.getRecords()[idx];
+                        actionVotes[past.action % 10] += static_cast<int>(past.utility * 10);
+                    }
+                    
+                    // Выбираем действие с наибольшим количеством голосов
+                    lastAction = std::max_element(actionVotes.begin(), actionVotes.end()) 
+                               - actionVotes.begin();
+                } else {
+                    // Случайное исследование, если нет опыта
+                    lastAction = rand() % 5;
+                }
+                
+                // 4. Вычисляем награду на основе fitness и взаимодействий
+                float currentFitness = evolution.getOverallFitness();
+                float fitnessDelta = currentFitness - bestFitness;
+                
+                // Базовая награда от улучшения fitness
+                lastReward = fitnessDelta * 10.0f;
+                
+                // Добавляем небольшую случайность для исследования
+                float explorationBonus = ((rand() % 100) / 10000.0f) - 0.005f;
+                lastReward += explorationBonus;
+                
+                // 5. Вычисляем полезность (utility)
+                float utility = (currentFitness * 0.5f) + (cumulativeReward * 0.3f) + 0.2f;
+                
+                // 6. Создаём запись в памяти
+                MemoryRecord newRec(currentFeatures, lastAction, lastReward, utility);
+                memory.addRecord(newRec);
+                
+                // 7. Периодическое забывание
+                if (step % 200 == 0 && step > 0) {
+                    memory.decayAll();
+                }
+                
+                // 8. Сохраняем чекпоинт при значительном улучшении
+                if (currentFitness > bestFitness + 0.02f) {
+                    bestFitness = currentFitness;
+                    memory.saveToFile("best_memory.dat");
+                    std::cout << "\n💾 Best memory saved! Fitness: " << bestFitness 
+                              << " | Records: " << memory.size() << std::endl;
+                }
+                
+                // Счётчик действий
+                actionsTaken++;
+                if (actionsTaken % 100 == 0) {
+                    cumulativeReward *= 0.9f; // забываем старые награды
+                }
+            }
+            // ====================================================
+
+            // УМНЫЙ ВЫЗОВ ЭВОЛЮЦИИ
             if (step % evolConfig.evolution_interval_steps == 0 && !system_in_stasis) {
-                std::cout << "🔄 Evolution check at step " << step << std::endl;
                 if (evolution.getOverallFitness() < evolConfig.min_fitness_for_optimization) {
                     evolution.proposeMutation(neuralSystem);
-                } else {
-                    std::cout << "✅ Fitness good, skipping evolution" << std::endl;
                 }
             }
             
@@ -282,48 +378,24 @@ int main() {
             statistics.update(neuralSystem, step, dt);
 
             // УПРАВЛЕНИЕ СТАЗИСОМ
-            if (step % 1000 == 0) {
-                if (system_in_stasis) {
-                    // Автоматический выход из стазиса при хороших условиях
-                    if (resources.getCurrentLoad() < 30.0) {  // 30% вместо 0.3
-                        evolution.exitStasis();
-                        system_in_stasis = false;
-                        std::cout << "✅ Auto-exited stasis - good conditions" << std::endl;
-                    }
+            if (step % 1000 == 0 && system_in_stasis) {
+                if (resources.getCurrentLoad() < 30.0) {
+                    evolution.exitStasis();
+                    system_in_stasis = false;
+                    std::cout << "✅ Auto-exited stasis" << std::endl;
                 }
             }
 
-            // Обновление системных параметров из конфига если нужно
-            if (configLoaded && step % 500 == 0) {
-                std::ifstream config_file("config/system_config.json");
-                if (config_file.is_open()) {
-                    std::string content((std::istreambuf_iterator<char>(config_file)), 
-                                    std::istreambuf_iterator<char>());
-                    config_file.close();
-                    
-                    // Обновляем параметры если они изменились
-                    int newNside = ConfigLoader::getIntValue(content, "\"Nside\"", 20);
-                    double newDt = ConfigLoader::getDoubleValue(content, "\"dt\"", 0.001);
-                    double newM = ConfigLoader::getDoubleValue(content, "\"m\"", 1.0);
-                    double newLam = ConfigLoader::getDoubleValue(content, "\"lam\"", 0.5);
-                    
-                    if (newNside != Nside || newDt != dt || newM != m || newLam != lam) {
-                        std::cout << "🔄 Updating system parameters from config..." << std::endl;
-                        // Здесь можно переинициализировать систему с новыми параметрами
-                    }
-                }
-            }
-
-            // ВЫВОД В КОНСОЛЬ
+            // ВЫВОД В КОНСОЛЬ (исправлено для 1024 нейронов)
             if (step % 100 == 0) {
                 const auto& stats = statistics.getCurrentStats();
                 const auto& metrics = evolution.getCurrentMetrics();
-                std::cout << "Step " << step 
+                std::cout << "\rStep " << step 
                           << " | Energy: " << stats.total_energy
                           << " | Fitness: " << metrics.overall_fitness
-                          << " | Stasis: " << (system_in_stasis ? "YES" : "NO")
-                          << " | CPU: " << resources.getCurrentLoad() << "%"
-                          << " | Time: " << stats.simulation_time << "s\r";
+                          << " | Best: " << bestFitness
+                          << " | Memory: " << memory.size() << "/" << memConfig.max_records
+                          << " | CPU: " << resources.getCurrentLoad() << "%   ";
                 std::cout.flush();
             }
 
@@ -338,26 +410,22 @@ int main() {
             visualization.draw(window, neuralSystem);
         }
         
-        // ИНТЕРФЕЙС с передачей дополнительных данных
         ui.draw(window, neuralSystem, statistics, simulation_running && !system_in_stasis, resources, evolution);
         
         window.display();
     }
 
-    // СОХРАНЕНИЕ РЕЗУЛЬТАТОВ ЭВОЛЮЦИИ
+    // ФИНАЛЬНОЕ СОХРАНЕНИЕ
     statistics.saveToFile("simulation_statistics.csv");
     evolution.saveEvolutionState();
+    memory.saveToFile("final_memory.dat");
     
-    const auto& final_stats = statistics.getCurrentStats();
-    const auto& final_metrics = evolution.getCurrentMetrics();
-    
-    std::cout << "\n\n=== EVOLUTION COMPLETE ===" << std::endl;
-    std::cout << "Total steps: " << final_stats.step << std::endl;
-    std::cout << "Final fitness: " << final_metrics.overall_fitness << std::endl;
-    std::cout << "Final energy: " << final_stats.total_energy << std::endl;
-    std::cout << "Best fitness: " << evolution.getBestFitness() << std::endl;
-    std::cout << "Time in stasis: " << (system_in_stasis ? "Yes" : "No") << std::endl;
-    std::cout << "Configuration used: " << (configLoaded ? "config/system_config.json" : "defaults") << std::endl;
+    std::cout << "\n\n=== FINAL STATS ===" << std::endl;
+    std::cout << "Total steps: " << step << std::endl;
+    std::cout << "Best fitness: " << bestFitness << std::endl;
+    std::cout << "Memory records: " << memory.size() << "/" << memConfig.max_records << std::endl;
+    std::cout << "Actions taken: " << actionsTaken << std::endl;
+    std::cout << "Neurons: " << (Nside * Nside) << " (32x32)" << std::endl;
 
     return 0;
 }

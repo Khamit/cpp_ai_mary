@@ -6,6 +6,12 @@
 
 class NeuralFieldSystem {
 public:
+    // Получить вектор признаков для памяти (размер 64)
+    std::vector<float> getFeatures() const;
+    
+    // Константа для количества нейронов - сделаем 1024 (32x32)
+    static constexpr int DEFAULT_NSIDE = 32; // 32*32 = 1024 нейрона
+    
     // Конструктор и базовая инициализация
     NeuralFieldSystem(int Nside, double dt, double m, double lam);
     

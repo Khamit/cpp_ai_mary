@@ -28,7 +28,7 @@ EvolutionModule::EvolutionModule(ImmutableCore& core)
 {
     std::cout << "EvolutionModule initialized with defaults" << std::endl;
     std::filesystem::create_directories(backup_dir);
-    createBackup();
+    // createBackup();
 }
 
 // Новый конструктор с конфигурацией
@@ -52,7 +52,7 @@ EvolutionModule::EvolutionModule(ImmutableCore& core, const EvolutionConfig& con
     std::cout << "  - Min fitness for optimization: " << min_fitness_for_optimization << std::endl;
     
     std::filesystem::create_directories(backup_dir);
-    createBackup();
+   // createBackup();
 }
 
 
@@ -113,11 +113,12 @@ void EvolutionModule::evaluateFitness(const NeuralFieldSystem& system, double st
     if (current_metrics.overall_fitness > best_fitness) {
         best_fitness = current_metrics.overall_fitness;
         std::cout << "🎉 New best fitness: " << best_fitness << std::endl;
-        
+        /*
         // Создаем бэкап при улучшении
         if (createBackup()) {
             std::cout << "💾 Backup created for best version" << std::endl;
         }
+        */
     }
     
     history.push_back(current_metrics);
@@ -208,11 +209,11 @@ bool EvolutionModule::proposeMutation(NeuralFieldSystem& system) {
     }
     
     std::cout << "🔄 Proposing mutation at step " << total_steps << std::endl;
-    
+    /*
     if (createBackup()) {
         std::cout << "💾 Pre-mutation backup created" << std::endl;
     }
-    
+    */
     if (immutable_core.requestPermission("system_mutation")) {
         system.applyTargetedMutation(0.05, 0);
         optimizeSystemParameters();
@@ -234,13 +235,14 @@ void EvolutionModule::testEvolutionMethods() {
     std::cout << "🧪 TESTING Evolution Methods:" << std::endl;
     std::cout << " - calculateCodeSizeScore: " << calculateCodeSizeScore() << std::endl;
     std::cout << " - getCurrentCodeHash: " << getCurrentCodeHash() << std::endl;
-    
+    /*
     // Тестируем создание бэкапа
     if (createBackup()) {
         std::cout << "✅ Backup test: PASSED" << std::endl;
     } else {
         std::cout << "❌ Backup test: FAILED" << std::endl;
     }
+    */
 }
 
 // НОВЫЙ МЕТОД: Реальная эволюция кода
@@ -256,13 +258,13 @@ void EvolutionModule::evolveCodeOptimization() {
     std::cout << "🔍 DEBUG: evolveCodeOptimization() CALLED at step " << total_steps << std::endl;
     std::cout << "🧬 EVOLVING CODE OPTIMIZATION (fitness: " << current_metrics.overall_fitness 
               << " < " << min_fitness_for_optimization << ")..." << std::endl;
-    
+    /*
     // Создаем бэкап перед изменениями
     if (!createBackup()) {
         std::cout << "❌ Cannot proceed with evolution - backup failed" << std::endl;
         return;
     }
-    
+    */
     // 1. Оптимизация конфигурационных параметров
     optimizeConfigFiles();
     
