@@ -73,7 +73,7 @@ private:
     
     // Методы защиты и бэкапов
     
-    bool createBackup();
+    bool createBackup(); // не создавать бэкап вообще!!!
     bool restoreFromBackup();
     bool checkForDegradation();
     void rollbackToBestVersion();

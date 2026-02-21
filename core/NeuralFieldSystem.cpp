@@ -118,3 +118,29 @@ void NeuralFieldSystem::enterLowPowerMode() {
     }
     std::cout << "Entered low power mode" << std::endl;
 }
+
+// core/NeuralFieldSystem.cpp
+std::vector<float> NeuralFieldSystem::getFeatures() const {
+    std::vector<float> features(64, 0.0f); // 64 признака для памяти
+    
+    // Сжимаем 1024 нейрона в 64 признака через простое усреднение
+    // Каждый признак = среднее по группе из 16 нейронов (1024/64 = 16)
+    const int groupSize = N / 64; // 1024/64 = 16
+    
+    for (int f = 0; f < 64; ++f) {
+        float sumPhi = 0.0f;
+        float sumPi = 0.0f;
+        int startIdx = f * groupSize;
+        int endIdx = std::min(startIdx + groupSize, N);
+        
+        for (int i = startIdx; i < endIdx; ++i) {
+            sumPhi += static_cast<float>(phi[i]);
+            sumPi += static_cast<float>(pi[i]);
+        }
+        
+        int count = endIdx - startIdx;
+        features[f] = (sumPhi / count) * 0.7f + (sumPi / count) * 0.3f;
+    }
+    
+    return features;
+}

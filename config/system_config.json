@@ -62,7 +62,7 @@
         "max_reductions_per_minute": 2,
         "min_fitness_for_optimization": 0.8,
         "evolution_interval_steps": 1000,
-        "backup_on_improvement": true,
+        "backup_on_improvement": false  ,
         "enable_adaptive_mutations": true
     }
 }
