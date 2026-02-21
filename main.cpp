@@ -50,7 +50,7 @@ bool ConfigLoader::loadFromFile(const std::string& filename,
     
     std::ifstream file(filename);
     if (!file.is_open()) {
-        std::cout << "⚠️ Config file not found, using defaults: " << filename << std::endl;
+        std::cout << "! Config file not found, using defaults: " << filename << std::endl;
         return false;
     }
     
@@ -221,7 +221,7 @@ int main() {
     float cumulativeReward = 0.0f;
     int actionsTaken = 0;
     
-    std::cout << "🧠 Memory module initialized:" << std::endl;
+    std::cout << "! Memory module initialized:" << std::endl;
     std::cout << "   - Max records: " << memConfig.max_records << std::endl;
     std::cout << "   - Feature dim: " << memConfig.feature_dim << std::endl;
     std::cout << "   - Decay factor: " << memConfig.global_decay_factor << std::endl;
@@ -248,7 +248,7 @@ int main() {
     // Загружаем предыдущую память если есть
     if (std::ifstream("best_memory.dat").good()) {
         if (memory.loadFromFile("best_memory.dat")) {
-            std::cout << "📀 Loaded " << memory.size() << " memories from file" << std::endl;
+            std::cout << "! Loaded " << memory.size() << " memories from file" << std::endl;
         }
     }
     // Основной цикл
@@ -283,7 +283,7 @@ int main() {
         
         // УМНАЯ ПРОВЕРКА ПЕРЕГРУЗКИ
         if (!system_in_stasis && resources.checkAndTriggerOverload()) {
-            std::cout << "⚠️ System overload detected! Reducing memory activity..." << std::endl;
+            std::cout << " System overload detected! Reducing memory activity..." << std::endl;
             // Временно уменьшаем использование памяти
         }
 
@@ -358,7 +358,7 @@ int main() {
                 if (currentFitness > bestFitness) {
                     bestFitness = currentFitness;
                     memory.saveToFile("dump/best_memory.dat");
-                    std::cout << "\n💾 New best fitness: " << bestFitness 
+                    std::cout << "\n! New best fitness: " << bestFitness 
                               << " | Records: " << memory.size() << std::endl;
                 }
                 
@@ -366,7 +366,7 @@ int main() {
                 if (step % 1000 == 0 && step > 0) {
                     std::string checkpointFile = "dump/memory_checkpoint_" + std::to_string(step) + ".dat";
                     memory.saveToFile(checkpointFile);
-                    std::cout << "\n💾 Checkpoint saved: " << checkpointFile << std::endl;
+                    std::cout << "\n Checkpoint saved: " << checkpointFile << std::endl;
                 }
                 
                 actionsTaken++;
@@ -391,7 +391,7 @@ int main() {
                 if (resources.getCurrentLoad() < 30.0) {
                     evolution.exitStasis();
                     system_in_stasis = false;
-                    std::cout << "✅ Auto-exited stasis" << std::endl;
+                    std::cout << " Auto-exited stasis" << std::endl;
                 }
             }
 
@@ -427,7 +427,7 @@ int main() {
     }
 
     // ФИНАЛЬНОЕ СОХРАНЕНИЕ ВСЕГО В ПАПКУ DUMP
-    std::cout << "\n\n💾 Saving all data to dump/ folder..." << std::endl;
+    std::cout << "\n\n Saving all data to dump/ folder..." << std::endl;
     
     // Сохраняем статистику
     statistics.saveToFile("dump/simulation_statistics.csv");
