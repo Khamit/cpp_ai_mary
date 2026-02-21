@@ -103,7 +103,7 @@ bool ConfigLoader::loadFromFile(const std::string& filename,
     evolConfig.backup_on_improvement = getBoolValue(content, "\"backup_on_improvement\"", true);
     evolConfig.enable_adaptive_mutations = getBoolValue(content, "\"enable_adaptive_mutations\"", true);
     
-    std::cout << "✅ Full configuration loaded from: " << filename << std::endl;
+    std::cout << " Full configuration loaded from: " << filename << std::endl;
     return true;
 }
 
@@ -159,6 +159,9 @@ std::string ConfigLoader::getStringValue(const std::string& content, const std::
 
 
 int main() {
+    // Создаем папку dump если её нет
+    std::filesystem::create_directories("dump");
+    
     // Загрузка полной конфигурации
     LearningConfig learnConfig;
     DynamicsConfig dynConfig;
@@ -351,18 +354,24 @@ int main() {
                     memory.decayAll();
                 }
                 
-                // 8. Сохраняем чекпоинт при значительном улучшении
-                if (currentFitness > bestFitness + 0.02f) {
+                // Сохраняем лучшую память
+                if (currentFitness > bestFitness) {
                     bestFitness = currentFitness;
-                    memory.saveToFile("best_memory.dat");
-                    std::cout << "\n💾 Best memory saved! Fitness: " << bestFitness 
+                    memory.saveToFile("dump/best_memory.dat");
+                    std::cout << "\n💾 New best fitness: " << bestFitness 
                               << " | Records: " << memory.size() << std::endl;
                 }
                 
-                // Счётчик действий
+                // Автосохранение каждые 1000 шагов
+                if (step % 1000 == 0 && step > 0) {
+                    std::string checkpointFile = "dump/memory_checkpoint_" + std::to_string(step) + ".dat";
+                    memory.saveToFile(checkpointFile);
+                    std::cout << "\n💾 Checkpoint saved: " << checkpointFile << std::endl;
+                }
+                
                 actionsTaken++;
                 if (actionsTaken % 100 == 0) {
-                    cumulativeReward *= 0.9f; // забываем старые награды
+                    cumulativeReward *= 0.9f;
                 }
             }
             // ====================================================
@@ -415,17 +424,44 @@ int main() {
         window.display();
     }
 
-    // ФИНАЛЬНОЕ СОХРАНЕНИЕ
-    statistics.saveToFile("simulation_statistics.csv");
-    evolution.saveEvolutionState();
-    memory.saveToFile("final_memory.dat");
+    // ФИНАЛЬНОЕ СОХРАНЕНИЕ ВСЕГО В ПАПКУ DUMP
+    std::cout << "\n\n💾 Saving all data to dump/ folder..." << std::endl;
     
-    std::cout << "\n\n=== FINAL STATS ===" << std::endl;
+    // Сохраняем статистику
+    statistics.saveToFile("dump/simulation_statistics.csv");
+    
+    // Сохраняем состояние эволюции
+    evolution.saveEvolutionState(); // Убедитесь что этот метод сохраняет в dump/
+    
+    // Сохраняем финальную память
+    memory.saveToFile("dump/final_memory.dat");
+    
+    // Сохраняем конфигурацию для истории
+    std::filesystem::copy_file("config/system_config.json", 
+                               "dump/last_config.json", 
+                               std::filesystem::copy_options::overwrite_existing);
+    
+    // Сохраняем метаданные
+    std::ofstream meta("dump/meta.txt");
+    if (meta.is_open()) {
+        meta << "=== SIMULATION METADATA ===\n";
+        meta << "Date: " << __DATE__ << " " << __TIME__ << "\n";
+        meta << "Total steps: " << step << "\n";
+        meta << "Best fitness: " << bestFitness << "\n";
+        meta << "Final memory records: " << memory.size() << "/" << memConfig.max_records << "\n";
+        meta << "Actions taken: " << actionsTaken << "\n";
+        meta << "Neurons: " << (Nside * Nside) << " (" << Nside << "x" << Nside << ")\n";
+        meta << "CPU threshold: " << resConfig.cpu_threshold << "%\n";
+        meta.close();
+    }
+    
+    std::cout << "\n=== FINAL STATS ===" << std::endl;
     std::cout << "Total steps: " << step << std::endl;
     std::cout << "Best fitness: " << bestFitness << std::endl;
     std::cout << "Memory records: " << memory.size() << "/" << memConfig.max_records << std::endl;
     std::cout << "Actions taken: " << actionsTaken << std::endl;
     std::cout << "Neurons: " << (Nside * Nside) << " (32x32)" << std::endl;
+    std::cout << "All data saved to dump/ folder" << std::endl;
 
     return 0;
 }

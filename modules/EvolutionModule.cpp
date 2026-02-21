@@ -631,7 +631,7 @@ bool EvolutionModule::validateImprovement() const {
 
 void EvolutionModule::saveEvolutionState() {
     try {
-        std::ofstream state_file("evolution_state.txt");
+        std::ofstream state_file("dump/evolution_state.txt");
         if (state_file.is_open()) {
             state_file << "Evolution State - Generation: " << total_steps / 1000 << "\n";
             state_file << "Current Fitness: " << current_metrics.overall_fitness << "\n";
@@ -643,6 +643,21 @@ void EvolutionModule::saveEvolutionState() {
             state_file << "Backups available in: " << backup_dir << "\n";
             state_file.close();
         }
+        
+        // Сохраняем историю в CSV
+        std::ofstream history_file("dump/evolution_history.csv");
+        if (history_file.is_open()) {
+            history_file << "step,fitness,code,performance,energy\n";
+            for (size_t i = 0; i < history.size(); ++i) {
+                history_file << i << "," 
+                            << history[i].overall_fitness << ","
+                            << history[i].code_size_score << ","
+                            << history[i].performance_score << ","
+                            << history[i].energy_score << "\n";
+            }
+            history_file.close();
+        }
+        
     } catch (...) {
         std::cout << "⚠️ Failed to save evolution state" << std::endl;
     }

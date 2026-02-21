@@ -12,8 +12,7 @@ CMakeFiles/
 cmake_install.cmake
 Makefile
 *.cmake
-backups*
-backup_*
+
 # Compiler outputs
 *.o
 *.obj
@@ -44,8 +43,13 @@ Thumbs.db
 *.csv
 *.dat
 *.txt
+start.txt
 simulation_statistics.csv
 phi_sfml_dump.csv
+dump*
+dump/
+backups*
+backup_*
 
 # Dependencies
 deps/
