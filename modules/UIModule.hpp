@@ -7,6 +7,8 @@
 #include "ResourceMonitor.hpp"
 #include "EvolutionModule.hpp"
 #include <string>
+// Включить
+#include "lang/LanguageModule.hpp"
 
 // Forward declaration вместо include (чтобы избежать циклических зависимостей)
 class MemoryController;  // Добавлено!
@@ -37,6 +39,17 @@ public:
     void toggleDebug() { show_debug = !show_debug; }
     bool isDebugVisible() const { return show_debug; }
 
+    // вызываю в мэйн по тому должно быть публичным
+    void handleTextEntered(const sf::Event::TextEntered& event);
+    
+    // ИСПРАВЛЕНО: Закрыли метод setLanguageModule правильно
+    void setLanguageModule(LanguageModule* module) {
+        languageModule = module;
+    } // <- Здесь была закрывающая скобка метода
+
+    // ИСПРАВЛЕНО: Добавили новый метод
+    std::string getCurrentInput() const { return currentInput; }
+
 private:
     UIConfig config;
     int windowWidth, windowHeight;
@@ -63,4 +76,27 @@ private:
     void drawDebugPanel(sf::RenderWindow& window, const EvolutionModule& evolution, 
                        const MemoryController& memory, int step);
     void drawDebugButton(sf::RenderWindow& window);
+
+    // === AI CHAT ===
+    LanguageModule* languageModule = nullptr;
+
+    sf::RectangleShape chatPanel;
+    sf::RectangleShape inputBox;
+    sf::RectangleShape sendButton;
+    sf::RectangleShape likeButton;
+    sf::RectangleShape dislikeButton;
+
+    sf::Text inputText;
+    sf::Text chatHistoryText;
+    sf::Text sendText;
+    sf::Text likeText;
+    sf::Text dislikeText;
+
+    std::string currentInput;
+    std::vector<std::string> chatHistory;
+
+    void drawChat(sf::RenderWindow& window);
+    
+    void handleChatClick(sf::Vector2f mousePos);
+    void sendMessage();
 };

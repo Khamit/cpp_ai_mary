@@ -108,7 +108,7 @@ void EvolutionModule::evaluateFitness(const NeuralFieldSystem& system, double st
     if (current_metrics.overall_fitness > best_fitness) {
         best_fitness = current_metrics.overall_fitness;
         // Оставим только самые важные сообщения
-        std::cout << "🎉 New best fitness: " << best_fitness << std::endl;
+        std::cout << ">>> New best fitness: " << best_fitness << std::endl;
     }
     
     history.push_back(current_metrics);
