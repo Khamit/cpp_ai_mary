@@ -104,7 +104,7 @@ UIModule::UIModule(const UIConfig& config, int windowWidth, int windowHeight)
     debugButton.setOutlineThickness(1.0f);
     
     debugButtonText.setFont(font);
-    debugButtonText.setString("🔍 Show Debug");
+    debugButtonText.setString("Show Debug");
     debugButtonText.setCharacterSize(16);
     debugButtonText.setFillColor(sf::Color(200, 200, 220));
     debugButtonText.setPosition(sf::Vector2f(startX + 20.0f, static_cast<float>(windowHeight - bottom_panel_height - 50)));
@@ -350,20 +350,20 @@ void UIModule::drawDebugPanel(sf::RenderWindow& window, const EvolutionModule& e
     const auto& metrics = evolution.getCurrentMetrics();
     
     std::stringstream ss;
-    ss << "🔍 DEBUG INFO\n"
+    ss << "  DEBUG INFO\n"
        << "═══════════════\n\n"
-       << "📊 EVOLUTION:\n"
+       << "  EVOLUTION:\n"
        << "  Fitness: " << std::fixed << std::setprecision(4) 
        << metrics.overall_fitness << "\n"
        << "  Best: " << evolution.getBestFitness() << "\n"
        << "  Code Score: " << metrics.code_size_score << "\n"
        << "  Perf Score: " << metrics.performance_score << "\n"
        << "  Energy Score: " << metrics.energy_score << "\n\n"
-       << "🧠 MEMORY:\n"
+       << "  MEMORY:\n"
        << "  Records: " << memory.size() << "/5000\n"
        << "  Feature Dim: 64\n"
        << "  Decay: 0.995/step\n\n"
-       << "⚙️ SYSTEM:\n"
+       << "  SYSTEM:\n"
        << "  Step: " << step << "\n"
        << "  Stasis: " << (evolution.isInStasis() ? "YES" : "NO") << "\n"
        << "  Cooldown: " << evolution.getReductionCooldown() << "s\n"
