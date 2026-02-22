@@ -1,4 +1,3 @@
-//cpp_ai_test/modules/LearningOptimized.hpp
 #pragma once
 #include "../core/NeuralFieldSystem.hpp"
 

@@ -11,6 +11,10 @@ public:
     
     // Константа для количества нейронов - сделаем 1024 (32x32)
     static constexpr int DEFAULT_NSIDE = 32; // 32*32 = 1024 нейрона
+    // подмножество для языкового модуля
+    static constexpr int LANGUAGE_NEURONS = 200; // количество нейронов для языка
+    static constexpr int LANGUAGE_START = 0;      // начальный индекс
+    static constexpr int LANGUAGE_END = LANGUAGE_NEURONS; // 0-199
     
     // Конструктор и базовая инициализация
     NeuralFieldSystem(int Nside, double dt, double m, double lam);
@@ -41,11 +45,14 @@ public:
     const double m;
     const double lam;
 
-     // Метод для целевой мутации
+    // Метод для целевой мутации
     void applyTargetedMutation(double mutation_strength, int target_type);
     
     // Метод для энергоэффективного режима
     void enterLowPowerMode();
+
+    // Метод для обучения языковых весов (только для выделенного диапазона)
+    void learnLanguageHebbian(int startIdx, int endIdx, double lr, double decay);
 
 private:
     std::vector<double> phi, pi, dH;

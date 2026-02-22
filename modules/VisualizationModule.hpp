@@ -3,6 +3,7 @@
 #include <SFML/Graphics.hpp>
 #include "../core/NeuralFieldSystem.hpp"
 #include <vector>
+#include "lang/LanguageModule.hpp"
 
 struct VisualizationConfig {
     bool enabled = true;
@@ -18,12 +19,18 @@ public:
     
     void draw(sf::RenderWindow& window, const NeuralFieldSystem& system);
     void updateDynamicRange(const NeuralFieldSystem& system);
-
+    // язык
+    void setLanguageModule(LanguageModule* module) {
+        languageModule = module;
+    }
 private:
     VisualizationConfig config;
     const int Nside;
     const float cellSize;
     double min_phi, max_phi;
+
+    LanguageModule* languageModule = nullptr; // - язык
     
     sf::Color getColor(double value) const;
+    
 };

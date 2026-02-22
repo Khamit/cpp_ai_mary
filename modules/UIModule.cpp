@@ -18,7 +18,6 @@ static const sf::Color TEXT_SUCCESS(100, 255, 180);
 static const sf::Color TEXT_INFO(180, 180, 200);
 static const sf::Color TEXT_BOTTOM(245, 245, 245); // белый
 
-
 UIModule::UIModule(const UIConfig& config, int windowWidth, int windowHeight)
     : config(config),
       windowWidth(windowWidth),
@@ -32,11 +31,22 @@ UIModule::UIModule(const UIConfig& config, int windowWidth, int windowHeight)
       resourceText(font),
       configText(font),
       debugButtonText(font),
-      debugInfoText(font)
+      debugInfoText(font),
+      inputText(font),
+      chatHistoryText(font),
+      sendText(font),
+      likeText(font),
+      dislikeText(font)
 {
+    // В конструкторе UIModule добавьте более информативное сообщение
     if (!font.openFromFile("SF-Pro-Display-Regular.otf")) {
-        std::cerr << "Failed to load font!\n";
+        std::cerr << "Failed to load font 'SF-Pro-Display-Regular.otf'!" << std::endl;
+        // Попробуйте загрузить системный шрифт как запасной вариант
+        if (!font.openFromFile("/System/Library/Fonts/Helvetica.ttc")) {
+            std::cerr << "Failed to load fallback font too!" << std::endl;
+        }
     }
+    
     bottom_panel_height = 120.0f; // увеличиваем пространство снизу
     float buttonWidth = 180.0f;
     float buttonHeight = 42.0f;
@@ -139,20 +149,118 @@ UIModule::UIModule(const UIConfig& config, int windowWidth, int windowHeight)
     // Сдвигаем под resourceText, с небольшим левым отступом
     configText.setPosition(sf::Vector2f(200.0f, static_cast<float>(windowHeight - bottom_panel_height + 15)));
 
+    // === CHAT PANEL ===
+    chatPanel.setSize(sf::Vector2f(400.f, 250.f));
+    chatPanel.setPosition(sf::Vector2f(10.f, windowHeight - bottom_panel_height - 260.f));
+    chatPanel.setFillColor(sf::Color(20, 20, 25, 230));
+
+    inputBox.setSize(sf::Vector2f(300.f, 35.f));
+    inputBox.setPosition(sf::Vector2f(20.f, windowHeight - bottom_panel_height - 40.f));
+    inputBox.setFillColor(sf::Color(40,40,45));
+
+    sendButton.setSize(sf::Vector2f(80.f, 35.f));
+    sendButton.setPosition(sf::Vector2f(330.f, windowHeight - bottom_panel_height - 40.f));
+    sendButton.setFillColor(sf::Color(70,70,90));
+
+    likeButton.setSize(sf::Vector2f(40.f, 30.f));
+    likeButton.setPosition(sf::Vector2f(420.f, windowHeight - bottom_panel_height - 90.f));
+    likeButton.setFillColor(sf::Color(60,90,60));
+
+    dislikeButton = likeButton;
+    dislikeButton.setPosition(sf::Vector2f(470.f, windowHeight - bottom_panel_height - 90.f));
+    dislikeButton.setFillColor(sf::Color(120,60,60));
+
+    inputText.setFont(font);
+    inputText.setCharacterSize(16);
+    inputText.setFillColor(TEXT_MAIN);
+    inputText.setPosition(sf::Vector2f(25.f, windowHeight - bottom_panel_height - 35.f));
+
+    chatHistoryText.setFont(font);
+    chatHistoryText.setCharacterSize(14);
+    chatHistoryText.setFillColor(TEXT_INFO);
+    chatHistoryText.setPosition(sf::Vector2f(20.f, windowHeight - bottom_panel_height - 240.f));
+
+    sendText.setFont(font);
+    sendText.setString("Send");
+    sendText.setCharacterSize(14);
+    sendText.setPosition(sf::Vector2f(sendButton.getPosition().x + 15.f,
+                        sendButton.getPosition().y + 8.f));
+
+    likeText.setFont(font);
+    likeText.setString("👍");
+    likeText.setCharacterSize(16);
+    likeText.setPosition(sf::Vector2f(likeButton.getPosition().x + 10.f,
+                        likeButton.getPosition().y + 4.f));
+
+    dislikeText.setFont(font);
+    dislikeText.setString("👎");
+    dislikeText.setCharacterSize(16);
+    dislikeText.setPosition(sf::Vector2f(dislikeButton.getPosition().x + 10.f,
+                            dislikeButton.getPosition().y + 4.f));
+
 }
 
+// modules/UIModule.cpp - исправьте метод handleEvents
 void UIModule::handleEvents(sf::RenderWindow& window, NeuralFieldSystem& system, 
                            bool& simulation_running, StatisticsModule& stats) 
 {
-    if (auto eventOpt = window.pollEvent())
-    {
-        const sf::Event& event = *eventOpt;
+    // Этот метод должен обрабатывать события, которые не были обработаны в main
+    // Но сейчас он пустой и использует pollEvent - это неправильно
+    // Оставляем пустым или удаляем
+}
 
-        if (event.is<sf::Event::Closed>())
-        {
-            window.close();
-        }
+// language modeule type text
+void UIModule::handleTextEntered(const sf::Event::TextEntered& event) {
+    if (event.unicode == 8) { // backspace
+        if (!currentInput.empty())
+            currentInput.pop_back();
     }
+    else if (event.unicode == 13) { // enter
+        sendMessage();
+    }
+    else if (event.unicode < 128) {
+        currentInput += static_cast<char>(event.unicode);
+    }
+
+    inputText.setString(currentInput);
+}
+
+void UIModule::handleChatClick(sf::Vector2f mousePos) {
+
+    if (sendButton.getGlobalBounds().contains(mousePos)) {
+        sendMessage();
+    }
+
+    if (likeButton.getGlobalBounds().contains(mousePos) && languageModule) {
+        languageModule->giveFeedback(1.0f);
+    }
+
+    if (dislikeButton.getGlobalBounds().contains(mousePos) && languageModule) {
+        languageModule->giveFeedback(0.0f);
+    }
+}
+
+void UIModule::sendMessage() {
+
+    if (!languageModule || currentInput.empty())
+        return;
+
+    std::string response = languageModule->process(currentInput);
+
+    chatHistory.push_back("You: " + currentInput);
+    chatHistory.push_back("AI: " + response);
+
+    if (chatHistory.size() > 20)
+        chatHistory.erase(chatHistory.begin(), chatHistory.begin() + 2);
+
+    std::stringstream ss;
+    for (const auto& line : chatHistory)
+        ss << line << "\n";
+
+    chatHistoryText.setString(ss.str());
+
+    currentInput.clear();
+    inputText.setString("");
 }
 
 void UIModule::handleMouseClick(const sf::Event::MouseButtonPressed& event, NeuralFieldSystem& system, 
@@ -161,7 +269,7 @@ void UIModule::handleMouseClick(const sf::Event::MouseButtonPressed& event, Neur
         static_cast<float>(event.position.x),
         static_cast<float>(event.position.y)
     };
-
+    handleChatClick(mousePos);
         // Проверяем клик по кнопке Debug
     if (debugButton.getGlobalBounds().contains(mousePos)) {
         toggleDebug();
@@ -210,6 +318,9 @@ void UIModule::draw(sf::RenderWindow& window, const NeuralFieldSystem& system,
     window.draw(bottomPanel);
     drawBottomPanel(window, resources, evolution);
     
+    //CHAT
+    drawChat(window);
+
     // Рисуем кнопку Debug
     window.draw(debugButton);
     window.draw(debugButtonText);
@@ -239,7 +350,23 @@ void UIModule::draw(sf::RenderWindow& window, const NeuralFieldSystem& system,
         drawStatistics(window, stats);
     }
 }
+void UIModule::drawChat(sf::RenderWindow& window) {
 
+    window.draw(chatPanel);
+
+    window.draw(chatHistoryText);
+
+    window.draw(inputBox);
+    window.draw(inputText);
+
+    window.draw(sendButton);
+    window.draw(sendText);
+
+    window.draw(likeButton);
+    window.draw(dislikeButton);
+    window.draw(likeText);
+    window.draw(dislikeText);
+}
 
 void UIModule::drawControlPanel(sf::RenderWindow& window, const StatisticsModule& stats, bool simulation_running) {
     
@@ -254,7 +381,7 @@ void UIModule::drawControlPanel(sf::RenderWindow& window, const StatisticsModule
     window.draw(startText);
     window.draw(stopText);
     window.draw(resetText);
-    
+    // не понял? sf::Text?
     sf::Text statusText(font);
     statusText.setFont(font);
     statusText.setCharacterSize(16);

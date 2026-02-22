@@ -120,8 +120,21 @@ void NeuralFieldSystem::enterLowPowerMode() {
     }
     std::cout << "Entered low power mode" << std::endl;
 }
+// Языковой модуль
+void NeuralFieldSystem::learnLanguageHebbian(int startIdx, int endIdx, double lr, double decay) {
+    for (int i = startIdx; i < endIdx; ++i) {
+        for (int j = i+1; j < endIdx; ++j) {
+            double update = lr * phi[i] * phi[j];
+            W[i][j] = W[i][j] * decay + update;
+            W[j][i] = W[i][j];
+            // ограничение
+            if (W[i][j] > 0.1) W[i][j] = 0.1;
+            if (W[i][j] < -0.1) W[i][j] = -0.1;
+        }
+    }
+}
 
-// core/NeuralFieldSystem.cpp
+// забыл!
 std::vector<float> NeuralFieldSystem::getFeatures() const {
     std::vector<float> features(64, 0.0f); // 64 признака для памяти
     
