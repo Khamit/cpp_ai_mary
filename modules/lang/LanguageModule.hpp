@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <cctype>
+#include <iostream>  
 #include <algorithm>
 #include "LanguageRules.hpp"
 #include "../../core/NeuralFieldSystem.hpp" 
