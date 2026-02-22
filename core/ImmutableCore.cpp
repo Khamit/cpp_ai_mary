@@ -6,16 +6,16 @@ ImmutableCore::ImmutableCore() {
 }
 
 bool ImmutableCore::requestPermission(const std::string& action) const {
-    std::cout << "🔒 PERMISSION REQUESTED for: " << action << std::endl;
+    std::cout << "! PERMISSION REQUESTED for: " << action << std::endl;
     
     // Автоматически разрешаем безопасные действия для тестирования
     if (action == "exit_stasis" || action == "minimal_mutation") {
-        std::cout << "✅ AUTO-APPROVED: " << action << std::endl;
+        std::cout << "! AUTO-APPROVED: " << action << std::endl;
         return true;
     }
     
     // Для тестирования автоматически разрешаем все
-    std::cout << "✅ AUTO-APPROVED for testing: " << action << std::endl;
+    std::cout << "! AUTO-APPROVED for testing: " << action << std::endl;
     return true;
 }
 

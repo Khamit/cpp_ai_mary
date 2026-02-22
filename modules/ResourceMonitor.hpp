@@ -5,6 +5,12 @@
 
 class ResourceMonitor {
 private:
+    // ДЕБАУНС
+    std::chrono::seconds DEBOUNCE_TIME;
+    int overload_count = 0;
+    int MAX_OVERLOADS_PER_MINUTE;
+
+    /// CHRONO
     std::chrono::steady_clock::time_point last_check;
     std::chrono::steady_clock::time_point last_overload_trigger;
     double cpu_usage = 0.0;
@@ -16,10 +22,7 @@ private:
     double cpu_threshold = 85.0;
     double memory_threshold = 90.0;
     
-    // ДЕБАУНС
-    std::chrono::seconds DEBOUNCE_TIME;
-    int overload_count = 0;
-    int MAX_OVERLOADS_PER_MINUTE;
+
     
 public:
     ResourceMonitor();

@@ -7,7 +7,7 @@ ResourceMonitor::ResourceMonitor()
       MAX_OVERLOADS_PER_MINUTE(2),
       last_check(std::chrono::steady_clock::now()),
       last_overload_trigger(std::chrono::steady_clock::now() - DEBOUNCE_TIME) {
-    std::cout << "✅ ResourceMonitor initialized with default thresholds" << std::endl;
+    std::cout << "ResourceMonitor initialized with default thresholds" << std::endl;
 }
 
 ResourceMonitor::ResourceMonitor(const ResourceMonitorConfig& config)
@@ -17,7 +17,7 @@ ResourceMonitor::ResourceMonitor(const ResourceMonitorConfig& config)
       MAX_OVERLOADS_PER_MINUTE(config.max_overloads_per_minute),
       last_check(std::chrono::steady_clock::now()),
       last_overload_trigger(std::chrono::steady_clock::now() - DEBOUNCE_TIME) {
-    std::cout << "✅ ResourceMonitor initialized with config" << std::endl;
+    std::cout << "ResourceMonitor initialized with config" << std::endl;
 }
 
 void ResourceMonitor::update() {
@@ -33,7 +33,7 @@ void ResourceMonitor::update() {
         updateAdaptiveThresholds();
         
         if (step_counter++ % 30 == 0) {
-            std::cout << "📊 Resource Monitor - CPU: " << cpu_usage 
+            std::cout << "Resource Monitor - CPU: " << cpu_usage 
                       << "%, Memory: " << memory_usage 
                       << "%, Thresholds: " << cpu_threshold << "/" << memory_threshold << "%" << std::endl;
         }
@@ -96,7 +96,7 @@ bool ResourceMonitor::checkAndTriggerOverload() {
     if (overload) {
         last_overload_trigger = current_time;
         overload_count++;
-        std::cout << "⚠️ Overload triggered (count: " << overload_count << "/" << MAX_OVERLOADS_PER_MINUTE << ")" << std::endl;
+        std::cout << "Overload triggered (count: " << overload_count << "/" << MAX_OVERLOADS_PER_MINUTE << ")" << std::endl;
     }
     
     return overload;

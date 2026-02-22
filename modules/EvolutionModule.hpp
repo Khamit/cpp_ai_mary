@@ -20,10 +20,11 @@ private:
     std::string backup_dir;
 
     // ЗАЩИТА ОТ ЧАСТЫХ ВЫЗОВОВ reduce_complexity
-    std::chrono::steady_clock::time_point last_reduction_time;
     std::chrono::seconds REDUCTION_COOLDOWN;
     int reductions_this_minute = 0;
     int MAX_REDUCTIONS_PER_MINUTE;
+    std::chrono::steady_clock::time_point last_reduction_time;
+ 
     
     // НОВАЯ ПЕРЕМЕННАЯ - добавьте эту строку
     double min_fitness_for_optimization;

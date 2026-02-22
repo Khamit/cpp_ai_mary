@@ -85,7 +85,7 @@ void EvolutionModule::recordReduction() {
     last_reduction_time = std::chrono::steady_clock::now();
     reductions_this_minute++;
     
-    std::cout << "📉 Reduction complexity called (" 
+    std::cout << "Reduction complexity called (" 
               << reductions_this_minute << "/" << MAX_REDUCTIONS_PER_MINUTE 
               << " this minute)" << std::endl;
 }
@@ -115,9 +115,9 @@ void EvolutionModule::evaluateFitness(const NeuralFieldSystem& system, double st
     // Проверяем деградацию каждые 500 шагов
     if (total_steps % 500 == 0) {
         if (checkForDegradation()) {
-            std::cout << "⚠️ Performance degradation detected!" << std::endl;
+            std::cout << "Performance degradation detected!" << std::endl;
             if (current_metrics.overall_fitness < best_fitness * 0.7) {
-                std::cout << "🔄 Rolling back to best version..." << std::endl;
+                std::cout << "Rolling back to best version..." << std::endl;
                 rollbackToBestVersion();
             }
         }
@@ -194,14 +194,14 @@ bool EvolutionModule::proposeMutation(NeuralFieldSystem& system) {
     
     // 🔧 ЗАЩИТА ОТ ЧАСТЫХ ВЫЗОВОВ
     if (!canReduceComplexity()) {
-        std::cout << "⏳ Reduction complexity on cooldown, skipping..." << std::endl;
+        std::cout << " Reduction complexity on cooldown, skipping..." << std::endl;
         return false;
     }
     
-    std::cout << "🔄 Proposing mutation at step " << total_steps << std::endl;
+    std::cout << "Proposing mutation at step " << total_steps << std::endl;
     /*
     if (createBackup()) {
-        std::cout << "💾 Pre-mutation backup created" << std::endl;
+        std::cout << "Pre-mutation backup created" << std::endl;
     }
     */
     if (immutable_core.requestPermission("system_mutation")) {
@@ -210,7 +210,7 @@ bool EvolutionModule::proposeMutation(NeuralFieldSystem& system) {
         
         evolveCodeOptimization();
         
-        // 🔧 ЗАПИСЫВАЕМ ВЫЗОВ
+        // ЗАПИСЫВАЕМ ВЫЗОВ
         recordReduction();
         
         return true;
@@ -222,15 +222,15 @@ bool EvolutionModule::proposeMutation(NeuralFieldSystem& system) {
 
 
 void EvolutionModule::testEvolutionMethods() {
-    std::cout << "🧪 TESTING Evolution Methods:" << std::endl;
+    std::cout << "TESTING Evolution Methods:" << std::endl;
     std::cout << " - calculateCodeSizeScore: " << calculateCodeSizeScore() << std::endl;
     std::cout << " - getCurrentCodeHash: " << getCurrentCodeHash() << std::endl;
     /*
     // Тестируем создание бэкапа
     if (createBackup()) {
-        std::cout << "✅ Backup test: PASSED" << std::endl;
+        std::cout << "Backup test: PASSED" << std::endl;
     } else {
-        std::cout << "❌ Backup test: FAILED" << std::endl;
+        std::cout << "Backup test: FAILED" << std::endl;
     }
     */
 }
@@ -240,18 +240,18 @@ void EvolutionModule::testEvolutionMethods() {
 void EvolutionModule::evolveCodeOptimization() {
     // 🔧 ТОЛЬКО ЕСЛИ ФИТНЕС НИЗКИЙ
     if (current_metrics.overall_fitness > min_fitness_for_optimization) {
-        std::cout << "✅ Fitness good (" << current_metrics.overall_fitness 
+        std::cout << "Fitness good (" << current_metrics.overall_fitness 
                   << " > " << min_fitness_for_optimization << "), skipping optimization" << std::endl;
         return;
     }
     
-    std::cout << "🔍 DEBUG: evolveCodeOptimization() CALLED at step " << total_steps << std::endl;
-    std::cout << "🧬 EVOLVING CODE OPTIMIZATION (fitness: " << current_metrics.overall_fitness 
+    std::cout << " DEBUG: evolveCodeOptimization() CALLED at step " << total_steps << std::endl;
+    std::cout << " EVOLVING CODE OPTIMIZATION (fitness: " << current_metrics.overall_fitness 
               << " < " << min_fitness_for_optimization << ")..." << std::endl;
     /*
     // Создаем бэкап перед изменениями
     if (!createBackup()) {
-        std::cout << "❌ Cannot proceed with evolution - backup failed" << std::endl;
+        std::cout << " Cannot proceed with evolution - backup failed" << std::endl;
         return;
     }
     */
@@ -266,7 +266,7 @@ void EvolutionModule::evolveCodeOptimization() {
     
     // Проверяем улучшилась ли ситуация
     if (!validateImprovement()) {
-        std::cout << "⚠️ Evolution didn't improve system, considering rollback..." << std::endl;
+        std::cout << " Evolution didn't improve system, considering rollback..." << std::endl;
     }
 }
 
@@ -286,15 +286,15 @@ void EvolutionModule::optimizeConfigFiles() {
         
         // Простая оптимизация: уменьшаем параметры для экономии ресурсов
         if (content.find("\"learning_rate\": 0.001") != std::string::npos) {
-            std::cout << "📉 Optimizing learning rate..." << std::endl;
+            std::cout << " Optimizing learning rate..." << std::endl;
         }
         
         if (content.find("\"damping_factor\": 0.999") != std::string::npos) {
-            std::cout << "📉 Optimizing damping factor..." << std::endl;
+            std::cout << "Optimizing damping factor..." << std::endl;
         }
         
     } catch (...) {
-        std::cout << "⚠️ Config optimization failed" << std::endl;
+        std::cout << "Config optimization failed" << std::endl;
     }
 }
 
@@ -316,7 +316,7 @@ void EvolutionModule::createOptimalConfig() {
         config_file << "  }\n";
         config_file << "}\n";
         config_file.close();
-        std::cout << "✅ Created optimized config: config/evolved_config.json" << std::endl;
+        std::cout << "Created optimized config: config/evolved_config.json" << std::endl;
     }
 }
 
@@ -352,7 +352,7 @@ void EvolutionModule::generateOptimizedDynamics() {
         dyn_file << "    }\n";
         dyn_file << "};\n";
         dyn_file.close();
-        std::cout << "✅ Generated optimized dynamics module" << std::endl;
+        std::cout << "Generated optimized dynamics module" << std::endl;
     }
 }
 
@@ -380,7 +380,7 @@ void EvolutionModule::generateOptimizedLearning() {
         learn_file << "    }\n";
         learn_file << "};\n";
         learn_file.close();
-        std::cout << "✅ Generated optimized learning module" << std::endl;
+        std::cout << "Generated optimized learning module" << std::endl;
     }
 }
 
@@ -408,17 +408,17 @@ void EvolutionModule::analyzeCodeEfficiency() {
         }
         
     } catch (...) {
-        std::cout << "⚠️ Code analysis failed" << std::endl;
+        std::cout << " Code analysis failed" << std::endl;
     }
 }
 
 void EvolutionModule::optimizeSystemParameters() {
     if (current_metrics.performance_score < 0.8) {
-        std::cout << "⚡ Performance low, optimizing parameters..." << std::endl;
+        std::cout << "Performance low, optimizing parameters..." << std::endl;
     }
     
     if (current_metrics.energy_score < 0.8) {
-        std::cout << "🔋 Energy efficiency low, optimizing..." << std::endl;
+        std::cout << "Energy efficiency low, optimizing..." << std::endl;
     }
 }
 
@@ -426,7 +426,7 @@ void EvolutionModule::applyMinimalMutation(NeuralFieldSystem& system) {
     system.applyTargetedMutation(0.001, 2);
     
     if (total_steps % 2000 == 0) {
-        std::cout << "💤 Stasis mode: minimal code optimization..." << std::endl;
+        std::cout << "Stasis mode: minimal code optimization..." << std::endl;
         createOptimalConfig();
     }
 }
@@ -467,7 +467,7 @@ bool EvolutionModule::createBackup() {
                     }
                 }
             } catch (const std::exception& e) {
-                std::cout << "⚠️ Failed to backup: " << entry.path() << " - " << e.what() << std::endl;
+                std::cout << " Failed to backup: " << entry.path() << " - " << e.what() << std::endl;
             }
         }
         
@@ -481,14 +481,14 @@ bool EvolutionModule::createBackup() {
             meta.close();
         }
         
-        std::cout << "💾 Backup created: " << backup_name << std::endl;
+        std::cout << " Backup created: " << backup_name << std::endl;
         return true;
         
     } catch (const std::exception& e) {
-        std::cout << "❌ Backup creation failed: " << e.what() << std::endl;
+        std::cout << "Backup creation failed: " << e.what() << std::endl;
         return false;
     } catch (...) {
-        std::cout << "❌ Backup creation failed with unknown error" << std::endl;
+        std::cout << " Backup creation failed with unknown error" << std::endl;
         return false;
     }
 }
@@ -512,7 +512,7 @@ bool EvolutionModule::restoreFromBackup() {
         }
         
         if (latest_backup.empty()) {
-            std::cout << "❌ No backups found to restore" << std::endl;
+            std::cout << "No backups found to restore" << std::endl;
             return false;
         }
         
@@ -534,14 +534,14 @@ bool EvolutionModule::restoreFromBackup() {
             }
         }
         
-        std::cout << "🔄 System restored from backup: " << latest_backup << std::endl;
+        std::cout << "System restored from backup: " << latest_backup << std::endl;
         return true;
         
     } catch (const std::exception& e) {
-        std::cout << "❌ Backup restoration failed: " << e.what() << std::endl;
+        std::cout << "Backup restoration failed: " << e.what() << std::endl;
         return false;
     } catch (...) {
-        std::cout << "❌ Backup restoration failed with unknown error" << std::endl;
+        std::cout << "Backup restoration failed with unknown error" << std::endl;
         return false;
     }
 }
@@ -574,15 +574,15 @@ bool EvolutionModule::checkForDegradation() {
 }
 
 void EvolutionModule::rollbackToBestVersion() {
-    std::cout << "🔄 Attempting to rollback to best version..." << std::endl;
+    std::cout << "Attempting to rollback to best version..." << std::endl;
     
     if (restoreFromBackup()) {
         // Сбрасываем метрики после отката
         best_fitness = 0.0;
         current_metrics = EvolutionMetrics();
-        std::cout << "✅ Rollback completed successfully" << std::endl;
+        std::cout << "Rollback completed successfully" << std::endl;
     } else {
-        std::cout << "❌ Rollback failed" << std::endl;
+        std::cout << "Rollback failed" << std::endl;
     }
 }
 
@@ -649,20 +649,20 @@ void EvolutionModule::saveEvolutionState() {
         }
         
     } catch (...) {
-        std::cout << "⚠️ Failed to save evolution state" << std::endl;
+        std::cout << "Failed to save evolution state" << std::endl;
     }
 }
 
 void EvolutionModule::enterStasis(NeuralFieldSystem& system) {
     in_stasis = true;
     system.enterLowPowerMode();
-    std::cout << "💤 SYSTEM ENTERED STASIS MODE" << std::endl;
+    std::cout << "! SYSTEM ENTERED STASIS MODE" << std::endl;
     saveEvolutionState();
 }
 
 void EvolutionModule::exitStasis() {
     in_stasis = false;
-    std::cout << "⚡ SYSTEM EXITED STASIS MODE" << std::endl;
+    std::cout << "! SYSTEM EXITED STASIS MODE" << std::endl;
 }
 
 bool EvolutionModule::isInStasis() const {
