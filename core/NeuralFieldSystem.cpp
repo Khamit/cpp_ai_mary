@@ -2,7 +2,8 @@
 #include "NeuralFieldSystem.hpp"
 #include <cmath>
 #include <iostream>
-
+// need some fix - the part neurons for outside from other modules - she need write code
+//TODO: use words for learning
 NeuralFieldSystem::NeuralFieldSystem(int Nside, double dt, double m, double lam)
     : Nside(Nside), N(Nside * Nside), dt(dt), m(m), lam(lam),
       phi(N), pi(N, 0.0), dH(N, 0.0), W(N, std::vector<double>(N, 0.0)) {}
