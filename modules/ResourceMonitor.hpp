@@ -22,8 +22,6 @@ private:
     double cpu_threshold = 85.0;
     double memory_threshold = 90.0;
     
-
-    
 public:
     ResourceMonitor();
     ResourceMonitor(const ResourceMonitorConfig& config);

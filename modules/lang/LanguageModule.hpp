@@ -1,76 +1,68 @@
+// modules/lang/LanguageModule.hpp
 #pragma once
+
 #include <string>
 #include <vector>
 #include <cctype>
-#include <iostream>  
+#include <iostream>
 #include <algorithm>
-#include "LanguageRules.hpp"
-#include "../../core/NeuralFieldSystem.hpp" 
+#include <random>
+#include <cmath>
+#include <fstream>
+#include <unordered_map>
+#include <set>
+#include <map>
+#include "../../core/NeuralFieldSystem.hpp"
+
+// Структура для хранения выученного слова
+struct LearnedWord {
+    std::string word;
+    float frequency;                 // как часто используется
+    float correctness;                // насколько правильное (0-1)
+    std::vector<float> neural_pattern; // паттерн в нейронах
+    int times_rated;                   // сколько раз оценивали
+    float letter_probabilities[26];    // вероятности букв для этого слова
+};
 
 class LanguageModule {
 public:
-    explicit LanguageModule(NeuralFieldSystem& system) : system_(system) {}
-
-std::string process(const std::string& input) {
-    std::cout << "LanguageModule::process called with: '" << input << "'" << std::endl;
-    
-    last_input_ = input;
-
-    std::string response = LanguageRules::handleQuestion(input);
-    
-    std::cout << "LanguageRules response: '" << response << "'" << std::endl;
-
-    encodeToNeuralField(response);
-
-    return response;
-}
-
-    void giveFeedback(float rating) {
-        auto response = decodeFromNeuralField();
-
-        LanguageRules::updateRule(last_input_, response, rating);
-
-        storeSuccessfulPair(last_input_, response, rating);
-    }
+    explicit LanguageModule(NeuralFieldSystem& system);
+    std::string process(const std::string& input);
+    void normalizeBigrams();
+    void saveBigrams();
+    void loadBigrams();
+    void giveFeedback(float rating);
 
 private:
     NeuralFieldSystem& system_;
+    std::mt19937 rng_;
+    std::uniform_int_distribution<> word_length_dist_;
+    std::uniform_int_distribution<> letter_dist_;
+    std::vector<char> alphabet_;
+    float base_letter_probs_[26];
+
     std::string last_input_;
+    std::unordered_map<std::string, LearnedWord> learned_words_;
+    std::vector<std::string> word_history_;
 
-    void encodeToNeuralField(const std::string& text) {
-        auto& phi = system_.getPhi();
+    float bigram_matrix_[26][26];
 
-        std::fill(phi.begin(), phi.end(), 0.0);
-
-        size_t limit = std::min(text.size(), phi.size());
-        for (size_t i = 0; i < limit; ++i) {
-            phi[i] = static_cast<double>(
-                static_cast<unsigned char>(text[i])
-            ) / 255.0;
-        }
-    }
-
-    std::string decodeFromNeuralField() {
-        const auto& phi = system_.getPhi();
-        std::string result;
-
-        for (size_t i = 0; i < phi.size() && result.size() < 256; ++i) {
-            if (phi[i] > 0.01) {
-                char c = static_cast<char>(
-                    std::clamp(phi[i], 0.0, 1.0) * 255
-                );
-                if (std::isprint(static_cast<unsigned char>(c)))
-                    result += c;
-            }
-        }
-        return result;
-    }
-
-    void storeSuccessfulPair(const std::string& input,
-                             const std::string& output,
-                             float rating) {
-        // Можно интегрировать MemoryController здесь
-        // Например:
-        // memory_.store(input, output, rating);
-    }
+    void initializeEnglishBigrams();
+    std::string generateWordFromNeurons();
+    void enhanceNeuralPattern(const std::string& word);
+    void weakenWordPattern(const std::string& word);
+    void updateLetterProbabilities(const std::string& word, float rating);
+    void saveProbabilities();
+    void learnFromFeedback(const std::string& word, float rating);
+    void saveWord(const std::string& word, float rating);
+    void saveLearnedWords();
+    void saveNeuralPatterns();
+    void loadLearnedWords();
+    void loadProbabilities();
+    void loadNeuralPatterns();
+    std::string getWordMeaning(const std::string& word);
+    std::string getStats();
+    std::string getRandomResponse();
+    std::string decodeLastWord();
+    void encodeToNeuralField(const std::string& text);
 };

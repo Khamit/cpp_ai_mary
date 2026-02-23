@@ -3,6 +3,8 @@
 #include <vector>
 #include <random>
 #include <string>
+#include <deque>
+#include <cstddef> 
 
 class NeuralFieldSystem {
 public:
@@ -15,6 +17,11 @@ public:
     static constexpr int LANGUAGE_NEURONS = 200; // количество нейронов для языка
     static constexpr int LANGUAGE_START = 0;      // начальный индекс
     static constexpr int LANGUAGE_END = LANGUAGE_NEURONS; // 0-199
+    // reflection
+    static constexpr int REFLECTION_START = 800;
+    static constexpr int REFLECTION_END = 860;     // 60 нейронов для рефлексии
+    static constexpr int METACOGNITION_START = 860;
+    static constexpr int METACOGNITION_END = 1024; // 164 нейрона для метапознания
     
     // Конструктор и базовая инициализация
     NeuralFieldSystem(int Nside, double dt, double m, double lam);
@@ -45,6 +52,24 @@ public:
     const double m;
     const double lam;
 
+    // Новые структуры для саморефлексии
+    struct ReflectionState {
+        double confidence;           // уверенность в текущем состоянии
+        double curiosity;            // стремление к исследованию
+        double satisfaction;          // удовлетворенность результатом
+        double confusion;             // степень непонимания
+        std::vector<double> attention_map; // на что сейчас смотрит
+    };
+
+    // Новые методы
+    ReflectionState getReflectionState() const; // MAIN METHOD!
+    void reflect();                    // основной цикл рефлексии
+    void setGoal(const std::string& goal); // поставить цель
+    bool evaluateProgress();            // оценить прогресс к цели
+    
+    // Метод для мета-обучения
+    void learnFromReflection(float outcome);
+
     // Метод для целевой мутации
     void applyTargetedMutation(double mutation_strength, int target_type);
     
@@ -61,4 +86,19 @@ private:
     // Вспомогательные методы ядра
     double computeLocalEnergy(int i) const;
     void computeDerivatives();
+
+    // История состояний для рефлексии
+    std::deque<std::vector<double>> state_history;
+    std::deque<double> energy_history;
+    static constexpr int HISTORY_SIZE = 100;
+    
+    // Текущая цель
+    std::string current_goal;
+    std::vector<double> goal_embedding;
+    
+    // Внутренние методы рефлексии
+    double computeSelfAttention(int neuron_idx);
+    double predictNextState(int neuron_idx);
+    void updateBeliefs();
+    bool detectAnomaly(); // обнаружение аномалий в собственном поведении
 };

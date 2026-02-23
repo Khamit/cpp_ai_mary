@@ -13,6 +13,11 @@
 // Forward declaration вместо include (чтобы избежать циклических зависимостей)
 class MemoryController;  // Добавлено!
 
+   struct ChatMessage {
+    std::string text;
+    bool isUser;
+    };
+
 struct UIConfig {
     bool show_controls = true;
     bool show_stats = true;
@@ -33,7 +38,12 @@ public:
             const MemoryController& memory, int step);  // Добавлено
     
     int getVisualizationWidth() const { return windowWidth - config.control_panel_width; }
-    int getVisualizationHeight() const { return windowHeight - bottom_panel_height; }
+    
+    int getVisualizationHeight() const {
+        return windowHeight 
+            - static_cast<int>(chatAreaHeight)
+            - bottom_panel_height;
+    }
     // !!!
     // Добавить метод для переключения отладки
     void toggleDebug() { show_debug = !show_debug; }
@@ -50,7 +60,25 @@ public:
     // ИСПРАВЛЕНО: Добавили новый метод
     std::string getCurrentInput() const { return currentInput; }
 
+    // Добавить метод для установки ссылки на нейросистему
+    void setNeuralSystem(NeuralFieldSystem* system) {
+        neural_system = system;
+    }
+
+      void drawReflectionPanel(sf::RenderWindow& window); // убрали UIModule::
+
+      // Скроллинг
+    void handleMouseWheel(const sf::Event::MouseWheelScrolled& event);
+
 private:
+    // Добавить поле
+    NeuralFieldSystem* neural_system = nullptr;
+
+    // Вспомогательные методы для рисования
+    void drawMeter(sf::RenderWindow& window, const std::string& label, float value, float x, float y);
+    void drawBar(sf::RenderWindow& window, const std::string& label, float value, float x, float y);
+    // =================================================
+
     UIConfig config;
     int windowWidth, windowHeight;
     int bottom_panel_height = 100; // Новая нижняя панель
@@ -93,10 +121,21 @@ private:
     sf::Text dislikeText;
 
     std::string currentInput;
-    std::vector<std::string> chatHistory;
+    std::vector<ChatMessage> chatHistory;
+    // высота чата
+    float chatAreaHeight = 300.f;  // теперь управляемо
+
+    // Сролл
+    float chatScrollOffset = 0.f;
+    float chatContentHeight = 0.f;
+    bool stickToBottom = true;
 
     void drawChat(sf::RenderWindow& window);
-    
     void handleChatClick(sf::Vector2f mousePos);
     void sendMessage();
+
+    // chat btn effect
+    bool likePressed = false;
+    bool dislikePressed = false;
+    sf::Clock feedbackClock; // для таймера сброса подсветки
 };
