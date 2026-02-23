@@ -97,7 +97,7 @@ bool ResourceMonitor::checkAndTriggerOverload() {
     if (overload) {
         last_overload_trigger = current_time;
         overload_count++;
-        std::cout << "Overload triggered (count: " << overload_count << "/" << MAX_OVERLOADS_PER_MINUTE << ")" << std::endl;
+        std::cout << "Overload triggered ! (count: " << overload_count << "/" << MAX_OVERLOADS_PER_MINUTE << ")" << std::endl;
     }
     
     return overload;

@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cctype>
 #include "data/MemoryModule.hpp"
+#include "modules/MetaCognitiveModule.hpp"
 
 class ConfigLoader {
 public:
@@ -159,7 +160,7 @@ std::string ConfigLoader::getStringValue(const std::string& content, const std::
 
 
 int main() {
-    // Создаем папку dump если её нет
+    // Создаем папку dump если её нет/ create dump folder if not
     std::filesystem::create_directories("dump");
     
     // Загрузка полной конфигурации
@@ -176,8 +177,8 @@ int main() {
                               resConfig, evolConfig);
 
     // Параметры системы из конфигурации
-    // ========== ИСПРАВЛЕНО: Используем 1024 нейрона (32x32) ==========
-    int Nside = 32;  // Было 20, теперь 32 для 1024 нейронов
+    // ========== FIXED: Now we use 1024 neurons (32x32) ==========
+    int Nside = 32;  // Before 20, Now is 32 for 1024 neurons
     double dt = 0.001;
     double m = 1.0;
     double lam = 0.5;
@@ -190,6 +191,7 @@ int main() {
     
     // Инициализация системы и модулей
     NeuralFieldSystem neuralSystem(Nside, dt, m, lam);
+    MetaCognitiveModule metacog(neuralSystem);
     
     std::mt19937 rng(42);
     neuralSystem.initializeRandom(rng, 0.1, 0.02);
@@ -235,6 +237,7 @@ int main() {
     ui.setLanguageModule(&language);
     int visWidth = ui.getVisualizationWidth();
     int visHeight = ui.getVisualizationHeight();
+    ui.setNeuralSystem(&neuralSystem);
     
     VisualizationModule visualization(visConfig, Nside, visWidth, visHeight);
     InteractionModule interaction(interConfig, Nside, visWidth / float(Nside));
@@ -242,7 +245,7 @@ int main() {
 
     // Создание окна
     sf::RenderWindow window(sf::VideoMode({windowWidth, windowHeight}), 
-                           "Advanced Neural Field System with Evolution");
+                           "Advanced Neural Field System - MaryAI");
 
     // Переменные симуляции
     int step = 0;
@@ -264,17 +267,16 @@ int main() {
             if (event.is<sf::Event::Closed>()) {
                 window.close();
             }
-            else if (const auto* textEntered = event.getIf<sf::Event::TextEntered>()) {
-                // ВСЕГДА обрабатываем текстовый ввод
-                ui.handleTextEntered(*textEntered);
-                std::cout << "Text entered: " << static_cast<char>(textEntered->unicode) 
-                          << " (current input: '" << ui.getCurrentInput() << "')" << std::endl;
+
+            else if (const auto* mouseWheel = event.getIf<sf::Event::MouseWheelScrolled>()) {
+                ui.handleMouseWheel(*mouseWheel);
             }
+
             else if (const auto* mousePressed = event.getIf<sf::Event::MouseButtonPressed>()) {
-                // Сначала обрабатываем UI
+                // Сначала обрабатываем UI (здесь уже есть return в нужных местах)
                 ui.handleMouseClick(*mousePressed, neuralSystem, simulation_running, statistics);
                 
-                // Потом проверяем визуализацию
+                // Потом проверяем визуализацию ТОЛЬКО если клик не был обработан UI
                 int mouseX = mousePressed->position.x;
                 int currentVisWidth = ui.getVisualizationWidth();
                 
@@ -283,6 +285,13 @@ int main() {
                     lastReward += 0.1f;
                     cumulativeReward += 0.1f;
                 }
+            }
+
+            else if (const auto* textEntered = event.getIf<sf::Event::TextEntered>()) {
+                // ВСЕГДА обрабатываем текстовый ввод
+                ui.handleTextEntered(*textEntered);
+                std::cout << "Text entered: " << static_cast<char>(textEntered->unicode) 
+                          << " (current input: '" << ui.getCurrentInput() << "')" << std::endl;
             }
         }
 
@@ -306,6 +315,25 @@ int main() {
                 
             if (learnConfig.enabled && !system_in_stasis)
                 learning.applyLearning(neuralSystem);
+
+            // Каждые 100 шагов - саморефлексия
+            if (step % 100 == 0) {
+                neuralSystem.reflect();
+                metacog.think();
+                
+                // Проверяем прогресс к цели
+                if (neuralSystem.evaluateProgress()) {
+                    std::cout << " Goal achieved!" << std::endl;
+                }
+            }
+            
+            // Каждые 1000 шагов - мета-обучение
+            if (step % 1000 == 0 && step > 0) {
+                float outcome = neuralSystem.getReflectionState().satisfaction;
+                neuralSystem.learnFromReflection(outcome);
+            }
+            
+            step++;
 
             auto end_time = std::chrono::high_resolution_clock::now();
             double step_time = std::chrono::duration<double>(end_time - start_time).count();
