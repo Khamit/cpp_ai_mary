@@ -1,3 +1,4 @@
+/*
 //cpp_ai_test/modules/LearningModule.cpp
 #include "LearningModule.hpp"
 #include <cmath>
@@ -47,3 +48,5 @@ void LearningModule::applyOjaLearning(NeuralFieldSystem& system) {
         }
     }
 }
+
+*/

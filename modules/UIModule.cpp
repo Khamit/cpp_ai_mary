@@ -392,7 +392,7 @@ void UIModule::handleMouseClick(const sf::Event::MouseButtonPressed& event, Neur
         stats.reset();
         
         std::mt19937 rng(42);
-        system.initializeRandom(rng, 0.1, 0.02);
+        system.initializeRandom(rng);
         std::cout << "System RESET" << std::endl;
         return;
     }
@@ -787,10 +787,10 @@ void UIModule::drawStatistics(sf::RenderWindow& window, const StatisticsModule& 
     std::stringstream ss;
     ss << "Statistics:\n\n"
        << "Step: " << current.step << "\n"
-       << "Time: " << formatDouble(current.simulation_time) << "s\n"
+       << "Time: " << formatDouble(current.dt) << "s\n"
        << "Energy: " << formatDouble(current.total_energy) << "\n"
        << "Avg Phi: " << formatDouble(current.avg_phi) << "\n"
-       << "State: " << current.state << "\n"
+       << "State/AVG_Pi: " << current.avg_pi << "\n"
        << "History: " << stats.getHistory().size() << " records";
     
     statsText.setString(ss.str());

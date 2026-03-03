@@ -95,10 +95,7 @@ void EvolutionModule::recordReduction() {
 void EvolutionModule::evaluateFitness(const NeuralFieldSystem& system, double step_time) {
     double code_score = calculateCodeSizeScore();
     double perf_score = calculatePerformanceScore(step_time);
-    double energy_score = calculateEnergyScore(system);
-    
-    // Убрали все cout или сделали их очень редкими
-    // if (total_steps % 500 == 0) { ... }
+    double energy_score = calculateEnergyScore(system);  // ИСПРАВЛЕНО: передаем system
     
     current_metrics.code_size_score = code_score;
     current_metrics.performance_score = perf_score;
@@ -107,13 +104,12 @@ void EvolutionModule::evaluateFitness(const NeuralFieldSystem& system, double st
     
     if (current_metrics.overall_fitness > best_fitness) {
         best_fitness = current_metrics.overall_fitness;
-        // Оставим только самые важные сообщения
         std::cout << ">>> New best fitness: " << best_fitness << std::endl;
     }
     
     history.push_back(current_metrics);
     total_steps++;
-    // Проверяем деградацию каждые 500 шагов
+    
     if (total_steps % 500 == 0) {
         if (checkForDegradation()) {
             std::cout << "Performance degradation detected!" << std::endl;
@@ -124,12 +120,10 @@ void EvolutionModule::evaluateFitness(const NeuralFieldSystem& system, double st
         }
     }
     
-    // ЭВОЛЮЦИЯ КОДА каждые 1000 шагов
     if (total_steps % 1000 == 0 && !in_stasis) {
         evolveCodeOptimization();
     }
     
-    // Вывод отладочной информации каждые 500 шагов
     if (total_steps % 500 == 0) {
         std::cout << "Evolution Metrics - "
                   << "Code: " << current_metrics.code_size_score

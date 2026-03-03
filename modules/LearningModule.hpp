@@ -1,4 +1,3 @@
-//cpp_ai_test/modules/LearningModule.hpp
 #pragma once
 #include "../core/NeuralFieldSystem.hpp"
 #include <string>
@@ -16,13 +15,21 @@ class LearningModule {
 public:
     LearningModule(const LearningConfig& config) : config(config) {}
     
-    // Этот метод тоже принимает НЕконстантную ссылку
-    void applyLearning(NeuralFieldSystem& system);
+    void applyLearning(NeuralFieldSystem& system) {
+        if (!config.enabled) return;
+        
+        if (config.rule == "hebbian") {
+            applyHebbianLearning(system);
+        }
+    }
+    
     void setConfig(const LearningConfig& newConfig) { config = newConfig; }
 
 private:
     LearningConfig config;
     
-    void applyHebbianLearning(NeuralFieldSystem& system);
-    void applyOjaLearning(NeuralFieldSystem& system);
+    void applyHebbianLearning(NeuralFieldSystem& system) {
+        // В новой архитектуре обучение идет через межгрупповые связи
+        // Для простоты пока пропускаем
+    }
 };

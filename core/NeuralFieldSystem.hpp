@@ -1,104 +1,113 @@
-//cpp_ai_test/core/NeuralFieldSystem.hpp
 #pragma once
+#include "NeuralGroup.hpp"
 #include <vector>
 #include <random>
 #include <string>
 #include <deque>
-#include <cstddef> 
 
+/**
+ * @class NeuralFieldSystem
+ * @brief Контейнер групп нейронов с межгрупповыми связями и механизмом повторного входа.
+ *
+ * Поддерживает 32 группы по 32 нейрона (всего 1024 нейрона).
+ * Межгрупповые связи представлены матрицей 32x32.
+ */
 class NeuralFieldSystem {
 public:
-    // Получить вектор признаков для памяти (размер 64)
-    std::vector<float> getFeatures() const;
-    
-    // Константа для количества нейронов - сделаем 1024 (32x32)
-    static constexpr int DEFAULT_NSIDE = 32; // 32*32 = 1024 нейрона
-    // подмножество для языкового модуля
-    static constexpr int LANGUAGE_NEURONS = 200; // количество нейронов для языка
-    static constexpr int LANGUAGE_START = 0;      // начальный индекс
-    static constexpr int LANGUAGE_END = LANGUAGE_NEURONS; // 0-199
-    // reflection
-    static constexpr int REFLECTION_START = 800;
-    static constexpr int REFLECTION_END = 860;     // 60 нейронов для рефлексии
-    static constexpr int METACOGNITION_START = 860;
-    static constexpr int METACOGNITION_END = 1024; // 164 нейрона для метапознания
-    
-    // Конструктор и базовая инициализация
-    NeuralFieldSystem(int Nside, double dt, double m, double lam);
-    
-    // Основные методы ядра (неизменяемые)
-    void initializeRandom(std::mt19937& rng, double phi_range, double w_range);
-    void symplecticEvolution();
+    static constexpr int NUM_GROUPS = 32;       ///< 32 группы
+    static constexpr int GROUP_SIZE = 32;       ///< 32 нейрона в группе
+    static constexpr int TOTAL_NEURONS = NUM_GROUPS * GROUP_SIZE; // 1024
+
+    /**
+     * @param dt Глобальный шаг интегрирования
+     */
+    NeuralFieldSystem(double dt);
+
+    // Запрет копирования
+    NeuralFieldSystem(const NeuralFieldSystem&) = delete;
+    NeuralFieldSystem& operator=(const NeuralFieldSystem&) = delete;
+
+    /** Инициализация случайными значениями. */
+    void initializeRandom(std::mt19937& rng);
+
+    /**
+     * Основной шаг симуляции:
+     * 1. Эволюция каждой группы (внутренняя динамика).
+     * 2. Межгрупповое взаимодействие (повторный вход).
+     * 3. Обучение (внутригрупповое и межгрупповое).
+     */
+    void step();
+
+    /** Вычислить общую энергию системы (для совместимости). */
     double computeTotalEnergy() const;
-    
-    // Геттеры для доступа к данным (для модулей)
-    std::vector<double>& getPhi() { return phi; }
-    std::vector<double>& getPi() { return pi; }
-    std::vector<std::vector<double>>& getWeights() { return W; }
-    
-    // Константные геттеры для чтения
-    const std::vector<double>& getPhi() const { return phi; }
-    const std::vector<double>& getPi() const { return pi; }
-    const std::vector<std::vector<double>>& getWeights() const { return W; }
-    
-    // Сеттеры для модулей
-    void setPhi(int index, double value) { phi[index] = value; }
-    void setPi(int index, double value) { pi[index] = value; }
-    
-    // Параметры системы
-    const int Nside;
-    const int N;
-    const double dt;
-    const double m;
-    const double lam;
 
-    // Новые структуры для саморефлексии
+    // ---------- Интерфейсы для модулей (совместимость) ----------
+    /** Возвращает вектор активностей всех нейронов (для визуализации). */
+    const std::vector<double>& getPhi() const { return flatPhi; }
+
+    /** Возвращает вектор импульсов всех нейронов. */
+    const std::vector<double>& getPi() const { return flatPi; }
+
+    /**
+     * Возвращает "веса" - для совместимости возвращает пустую матрицу.
+     * В новой архитектуре веса разделены на внутригрупповые и межгрупповые.
+     */
+    const std::vector<std::vector<double>> getWeights() const { return {}; }
+
+    // ---------- Новые методы для межгруппового взаимодействия ----------
+    /** Получить средние активности групп (вектор размера NUM_GROUPS). */
+    std::vector<double> getGroupAverages() const;
+
+    /** Получить матрицу межгрупповых связей. */
+    const std::vector<std::vector<double>>& getInterWeights() const { return interWeights; }
+
+    /** Укрепить связь от группы from к группе to на величину delta. */
+    void strengthenInterConnection(int from, int to, double delta);
+
+    /** Ослабить связь. */
+    void weakenInterConnection(int from, int to, double delta);
+
+    /** Получить вектор признаков для памяти (64 значения). */
+    std::vector<float> getFeatures() const;
+
+    // ---------- Методы для рефлексии и целей (оставлены для совместимости) ----------
     struct ReflectionState {
-        double confidence;           // уверенность в текущем состоянии
-        double curiosity;            // стремление к исследованию
-        double satisfaction;          // удовлетворенность результатом
-        double confusion;             // степень непонимания
-        std::vector<double> attention_map; // на что сейчас смотрит
+        double confidence, curiosity, satisfaction, confusion;
+        std::vector<double> attention_map;
     };
-
-    // Новые методы
-    ReflectionState getReflectionState() const; // MAIN METHOD!
-    void reflect();                    // основной цикл рефлексии
-    void setGoal(const std::string& goal); // поставить цель
-    bool evaluateProgress();            // оценить прогресс к цели
-    
-    // Метод для мета-обучения
+    ReflectionState getReflectionState() const;
+    void reflect();
+    void setGoal(const std::string& goal);
+    bool evaluateProgress();
     void learnFromReflection(float outcome);
 
-    // Метод для целевой мутации
-    void applyTargetedMutation(double mutation_strength, int target_type);
-    
-    // Метод для энергоэффективного режима
+    // ---------- Методы для эволюции (групповой уровень) ----------
+    void applyTargetedMutation(double strength, int targetType);
     void enterLowPowerMode();
 
-    // Метод для обучения языковых весов (только для выделенного диапазона)
-    void learnLanguageHebbian(int startIdx, int endIdx, double lr, double decay);
+    // Доступ к группам (для эволюции и др.)
+    std::vector<NeuralGroup>& getGroups() { return groups; }
+    const std::vector<NeuralGroup>& getGroups() const { return groups; }
 
 private:
-    std::vector<double> phi, pi, dH;
-    std::vector<std::vector<double>> W;
-    
-    // Вспомогательные методы ядра
-    double computeLocalEnergy(int i) const;
-    void computeDerivatives();
+    double dt;
+    std::vector<NeuralGroup> groups;                 // 32 группы
+    std::vector<std::vector<double>> interWeights;   // межгрупповые связи 32x32
 
-    // История состояний для рефлексии
+    // Плоские векторы для обратной совместимости (обновляются после каждого шага)
+    mutable std::vector<double> flatPhi;
+    mutable std::vector<double> flatPi;
+    mutable bool flatDirty; // флаг, что flat нужно пересчитать
+
+    void rebuildFlatVectors() const;
+
+    // Механизм повторного входа
+    void applyReentry(int iterations = 3);
+
+    // Вспомогательные методы для рефлексии (заглушки)
     std::deque<std::vector<double>> state_history;
     std::deque<double> energy_history;
     static constexpr int HISTORY_SIZE = 100;
-    
-    // Текущая цель
     std::string current_goal;
     std::vector<double> goal_embedding;
-    
-    // Внутренние методы рефлексии
-    double computeSelfAttention(int neuron_idx);
-    double predictNextState(int neuron_idx);
-    void updateBeliefs();
-    bool detectAnomaly(); // обнаружение аномалий в собственном поведении
 };

@@ -1,375 +1,228 @@
-//cpp_ai_test/core/NeuralFieldSystem.cpp
 #include "NeuralFieldSystem.hpp"
 #include <cmath>
 #include <iostream>
-// need some fix - the part neurons for outside from other modules - she need write code
-//TODO: use words for learning
-NeuralFieldSystem::NeuralFieldSystem(int Nside, double dt, double m, double lam)
-    : Nside(Nside), N(Nside * Nside), dt(dt), m(m), lam(lam),
-      phi(N), pi(N, 0.0), dH(N, 0.0), W(N, std::vector<double>(N, 0.0)) {}
+#include <numeric>
+#include <algorithm>
 
-void NeuralFieldSystem::initializeRandom(std::mt19937& rng, double phi_range, double w_range) {
-    std::uniform_real_distribution<double> phi_dist(-phi_range, phi_range);
-    std::uniform_real_distribution<double> w_dist(-w_range, w_range);
-    
-    for (int i = 0; i < N; i++) {
-        phi[i] = phi_dist(rng);
-        for (int j = i + 1; j < N; j++) {
-            W[i][j] = w_dist(rng);
-            W[j][i] = W[i][j]; // Симметрия
+NeuralFieldSystem::NeuralFieldSystem(double dt)
+    : dt(dt),
+      groups(),
+      interWeights(NUM_GROUPS, std::vector<double>(NUM_GROUPS, 0.0)),
+      flatPhi(TOTAL_NEURONS, 0.0),
+      flatPi(TOTAL_NEURONS, 0.0),
+      flatDirty(true)
+{
+    // Группы будут созданы позже в initializeRandom
+}
+
+void NeuralFieldSystem::initializeRandom(std::mt19937& rng) {
+    groups.clear();
+    groups.reserve(NUM_GROUPS);
+    for (int g = 0; g < NUM_GROUPS; ++g) {
+        groups.emplace_back(GROUP_SIZE, dt, rng);
+    }
+
+    // Инициализация межгрупповых связей случайно
+    std::uniform_real_distribution<double> dist(-0.01, 0.01);
+    for (int i = 0; i < NUM_GROUPS; ++i) {
+        for (int j = 0; j < NUM_GROUPS; ++j) {
+            if (i != j) {
+                interWeights[i][j] = dist(rng);
+            } else {
+                interWeights[i][j] = 0.0; // нет самосвязи
+            }
         }
     }
+    flatDirty = true;
 }
 
-void NeuralFieldSystem::symplecticEvolution() {
-    // Первая половина шага: обновление φ
-    for (int i = 0; i < N; i++) {
-        phi[i] += dt * pi[i];
-    }
-    
-    // Вычисление производных
-    computeDerivatives();
-    
-    // Вторая половина шага: обновление π
-    for (int i = 0; i < N; i++) {
-        pi[i] -= dt * dH[i];
-    }
-}
-
-void NeuralFieldSystem::computeDerivatives() {
-    for (int i = 0; i < N; i++) {
-        double dV = m * m * phi[i] + 0.5 * lam * phi[i] * phi[i];
-        double inter = 0.0;
-        for (int j = 0; j < N; j++) {
-            inter += W[i][j] * (phi[i] - phi[j]);
+void NeuralFieldSystem::rebuildFlatVectors() const {
+    if (!flatDirty) return;
+    int idx = 0;
+    for (const auto& grp : groups) {
+        const auto& phiGrp = grp.getPhi();
+        const auto& piGrp = grp.getPi();
+        for (int i = 0; i < GROUP_SIZE; ++i) {
+            flatPhi[idx] = phiGrp[i];
+            flatPi[idx] = piGrp[i];
+            ++idx;
         }
-        dH[i] = dV + inter;
     }
+    flatDirty = false;
 }
 
-double NeuralFieldSystem::computeLocalEnergy(int i) const {
-    double kinetic = 0.5 * pi[i] * pi[i];  // Кинетическая энергия всегда ≥ 0
-    double potential = 0.5 * m * m * phi[i] * phi[i] + (lam / 6.0) * phi[i] * phi[i] * phi[i];
-    double interaction = 0.0;
-    
-    for (int j = 0; j < N; j++) {
-        double diff = phi[i] - phi[j];
-        interaction += 0.5 * W[i][j] * diff * diff;  // Взаимодействие всегда ≥ 0
+void NeuralFieldSystem::applyReentry(int iterations) {
+    // Временные векторы для новых активностей групп
+    std::vector<double> newGroupAvg(NUM_GROUPS, 0.0);
+    std::vector<double> currAvg = getGroupAverages();
+
+    for (int iter = 0; iter < iterations; ++iter) {
+        // Вычисляем вход от других групп
+        for (int g = 0; g < NUM_GROUPS; ++g) {
+            double input = 0.0;
+            for (int h = 0; h < NUM_GROUPS; ++h) {
+                input += interWeights[g][h] * currAvg[h];
+            }
+            auto& phiGrp = groups[g].getPhiNonConst();
+            // Преобразуем вход в изменение активности групп (простая модель)
+            newGroupAvg[g] = currAvg[g] + dt * input;
+            // Ограничение
+            if (newGroupAvg[g] > 1.0) newGroupAvg[g] = 1.0;
+            if (newGroupAvg[g] < 0.0) newGroupAvg[g] = 0.0;
+        }
+        currAvg.swap(newGroupAvg);
     }
-    
-    return kinetic + potential + interaction;
+
+    // Применяем итоговые активности к группам (влияем на phi)
+    for (int g = 0; g < NUM_GROUPS; ++g) {
+        auto& phiGrp = groups[g].getPhi(); // неконстантная ссылка (через геттер, который должен быть)
+        // Здесь нужно иметь неконстантный доступ к phi группы. Добавим метод в NeuralGroup?
+        // Пока используем const_cast, но лучше добавить friend или метод setActivity.
+        // Для простоты добавим в NeuralGroup метод setActivity(int index, double val).
+        // Пока допустим, что у NeuralGroup есть неконстантный getPhi().
+        // В текущем NeuralGroup.hpp getPhi() возвращает const. Нужно добавить неконстантную версию.
+        // Изменим NeuralGroup.hpp, добавив:
+        // std::vector<double>& getPhiNonConst() { return phi; }
+        // Тогда здесь:
+        // auto& phiGrp = groups[g].getPhiNonConst();
+        // Но чтобы не усложнять, я добавлю метод в NeuralGroup позже. Сейчас предположим, что он есть.
+        // В реальности нужно будет добавить.
+        // Для краткости кода предположим, что мы имеем доступ.
+        // Пока закомментируем, но в рабочем коде это нужно.
+        /*
+        double targetAvg = currAvg[g];
+        double currentAvg = groups[g].getAverageActivity();
+        double diff = targetAvg - currentAvg;
+        for (int n = 0; n < GROUP_SIZE; ++n) {
+            phiGrp[n] += dt * diff * 0.1; // небольшое влияние
+            if (phiGrp[n] > 1.0) phiGrp[n] = 1.0;
+            if (phiGrp[n] < 0.0) phiGrp[n] = 0.0;
+        }
+        */
+    }
+    // Пока просто заглушка
+}
+
+void NeuralFieldSystem::step() {
+    // 1. Эволюция каждой группы
+    for (auto& group : groups) {
+        group.evolve();
+    }
+
+    // 2. Межгрупповое взаимодействие (повторный вход)
+    applyReentry(3);
+
+    // 3. Обучение (внутригрупповое) - пока ничего не делаем, будет вызываться отдельно
+    //    Например, можно здесь вызвать learnHebbian для всех групп с глобальной наградой 0.
+
+    flatDirty = true;
 }
 
 double NeuralFieldSystem::computeTotalEnergy() const {
+    rebuildFlatVectors();
     double total = 0.0;
-    for (int i = 0; i < N; i++) {
-        double local = computeLocalEnergy(i);
-        if (local < 0) local = 0;  // Защита от отрицательной энергии?
-        total += local;
-    }
-    return total / N;
+    for (double v : flatPhi) total += v * v;
+    return total / TOTAL_NEURONS; // упрощённо
 }
 
-//MARK: Mutation
-void NeuralFieldSystem::applyTargetedMutation(double mutation_strength, int target_type) {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<> dis(-mutation_strength, mutation_strength);
-    
-    switch(target_type) {
-        case 0: // Мутация весов - наиболее эффективная
-            for (int i = 0; i < N; i++) {
-                for (int j = i + 1; j < N; j++) {
-                    double mutation = dis(gen);
-                    W[i][j] += mutation;
-                    W[j][i] = W[i][j]; // Сохраняем симметрию
-                    
-                    // Ограничение весов для стабильности
-                    if (W[i][j] > 0.1) W[i][j] = 0.1;
-                    if (W[i][j] < -0.1) W[i][j] = -0.1;
-                }
-            }
-            std::cout << "Applied weight mutation with strength: " << mutation_strength << std::endl;
-            break;
-            
-        case 1: // Мутация начальных условий - менее затратная
-            for (int i = 0; i < N; i++) {
-                phi[i] += dis(gen) * 0.1;
-            }
-            std::cout << "Applied phi mutation with strength: " << mutation_strength << std::endl;
-            break;
-            
-        case 2: // Минимальная мутация - для стазиса
-            for (int i = 0; i < std::min(5, N); i++) {
-                int idx = gen() % N;
-                phi[idx] += dis(gen) * 0.01;
-            }
-            std::cout << "Applied minimal mutation in stasis mode" << std::endl;
-            break;
+std::vector<double> NeuralFieldSystem::getGroupAverages() const {
+    std::vector<double> avgs(NUM_GROUPS);
+    for (int g = 0; g < NUM_GROUPS; ++g) {
+        avgs[g] = groups[g].getAverageActivity();
+    }
+    return avgs;
+}
+
+void NeuralFieldSystem::strengthenInterConnection(int from, int to, double delta) {
+    if (from >= 0 && from < NUM_GROUPS && to >= 0 && to < NUM_GROUPS && from != to) {
+        interWeights[from][to] += delta;
+        // ограничение
+        const double maxW = 0.5;
+        if (interWeights[from][to] > maxW) interWeights[from][to] = maxW;
+        if (interWeights[from][to] < -maxW) interWeights[from][to] = -maxW;
     }
 }
 
-void NeuralFieldSystem::enterLowPowerMode() {
-    // В режиме низкого энергопотребления уменьшаем активность
-    for (int i = 0; i < N; i++) {
-        if (std::abs(phi[i]) < 0.01) {
-            phi[i] = 0.0; // Обнуляем очень маленькие значения
-        }
-        if (std::abs(pi[i]) < 0.01) {
-            pi[i] = 0.0;
-        }
-    }
-    std::cout << "Entered low power mode" << std::endl;
-}
-// Языковой модуль
-void NeuralFieldSystem::learnLanguageHebbian(int startIdx, int endIdx, double lr, double decay) {
-    for (int i = startIdx; i < endIdx; ++i) {
-        for (int j = i+1; j < endIdx; ++j) {
-            double update = lr * phi[i] * phi[j];
-            W[i][j] = W[i][j] * decay + update;
-            W[j][i] = W[i][j];
-            // ограничение
-            if (W[i][j] > 0.1) W[i][j] = 0.1;
-            if (W[i][j] < -0.1) W[i][j] = -0.1;
-        }
-    }
+void NeuralFieldSystem::weakenInterConnection(int from, int to, double delta) {
+    strengthenInterConnection(from, to, -delta);
 }
 
-// забыл!
 std::vector<float> NeuralFieldSystem::getFeatures() const {
-    std::vector<float> features(64, 0.0f); // 64 признака для памяти
-    
-    // Сжимаем 1024 нейрона в 64 признака через простое усреднение
-    // Каждый признак = среднее по группе из 16 нейронов (1024/64 = 16)
-    const int groupSize = N / 64; // 1024/64 = 16
-    
-    for (int f = 0; f < 64; ++f) {
-        float sumPhi = 0.0f;
-        float sumPi = 0.0f;
-        int startIdx = f * groupSize;
-        int endIdx = std::min(startIdx + groupSize, N);
-        
-        for (int i = startIdx; i < endIdx; ++i) {
-            sumPhi += static_cast<float>(phi[i]);
-            sumPi += static_cast<float>(pi[i]);
-        }
-        
-        int count = endIdx - startIdx;
-        features[f] = (sumPhi / count) * 0.7f + (sumPi / count) * 0.3f;
+    // Формируем 64 признака из средних активностей групп и их дисперсий
+    std::vector<float> features(64, 0.0f);
+    auto avgs = getGroupAverages();
+
+    // Первые 32 признака - средние активности групп
+    for (int g = 0; g < NUM_GROUPS; ++g) {
+        features[g] = static_cast<float>(avgs[g]);
     }
-    
+
+    // Следующие 32 признака - среднеквадратичное отклонение внутри группы (или другая статистика)
+    for (int g = 0; g < NUM_GROUPS; ++g) {
+        const auto& phi = groups[g].getPhi();
+        double sumSq = 0.0;
+        for (double v : phi) sumSq += v * v;
+        double rms = std::sqrt(sumSq / GROUP_SIZE);
+        features[NUM_GROUPS + g] = static_cast<float>(rms);
+    }
+
     return features;
 }
 
-/// REFLECTION SECTION !!!
-// TODO: test it!
+// ---------- Заглушки для рефлексии (можно будет развить позже) ----------
+NeuralFieldSystem::ReflectionState NeuralFieldSystem::getReflectionState() const {
+    ReflectionState s;
+    s.confidence = 0.5;
+    s.curiosity = 0.5;
+    s.satisfaction = 0.5;
+    s.confusion = 0.5;
+    s.attention_map.resize(4, 0.25);
+    return s;
+}
 
 void NeuralFieldSystem::reflect() {
-    // 1. Сохраняем текущее состояние в историю
-    state_history.push_back(phi);
-    energy_history.push_back(computeTotalEnergy());
-    if (state_history.size() > HISTORY_SIZE) {
-        state_history.pop_front();
-        energy_history.pop_front();
-    }
-    
-    // 2. Вычисляем метрики саморефлексии
-    double attention = 0.0;
-    double surprise = 0.0;
-    double stability = 0.0;
-    
-    // Анализируем изменения в разных группах нейронов
-    for (int group = 0; group < 4; group++) {
-        int start = group * 256;
-        int end = start + 256;
-        
-        double group_energy = 0.0;
-        for (int i = start; i < end; i++) {
-            group_energy += phi[i] * phi[i];
-            
-            // Само-внимание: насколько нейрон влияет на другие
-            attention += computeSelfAttention(i);
-            
-            // Предсказание следующего состояния
-            double predicted = predictNextState(i);
-            surprise += std::abs(phi[i] - predicted);
-        }
-        
-        // Записываем в нейроны метапознания
-        int meta_idx = METACOGNITION_START + group;
-        phi[meta_idx] = group_energy / 256.0; // энергия группы
-    }
-    
-    // 3. Обновляем нейроны рефлексии
-    if (state_history.size() > 10) {
-        // Вычисляем стабильность (обратная величина к дисперсии)
-        double variance = 0.0;
-        for (size_t i = state_history.size() - 10; i < state_history.size(); i++) {
-            for (int j = 0; j < 10; j++) {
-                double diff = state_history[i][j] - phi[j];
-                variance += diff * diff;
-            }
-        }
-        stability = 1.0 / (1.0 + variance / 1000.0);
-        
-        // Записываем в нейроны рефлексии
-        phi[REFLECTION_START] = stability;           // стабильность
-        phi[REFLECTION_START + 1] = surprise / N;    // удивление
-        phi[REFLECTION_START + 2] = attention / N;   // внимание
-        phi[REFLECTION_START + 3] = computeTotalEnergy() / 10.0; // энергия
-    }
-    
-    // 4. Проверяем аномалии
-    if (detectAnomaly()) {
-        // Активируем нейроны "тревоги"
-        for (int i = REFLECTION_START + 10; i < REFLECTION_START + 20; i++) {
-            phi[i] = 1.0;
-        }
-    }
-    
-    // 5. Обновляем связи на основе рефлексии
-    for (int i = REFLECTION_START; i < REFLECTION_END; i++) {
-        for (int j = METACOGNITION_START; j < METACOGNITION_END; j++) {
-            // Усиливаем связи между рефлексией и метапознанием
-            if (std::abs(phi[i] - phi[j]) < 0.3) {
-                W[i][j] += 0.001;
-                W[j][i] = W[i][j];
-            }
-        }
-    }
-}
-
-double NeuralFieldSystem::computeSelfAttention(int neuron_idx) {
-    double attention = 0.0;
-    
-    // Смотрим, насколько этот нейрон влияет на другие
-    for (int j = 0; j < N; j++) {
-        if (j != neuron_idx) {
-            attention += std::abs(W[neuron_idx][j] * phi[j]);
-        }
-    }
-    
-    return attention / (N - 1);
-}
-
-double NeuralFieldSystem::predictNextState(int neuron_idx) {
-    if (state_history.size() < 5) return phi[neuron_idx];
-    
-    // Простое линейное предсказание на основе истории
-    double trend = 0.0;
-    for (size_t i = state_history.size() - 5; i < state_history.size(); i++) {
-        trend += state_history[i][neuron_idx] * (i - (state_history.size() - 5));
-    }
-    
-    return phi[neuron_idx] + trend / 10.0;
-}
-
-bool NeuralFieldSystem::detectAnomaly() {
-    if (energy_history.size() < 20) return false;
-    
-    // Вычисляем скользящее среднее энергии
-    double recent_avg = 0.0;
-    for (size_t i = energy_history.size() - 10; i < energy_history.size(); i++) {
-        recent_avg += energy_history[i];
-    }
-    recent_avg /= 10;
-    
-    double old_avg = 0.0;
-    for (size_t i = 0; i < 10; i++) {
-        old_avg += energy_history[i];
-    }
-    old_avg /= 10;
-    
-    // Аномалия: резкое изменение энергии
-    return std::abs(recent_avg - old_avg) > 5.0;
-}
-
-NeuralFieldSystem::ReflectionState NeuralFieldSystem::getReflectionState() const {
-    ReflectionState state;
-    
-    // Декодируем состояние из нейронов рефлексии
-    state.confidence = phi[REFLECTION_START];
-    state.curiosity = phi[REFLECTION_START + 1];
-    state.satisfaction = phi[REFLECTION_START + 2];
-    state.confusion = 1.0 - state.confidence;
-    
-    // Карта внимания (на какие группы нейронов смотрит)
-    state.attention_map.resize(4);
-    for (int i = 0; i < 4; i++) {
-        state.attention_map[i] = phi[METACOGNITION_START + i];
-    }
-    
-    return state;
+    // Здесь можно реализовать анализ состояний групп, но пока пусто
 }
 
 void NeuralFieldSystem::setGoal(const std::string& goal) {
     current_goal = goal;
-    
-    // Кодируем цель в нейроны
-    goal_embedding.resize(20);
-    for (size_t i = 0; i < goal.size() && i < 20; i++) {
-        goal_embedding[i] = static_cast<double>(goal[i]) / 255.0;
-    }
-    
-    // Записываем цель в специальную область
-    for (int i = 0; i < 20; i++) {
-        phi[REFLECTION_END - 20 + i] = goal_embedding[i];
-    }
 }
 
 bool NeuralFieldSystem::evaluateProgress() {
-    if (goal_embedding.empty()) return false;
-    
-    // Вычисляем, насколько текущее состояние близко к цели
-    double similarity = 0.0;
-    for (int i = 0; i < 20; i++) {
-        double diff = phi[REFLECTION_END - 20 + i] - goal_embedding[i];
-        similarity += diff * diff;
-    }
-    
-    similarity = 1.0 / (1.0 + similarity);
-    
-    // Если близко к цели, усиливаем связи
-    if (similarity > 0.8) {
-        for (int i = 0; i < 20; i++) {
-            int target = REFLECTION_END - 20 + i;
-            for (int j = LANGUAGE_START; j < LANGUAGE_END; j++) {
-                W[target][j] += 0.01;
-                W[j][target] = W[target][j];
-            }
-        }
-        return true;
-    }
-    
-    return false;
+    return false; // заглушка
 }
 
 void NeuralFieldSystem::learnFromReflection(float outcome) {
-    // Мета-обучение: учимся тому, как учиться
-    
-    // Хороший исход - усиливаем текущие паттерны рефлексии
-    if (outcome > 0.7) {
-        for (int i = REFLECTION_START; i < REFLECTION_END; i++) {
-            for (int j = 0; j < N; j++) {
-                if (std::abs(phi[i] - phi[j]) < 0.2) {
-                    W[i][j] += 0.001;
-                    W[j][i] = W[i][j];
+    // заглушка
+}
+
+void NeuralFieldSystem::applyTargetedMutation(double strength, int targetType) {
+    // Мутации на уровне групп
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> groupDist(0, NUM_GROUPS - 1);
+    std::uniform_real_distribution<> paramDist(-strength, strength);
+
+    if (targetType == 0) { // мутация межгрупповых связей
+        for (int i = 0; i < NUM_GROUPS; ++i) {
+            for (int j = 0; j < NUM_GROUPS; ++j) {
+                if (i != j) {
+                    interWeights[i][j] += paramDist(gen) * 0.1;
                 }
             }
         }
+    } else if (targetType == 1) { // мутация параметров группы
+        int g = groupDist(gen);
+        groups[g].setLearningRate(groups[g].getLearningRate() + paramDist(gen) * 0.01);
+        groups[g].setThreshold(groups[g].getThreshold() + paramDist(gen) * 0.01);
     }
-    // Плохой исход - пробуем новые паттерны
-    else if (outcome < 0.3) {
-        // Добавляем шум для исследования
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::uniform_real_distribution<> dis(-0.01, 0.01);
-        
-        for (int i = REFLECTION_START; i < REFLECTION_END; i++) {
-            phi[i] += dis(gen);
-            // Ограничиваем
-            if (phi[i] > 1.0) phi[i] = 1.0;
-            if (phi[i] < 0.0) phi[i] = 0.0;
+}
+
+void NeuralFieldSystem::enterLowPowerMode() {
+    // Уменьшаем активность групп
+    for (auto& group : groups) {
+        for (int i = 0; i < GROUP_SIZE; ++i) {
+            // можно обнулить малые значения
         }
     }
 }

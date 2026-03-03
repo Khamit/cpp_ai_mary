@@ -1,4 +1,3 @@
-//cpp_ai_test/modules/DynamicsModule.hpp
 #pragma once
 #include "../core/NeuralFieldSystem.hpp"
 
@@ -17,8 +16,22 @@ class DynamicsModule {
 public:
     DynamicsModule(const DynamicsConfig& config) : config(config) {}
     
-    // Этот метод должен принимать НЕконстантную ссылку, так как изменяет систему
-    void applyDynamics(NeuralFieldSystem& system);
+    void applyDynamics(NeuralFieldSystem& system) {
+        if (!config.enabled) return;
+        
+        // В новой архитектуре нужно работать через группы
+        auto& groups = system.getGroups();
+        
+        if (config.damping_enabled) {
+            for (auto& group : groups) {
+                // Применяем демпфирование к каждой группе
+                // Для простоты пока пропустим
+            }
+        }
+        
+        // Лимиты пока не применяем
+    }
+    
     void setConfig(const DynamicsConfig& newConfig) { config = newConfig; }
 
 private:

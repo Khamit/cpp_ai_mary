@@ -55,6 +55,7 @@ public:
     double getMinFitnessForOptimization() const { return min_fitness_for_optimization; }
     double getBestFitness() const { return best_fitness; }
     void saveEvolutionState();
+    double getLanguageFitness();
     
 private:
     // Методы оценки приспособленности

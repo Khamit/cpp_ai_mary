@@ -1,0 +1,128 @@
+[
+  {
+    "word1": "hello",
+    "word2": "world",
+    "strength": 0.9,
+    "relation": "greeting"
+  },
+  {
+    "word1": "good",
+    "word2": "morning",
+    "strength": 0.8,
+    "relation": "time"
+  },
+  {
+    "word1": "good",
+    "word2": "night",
+    "strength": 0.8,
+    "relation": "time"
+  },
+  {
+    "word1": "how",
+    "word2": "are",
+    "strength": 0.7,
+    "relation": "question"
+  },
+  {
+    "word1": "what",
+    "word2": "is",
+    "strength": 0.7,
+    "relation": "question"
+  },
+  {
+    "word1": "thank",
+    "word2": "you",
+    "strength": 0.9,
+    "relation": "politeness"
+  },
+  {
+    "word1": "neural",
+    "word2": "network",
+    "strength": 0.8,
+    "relation": "technical"
+  },
+  {
+    "word1": "artificial",
+    "word2": "intelligence",
+    "strength": 0.9,
+    "relation": "technical"
+  },
+  {
+    "word1": "machine",
+    "word2": "learning",
+    "strength": 0.8,
+    "relation": "technical"
+  },
+  {
+    "word1": "deep",
+    "word2": "learning",
+    "strength": 0.8,
+    "relation": "technical"
+  },
+  {
+    "word1": "wsb",
+    "word2": "wsb",
+    "strength": 0.9,
+    "relation": "sequential"
+  },
+  {
+    "word1": "wsb",
+    "word2": "esb",
+    "strength": 0.72,
+    "relation": "sequential"
+  },
+  {
+    "word1": "esb",
+    "word2": "lba",
+    "strength": 1,
+    "relation": "sequential"
+  },
+  {
+    "word1": "lba",
+    "word2": "yue",
+    "strength": 1,
+    "relation": "sequential"
+  },
+  {
+    "word1": "yue",
+    "word2": "kps",
+    "strength": 0.9,
+    "relation": "sequential"
+  },
+  {
+    "word1": "kps",
+    "word2": "elb",
+    "strength": 1,
+    "relation": "sequential"
+  },
+  {
+    "word1": "elb",
+    "word2": "jjl",
+    "strength": 0.9,
+    "relation": "sequential"
+  },
+  {
+    "word1": "jjl",
+    "word2": "mws",
+    "strength": 0.9,
+    "relation": "sequential"
+  },
+  {
+    "word1": "mws",
+    "word2": "rel",
+    "strength": 1,
+    "relation": "sequential"
+  },
+  {
+    "word1": "rel",
+    "word2": "tws",
+    "strength": 0,
+    "relation": "sequential"
+  },
+  {
+    "word1": "tws",
+    "word2": "gkp",
+    "strength": 0,
+    "relation": "sequential"
+  },
+]

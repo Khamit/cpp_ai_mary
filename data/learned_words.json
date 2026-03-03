@@ -1,0 +1,57 @@
+{
+  "elb": {
+    "frequency": 1,
+    "correctness": 1,
+    "times_rated": 1
+  },
+  "esb": {
+    "frequency": 1,
+    "correctness": 0,
+    "times_rated": 1
+  },
+  "gkp": {
+    "frequency": 1,
+    "correctness": 0,
+    "times_rated": 1
+  },
+  "jjl": {
+    "frequency": 1,
+    "correctness": 1,
+    "times_rated": 1
+  },
+  "kps": {
+    "frequency": 1,
+    "correctness": 1,
+    "times_rated": 1
+  },
+  "lba": {
+    "frequency": 1,
+    "correctness": 1,
+    "times_rated": 1
+  },
+  "mws": {
+    "frequency": 1,
+    "correctness": 1,
+    "times_rated": 1
+  },
+  "rel": {
+    "frequency": 1,
+    "correctness": 1,
+    "times_rated": 1
+  },
+  "tws": {
+    "frequency": 1,
+    "correctness": 0,
+    "times_rated": 1
+  },
+  "wsb": {
+    "frequency": 1,
+    "correctness": 1,
+    "times_rated": 1
+  },
+  "yue": {
+    "frequency": 1,
+    "correctness": 1,
+    "times_rated": 1
+  },
+}

@@ -1,77 +1,69 @@
-//cpp_ai_test/modules/StatisticsModule.сpp
 #include "StatisticsModule.hpp"
 #include <fstream>
-#include <iostream>
-#include <cmath>
-#include <algorithm>
 
-void StatisticsModule::update(const NeuralFieldSystem& system, int step, double dt) {
-    if (timer_running) {
-        elapsed_time += dt;
-    }
-    
-    const auto& phi = system.getPhi();
-    const auto& pi = system.getPi();
-    
-    // Базовые статистики
-    current_stats.step = step;
-    current_stats.simulation_time = elapsed_time;
-    current_stats.total_energy = system.computeTotalEnergy();
-    
-    // Статистики по phi
-    double sum_phi = 0.0, sum_pi = 0.0;
-    current_stats.min_phi = phi[0];
-    current_stats.max_phi = phi[0];
-    
-    for (int i = 0; i < system.N; i++) {
-        sum_phi += phi[i];
-        sum_pi += pi[i];
-        if (phi[i] < current_stats.min_phi) current_stats.min_phi = phi[i];
-        if (phi[i] > current_stats.max_phi) current_stats.max_phi = phi[i];
-    }
-    
-    current_stats.avg_phi = sum_phi / system.N;
-    current_stats.avg_pi = sum_pi / system.N;
-    current_stats.std_phi = calculateStdDev(phi, current_stats.avg_phi);
-    
-    // Классификация состояния
-    if (current_stats.avg_phi < -0.05) current_stats.state = 0;
-    else if (current_stats.avg_phi < 0.05) current_stats.state = 1;
-    else current_stats.state = 2;
-    
-    // Сохраняем в историю каждые 100 шагов
-    if (step % 100 == 0) {
-        history.push_back(current_stats);
-    }
+void StatisticsModule::startTimer() {
+    timer_running = true;
+}
+
+void StatisticsModule::stopTimer() {
+    timer_running = false;
 }
 
 void StatisticsModule::reset() {
     current_stats = Statistics();
     history.clear();
     elapsed_time = 0.0;
+    timer_running = false;
 }
 
-double StatisticsModule::calculateStdDev(const std::vector<double>& values, double mean) const {
-    double sum_sq = 0.0;
-    for (double v : values) {
-        sum_sq += (v - mean) * (v - mean);
+void StatisticsModule::update(const NeuralFieldSystem& system,
+                              int step,
+                              double dt)
+{
+    if (timer_running) {
+        elapsed_time += dt;
     }
-    return std::sqrt(sum_sq / values.size());
+
+    current_stats.step = step;
+    current_stats.dt = dt;
+    current_stats.simulation_time = elapsed_time;
+
+    const auto& groups = system.getGroups();
+
+    double sumPhi = 0.0;
+
+    for (const auto& group : groups) {
+        sumPhi += group.getAverageActivity();
+    }
+
+    if (!groups.empty())
+        current_stats.avg_phi = sumPhi / groups.size();
+    else
+        current_stats.avg_phi = 0.0;
+
+    current_stats.avg_pi = 0.0;
+    current_stats.total_energy = system.computeTotalEnergy();
+
+    history.push_back(current_stats);
+
+    if (history.size() > historySize) {
+        history.erase(history.begin());
+    }
 }
 
-void StatisticsModule::saveToFile(const std::string& filename) const {
+void StatisticsModule::saveToFile(const std::string& filename) const
+{
     std::ofstream file(filename);
-    file << "step,time,energy,avg_phi,avg_pi,min_phi,max_phi,std_phi,state\n";
-    
-    for (const auto& stats : history) {
-        file << stats.step << ","
-             << stats.simulation_time << ","
-             << stats.total_energy << ","
-             << stats.avg_phi << ","
-             << stats.avg_pi << ","
-             << stats.min_phi << ","
-             << stats.max_phi << ","
-             << stats.std_phi << ","
-             << stats.state << "\n";
+    if (!file.is_open()) return;
+
+    file << "step,time,energy,avg_phi,avg_pi,dt\n";
+
+    for (const auto& stat : history) {
+        file << stat.step << ","
+             << stat.simulation_time << ","
+             << stat.total_energy << ","
+             << stat.avg_phi << ","
+             << stat.avg_pi << ","
+             << stat.dt << "\n";
     }
 }
