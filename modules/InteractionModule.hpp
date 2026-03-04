@@ -1,7 +1,6 @@
-//cpp_ai_test/modules/InteractionModule.hpp
 #pragma once
 #include "../core/NeuralFieldSystem.hpp"
-#include <SFML/Window/Event.hpp>
+#include <SFML/Graphics.hpp>
 
 struct InteractionConfig {
     bool enabled = true;
@@ -12,13 +11,29 @@ struct InteractionConfig {
 
 class InteractionModule {
 public:
-    InteractionModule(const InteractionConfig& config, int Nside, float cellSize);
+    InteractionModule(const InteractionConfig& config, int numGroups, float cellSize) 
+        : config(config), numGroups(numGroups), cellSize(cellSize) {}
     
-    // Этот метод тоже принимает НЕконстантную ссылку, так как изменяет систему
-    void handleMouseClick(const sf::Event::MouseButtonPressed& event, NeuralFieldSystem& system);
+    void handleMouseClick(const sf::Event::MouseButtonPressed& mousePressed, NeuralFieldSystem& system) {
+        if (!config.enabled) return;
+        
+        int mouseX = mousePressed.position.x;
+        int mouseY = mousePressed.position.y;
+        
+        int groupX = static_cast<int>(mouseX / cellSize);
+        int groupY = static_cast<int>(mouseY / cellSize);
+        int groupIndex = groupY * numGroups + groupX;
+        
+        if (groupIndex >= 0 && groupIndex < numGroups) {
+            // Влияем на группу через межгрупповые связи
+            system.strengthenInterConnection(31, groupIndex, config.mouse_impact);
+        }
+    }
+    
+    void setConfig(const InteractionConfig& newConfig) { config = newConfig; }
 
 private:
     InteractionConfig config;
-    const int Nside;
-    const float cellSize;
+    int numGroups;
+    float cellSize;
 };

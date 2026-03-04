@@ -1,0 +1,224 @@
+[
+  {
+    "word1": "hello",
+    "word2": "world",
+    "strength": 0.9,
+    "relation": "greeting"
+  },
+  {
+    "word1": "good",
+    "word2": "morning",
+    "strength": 0.8,
+    "relation": "time"
+  },
+  {
+    "word1": "good",
+    "word2": "night",
+    "strength": 0.8,
+    "relation": "time"
+  },
+  {
+    "word1": "how",
+    "word2": "are",
+    "strength": 0.7,
+    "relation": "question"
+  },
+  {
+    "word1": "what",
+    "word2": "is",
+    "strength": 0.7,
+    "relation": "question"
+  },
+  {
+    "word1": "thank",
+    "word2": "you",
+    "strength": 0.9,
+    "relation": "politeness"
+  },
+  {
+    "word1": "neural",
+    "word2": "network",
+    "strength": 0.8,
+    "relation": "technical"
+  },
+  {
+    "word1": "artificial",
+    "word2": "intelligence",
+    "strength": 0.9,
+    "relation": "technical"
+  },
+  {
+    "word1": "machine",
+    "word2": "learning",
+    "strength": 0.8,
+    "relation": "technical"
+  },
+  {
+    "word1": "deep",
+    "word2": "learning",
+    "strength": 0.8,
+    "relation": "technical"
+  },
+  {
+    "word1": "pse",
+    "word2": "nnl",
+    "strength": 0,
+    "relation": "sequential"
+  },
+  {
+    "word1": "nnl",
+    "word2": "ern",
+    "strength": 1,
+    "relation": "sequential"
+  },
+  {
+    "word1": "ern",
+    "word2": "ern",
+    "strength": 0.72,
+    "relation": "sequential"
+  },
+  {
+    "word1": "ern",
+    "word2": "enp",
+    "strength": 0.72,
+    "relation": "sequential"
+  },
+  {
+    "word1": "enp",
+    "word2": "ase",
+    "strength": 0.72,
+    "relation": "sequential"
+  },
+  {
+    "word1": "ase",
+    "word2": "ses",
+    "strength": 0.72,
+    "relation": "sequential"
+  },
+  {
+    "word1": "ses",
+    "word2": "uha",
+    "strength": 1,
+    "relation": "sequential"
+  },
+  {
+    "word1": "uha",
+    "word2": "ese",
+    "strength": 0.72,
+    "relation": "sequential"
+  },
+  {
+    "word1": "ese",
+    "word2": "tes",
+    "strength": 0.72,
+    "relation": "sequential"
+  },
+  {
+    "word1": "pse",
+    "word2": "uha",
+    "strength": 0,
+    "relation": "sequential"
+  },
+  {
+    "word1": "uha",
+    "word2": "gie",
+    "strength": 0.72,
+    "relation": "sequential"
+  },
+  {
+    "word1": "tft",
+    "word2": "wyt",
+    "strength": 0.72,
+    "relation": "sequential"
+  },
+  {
+    "word1": "wyt",
+    "word2": "kal",
+    "strength": 0.72,
+    "relation": "sequential"
+  },
+  {
+    "word1": "kal",
+    "word2": "htr",
+    "strength": 0,
+    "relation": "sequential"
+  },
+  {
+    "word1": "htr",
+    "word2": "ses",
+    "strength": 0.72,
+    "relation": "sequential"
+  },
+  {
+    "word1": "ses",
+    "word2": "pse",
+    "strength": 0,
+    "relation": "sequential"
+  },
+  {
+    "word1": "pse",
+    "word2": "nos",
+    "strength": 0.72,
+    "relation": "sequential"
+  },
+  {
+    "word1": "nos",
+    "word2": "roh",
+    "strength": 0.72,
+    "relation": "sequential"
+  },
+  {
+    "word1": "roh",
+    "word2": "ptn",
+    "strength": 0,
+    "relation": "sequential"
+  },
+  {
+    "word1": "ptn",
+    "word2": "wcn",
+    "strength": 0,
+    "relation": "sequential"
+  },
+  {
+    "word1": "wcn",
+    "word2": "ott",
+    "strength": 0.72,
+    "relation": "sequential"
+  },
+  {
+    "word1": "ott",
+    "word2": "ylc",
+    "strength": 0.72,
+    "relation": "sequential"
+  },
+  {
+    "word1": "ylc",
+    "word2": "zha",
+    "strength": 0.72,
+    "relation": "sequential"
+  },
+  {
+    "word1": "zha",
+    "word2": "gdp",
+    "strength": 0,
+    "relation": "sequential"
+  },
+  {
+    "word1": "gdp",
+    "word2": "rtt",
+    "strength": 0,
+    "relation": "sequential"
+  },
+  {
+    "word1": "rtt",
+    "word2": "uie",
+    "strength": 0.72,
+    "relation": "sequential"
+  },
+  {
+    "word1": "uie",
+    "word2": "ieo",
+    "strength": 0.72,
+    "relation": "sequential"
+  },
+]

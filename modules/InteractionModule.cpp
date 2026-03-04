@@ -1,3 +1,4 @@
+/*
 //cpp_ai_test/modules/InteractionModule.cpp
 #include "InteractionModule.hpp"
 #include <cmath>
@@ -39,3 +40,4 @@ void InteractionModule::handleMouseClick(const sf::Event::MouseButtonPressed& ev
         }
     }
 }
+    */
