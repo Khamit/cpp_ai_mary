@@ -831,9 +831,9 @@ void UIModule::drawBottomPanel(sf::RenderWindow& window, const ResourceMonitor& 
     std::stringstream config_ss;
     config_ss << "CONFIGURATION:\n"
               << "CPU Threshold: " << formatDouble(resources.getCPUThreshold(), 1) << "%\n"
-              << "Reduction Cooldown: " << evolution.getReductionCooldown() << "s\n"
-              << "Max Reductions: " << evolution.getMaxReductionsPerMinute() << "/min\n"
-              << "Min Fitness: " << formatDouble(evolution.getMinFitnessForOptimization(), 2);
+              //<< "Reduction Cooldown: " << evolution.getReductionCooldown() << "s\n"
+              << "Overall Fitness: " << evolution.getOverallFitness() << "/min\n"
+              << "Best Fitness: " << formatDouble(evolution.getBestFitness(), 2);
     
     configText.setString(config_ss.str());
     window.draw(configText);
@@ -873,9 +873,9 @@ void UIModule::drawDebugPanel(sf::RenderWindow& window, const EvolutionModule& e
        << "  SYSTEM:\n"
        << "  Step: " << step << "\n"
        << "  Stasis: " << (evolution.isInStasis() ? "YES" : "NO") << "\n"
-       << "  Cooldown: " << evolution.getReductionCooldown() << "s\n"
-       << "  Max Reductions: " << evolution.getMaxReductionsPerMinute() << "/min\n"
-       << "  Min Fitness: " << evolution.getMinFitnessForOptimization();
+       //<< "  Cooldown: " << evolution.getReductionCooldown() << "s\n"
+       << "Overall Fitness: " << evolution.getOverallFitness() << "/min\n"
+       << "Best Fitness: " << formatDouble(evolution.getBestFitness(), 2);
     
     debugInfoText.setString(ss.str());
     window.draw(debugInfoText);

@@ -4,7 +4,7 @@
 #include <random>
 #include <string>
 #include <deque>
-
+#include <algorithm>
 /**
  * @class NeuralFieldSystem
  * @brief Контейнер групп нейронов с межгрупповыми связями и механизмом повторного входа.
@@ -22,7 +22,7 @@ public:
      * @param dt Глобальный шаг интегрирования
      */
     NeuralFieldSystem(double dt);
-
+   // void learn(float globalReward);  // Обучение всех групп
     // Запрет копирования
     NeuralFieldSystem(const NeuralFieldSystem&) = delete;
     NeuralFieldSystem& operator=(const NeuralFieldSystem&) = delete;
@@ -36,7 +36,7 @@ public:
      * 2. Межгрупповое взаимодействие (повторный вход).
      * 3. Обучение (внутригрупповое и межгрупповое).
      */
-    void step();
+    void step(float globalReward = 0.0f, bool useSTDP = true);  // значение по умолчанию
 
     /** Вычислить общую энергию системы (для совместимости). */
     double computeTotalEnergy() const;

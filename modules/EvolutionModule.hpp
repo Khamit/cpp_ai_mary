@@ -1,12 +1,18 @@
-//cpp_ai_test/modules/EvolutionModule.hpp
+// EvolutionModule.hpp (обновленный)
 #pragma once
+
 #include "../core/NeuralFieldSystem.hpp"
 #include "../core/ImmutableCore.hpp"
+#include "lang/LanguageModule.hpp"  // или просто forward declaration
 #include "ConfigStructs.hpp"
 #include "EvolutionMetrics.hpp"
 #include <vector>
 #include <chrono>
 #include <string>
+#include <random>
+
+// Forward declaration
+class LanguageModule;
 
 class EvolutionModule {
 private:
@@ -20,26 +26,27 @@ private:
     double best_fitness;
     std::string backup_dir;
 
-    // ЗАЩИТА ОТ ЧАСТЫХ ВЫЗОВОВ reduce_complexity
+    // Защита от частых мутаций
     std::chrono::seconds REDUCTION_COOLDOWN;
     int reductions_this_minute = 0;
     int MAX_REDUCTIONS_PER_MINUTE;
     std::chrono::steady_clock::time_point last_reduction_time;
- 
     
-    // НОВАЯ ПЕРЕМЕННАЯ - добавьте эту строку
+    // Параметры эволюции
     double min_fitness_for_optimization;
+    double mutation_rate;  // вероятность мутации
     
     bool canReduceComplexity();
     void recordReduction();
 
 public:
-    void testEvolutionMethods();
     EvolutionModule(ImmutableCore& core);
-    EvolutionModule(ImmutableCore& core, const EvolutionConfig& config); // Новый конструктор
+    EvolutionModule(ImmutableCore& core, const EvolutionConfig& config);
+    
+    void testEvolutionMethods();
     
     // Основные методы
-    void evaluateFitness(const NeuralFieldSystem& system, double step_time);
+    void evaluateFitness(const NeuralFieldSystem& system, double step_time, LanguageModule& lang);
     bool proposeMutation(NeuralFieldSystem& system);
     void enterStasis(NeuralFieldSystem& system);
     bool isInStasis() const;
@@ -48,40 +55,30 @@ public:
     // Геттеры
     const EvolutionMetrics& getCurrentMetrics() const { return current_metrics; }
     double getOverallFitness() const { return current_metrics.overall_fitness; }
-    int getReductionCooldown() const { 
-        return REDUCTION_COOLDOWN.count(); 
-    }
-    int getMaxReductionsPerMinute() const { return MAX_REDUCTIONS_PER_MINUTE; }
-    double getMinFitnessForOptimization() const { return min_fitness_for_optimization; }
     double getBestFitness() const { return best_fitness; }
     void saveEvolutionState();
-    double getLanguageFitness();
     
 private:
-    // Методы оценки приспособленности
+    // Оценка приспособленности
     double calculateCodeSizeScore() const;
     double calculatePerformanceScore(double step_time) const;
     double calculateEnergyScore(const NeuralFieldSystem& system) const;
     
-    // Методы эволюции кода
-    void evolveCodeOptimization();
-    void optimizeConfigFiles();
-    void createOptimalConfig();
-    void generateOptimizedCode();
-    void generateOptimizedDynamics();
-    void generateOptimizedLearning();
-    void analyzeCodeEfficiency();
-    void optimizeSystemParameters();
-    void applyMinimalMutation(NeuralFieldSystem& system);
+    // Параметрическая эволюция (НОВЫЙ МЕТОД)
+    void mutateParameters(NeuralFieldSystem& system);
     
     // Методы защиты и бэкапов
-    
-    bool createBackup(); // не создавать бэкап вообще!!!
+    bool createBackup();
     bool restoreFromBackup();
     bool checkForDegradation();
     void rollbackToBestVersion();
-    
-    // Вспомогательные методы
     double getCurrentCodeHash() const;
     bool validateImprovement() const;
+    
+    // Минимальная мутация для стазиса
+    void applyMinimalMutation(NeuralFieldSystem& system);
+    
+    // Устаревшие методы - оставлены для совместимости
+    void optimizeSystemParameters();
+    // Все методы генерации кода удалены
 };

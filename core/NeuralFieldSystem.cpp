@@ -75,46 +75,35 @@ void NeuralFieldSystem::applyReentry(int iterations) {
 
     // Применяем итоговые активности к группам (влияем на phi)
     for (int g = 0; g < NUM_GROUPS; ++g) {
-        auto& phiGrp = groups[g].getPhi(); // неконстантная ссылка (через геттер, который должен быть)
-        // Здесь нужно иметь неконстантный доступ к phi группы. Добавим метод в NeuralGroup?
-        // Пока используем const_cast, но лучше добавить friend или метод setActivity.
-        // Для простоты добавим в NeuralGroup метод setActivity(int index, double val).
-        // Пока допустим, что у NeuralGroup есть неконстантный getPhi().
-        // В текущем NeuralGroup.hpp getPhi() возвращает const. Нужно добавить неконстантную версию.
-        // Изменим NeuralGroup.hpp, добавив:
-        // std::vector<double>& getPhiNonConst() { return phi; }
-        // Тогда здесь:
-        // auto& phiGrp = groups[g].getPhiNonConst();
-        // Но чтобы не усложнять, я добавлю метод в NeuralGroup позже. Сейчас предположим, что он есть.
-        // В реальности нужно будет добавить.
-        // Для краткости кода предположим, что мы имеем доступ.
-        // Пока закомментируем, но в рабочем коде это нужно.
-        /*
         double targetAvg = currAvg[g];
         double currentAvg = groups[g].getAverageActivity();
         double diff = targetAvg - currentAvg;
+        auto& phiGrp = groups[g].getPhiNonConst();
         for (int n = 0; n < GROUP_SIZE; ++n) {
-            phiGrp[n] += dt * diff * 0.1; // небольшое влияние
-            if (phiGrp[n] > 1.0) phiGrp[n] = 1.0;
-            if (phiGrp[n] < 0.0) phiGrp[n] = 0.0;
+            phiGrp[n] += dt * diff * 0.1; // коэффициент влияния
+            phiGrp[n] = std::clamp(phiGrp[n], 0.0, 1.0);
         }
-        */
     }
-    // Пока просто заглушка
 }
 
-void NeuralFieldSystem::step() {
-    // 1. Эволюция каждой группы
-    for (auto& group : groups) {
-        group.evolve();
-    }
-
-    // 2. Межгрупповое взаимодействие (повторный вход)
+void NeuralFieldSystem::step(float globalReward, bool useSTDP) {
+    // 1. Эволюция
+    for (auto& group : groups) group.evolve();
+    
+    // 2. Повторный вход
     applyReentry(3);
-
-    // 3. Обучение (внутригрупповое) - пока ничего не делаем, будет вызываться отдельно
-    //    Например, можно здесь вызвать learnHebbian для всех групп с глобальной наградой 0.
-
+    
+    // 3. Обучение с выбором метода
+    static int stepCounter = 0; // или передавать из main
+    for (auto& group : groups) {
+        if (useSTDP) {
+            group.learnSTDP(globalReward, stepCounter);
+        } else {
+            group.learnHebbian(globalReward);
+        }
+    }
+    
+    stepCounter++;
     flatDirty = true;
 }
 

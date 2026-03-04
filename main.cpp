@@ -322,7 +322,7 @@ int main() {
                 metacog.think();
                 
                 if (neuralSystem.evaluateProgress()) {
-                    std::cout << "🎯 Goal achieved!" << std::endl;
+                    std::cout << "Goal achieved!" << std::endl;
                 }
             }
             
@@ -330,9 +330,10 @@ int main() {
 
             auto end_time = std::chrono::high_resolution_clock::now();
             double step_time = std::chrono::duration<double>(end_time - start_time).count();
+
             
             // ЭВОЛЮЦИЯ И ОЦЕНКА
-            evolution.evaluateFitness(neuralSystem, step_time);
+            evolution.evaluateFitness(neuralSystem, step_time, language);
             
             // ========== РАБОТА С ПАМЯТЬЮ ==========
             if (!system_in_stasis) {

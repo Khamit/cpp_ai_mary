@@ -1,57 +1,122 @@
 {
-  "elb": {
-    "frequency": 1,
-    "correctness": 1,
-    "times_rated": 1
-  },
-  "esb": {
+  "ase": {
     "frequency": 1,
     "correctness": 0,
     "times_rated": 1
   },
-  "gkp": {
+  "enp": {
     "frequency": 1,
     "correctness": 0,
     "times_rated": 1
   },
-  "jjl": {
-    "frequency": 1,
-    "correctness": 1,
-    "times_rated": 1
-  },
-  "kps": {
-    "frequency": 1,
-    "correctness": 1,
-    "times_rated": 1
-  },
-  "lba": {
-    "frequency": 1,
-    "correctness": 1,
-    "times_rated": 1
-  },
-  "mws": {
-    "frequency": 1,
-    "correctness": 1,
-    "times_rated": 1
-  },
-  "rel": {
-    "frequency": 1,
-    "correctness": 1,
-    "times_rated": 1
-  },
-  "tws": {
+  "ern": {
     "frequency": 1,
     "correctness": 0,
     "times_rated": 1
   },
-  "wsb": {
+  "ese": {
     "frequency": 1,
-    "correctness": 1,
+    "correctness": 0,
     "times_rated": 1
   },
-  "yue": {
+  "gdp": {
     "frequency": 1,
-    "correctness": 1,
+    "correctness": 0,
+    "times_rated": 1
+  },
+  "gie": {
+    "frequency": 1,
+    "correctness": 0,
+    "times_rated": 1
+  },
+  "htr": {
+    "frequency": 1,
+    "correctness": 0,
+    "times_rated": 1
+  },
+  "ieo": {
+    "frequency": 1,
+    "correctness": 0,
+    "times_rated": 1
+  },
+  "kal": {
+    "frequency": 1,
+    "correctness": 0,
+    "times_rated": 1
+  },
+  "nnl": {
+    "frequency": 1,
+    "correctness": 0,
+    "times_rated": 1
+  },
+  "nos": {
+    "frequency": 1,
+    "correctness": 0,
+    "times_rated": 1
+  },
+  "ott": {
+    "frequency": 1,
+    "correctness": 0,
+    "times_rated": 1
+  },
+  "pse": {
+    "frequency": 1,
+    "correctness": 0,
+    "times_rated": 1
+  },
+  "ptn": {
+    "frequency": 1,
+    "correctness": 0,
+    "times_rated": 1
+  },
+  "roh": {
+    "frequency": 1,
+    "correctness": 0,
+    "times_rated": 1
+  },
+  "rtt": {
+    "frequency": 1,
+    "correctness": 0,
+    "times_rated": 1
+  },
+  "ses": {
+    "frequency": 1,
+    "correctness": 0,
+    "times_rated": 1
+  },
+  "tes": {
+    "frequency": 1,
+    "correctness": 0,
+    "times_rated": 1
+  },
+  "uha": {
+    "frequency": 1,
+    "correctness": 0,
+    "times_rated": 1
+  },
+  "uie": {
+    "frequency": 1,
+    "correctness": 0,
+    "times_rated": 1
+  },
+  "wcn": {
+    "frequency": 1,
+    "correctness": 0,
+    "times_rated": 1
+  },
+  "wyt": {
+    "frequency": 1,
+    "correctness": 0,
+    "times_rated": 1
+  },
+  "ylc": {
+    "frequency": 1,
+    "correctness": 0,
+    "times_rated": 1
+  },
+  "zha": {
+    "frequency": 1,
+    "correctness": 0,
     "times_rated": 1
   },
 }

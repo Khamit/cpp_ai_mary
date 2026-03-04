@@ -509,7 +509,7 @@ void LanguageModule::autoEvaluateGeneratedWord(const std::string& word) {
 
 
 
-float LanguageModule::autoEvaluateWord(const std::string& word) {
+float LanguageModule::autoEvaluateWord(const std::string& word) const {
     float score = 0.5f; // нейтральная основа
 
         // 1. Проверка по словарю частотных слов
@@ -550,7 +550,7 @@ float LanguageModule::autoEvaluateWord(const std::string& word) {
     return std::clamp(score, 0.0f, 1.0f);
 }
 
-float LanguageModule::calculatePhoneticScore(const std::string& word) {
+float LanguageModule::calculatePhoneticScore(const std::string& word) const {
     // Простая оценка: избегаем длинных согласных последовательностей
     int maxConsonants = 0;
     int currentConsonants = 0;
@@ -569,7 +569,7 @@ float LanguageModule::calculatePhoneticScore(const std::string& word) {
     return 1.0f - (maxConsonants / 5.0f);
 }
 
-float LanguageModule::calculateBigramScore(const std::string& word) {
+float LanguageModule::calculateBigramScore(const std::string& word) const {
     float score = 0.0f;
     int validBigrams = 0;
     
@@ -589,7 +589,7 @@ float LanguageModule::calculateBigramScore(const std::string& word) {
     return validBigrams > 0 ? score / validBigrams : 0.3f;
 }
 
-float LanguageModule::calculateSemanticCoherence(const std::string& word) {
+float LanguageModule::calculateSemanticCoherence(const std::string& word) const {
     if (word_history_.empty()) return 0.5f;
     
     std::string lastWord = word_history_.back();

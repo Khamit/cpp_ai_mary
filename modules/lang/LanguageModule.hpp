@@ -42,7 +42,6 @@ struct SemanticLink {
 
 class LanguageModule {
 public:
-float autoEvaluateWord(const std::string& word) const;
     explicit LanguageModule(NeuralFieldSystem& system);
     int getLearnedWordsCount() const { return learned_words_.size(); }
     // Основные методы
@@ -129,10 +128,10 @@ private:
     void updateContextGroups();  // ОДИН РАЗ
     
     // ---- Автоматическая оценка ----
-    float autoEvaluateWord(const std::string& word);
-    float calculatePhoneticScore(const std::string& word);
-    float calculateBigramScore(const std::string& word);
-    float calculateSemanticCoherence(const std::string& word);
+    float autoEvaluateWord(const std::string& word) const;           
+    float calculatePhoneticScore(const std::string& word) const;     
+    float calculateBigramScore(const std::string& word) const;       
+    float calculateSemanticCoherence(const std::string& word) const;
     
     // ---- Коллокации и частотность ----
     void updateCollocations(const std::string& word);
