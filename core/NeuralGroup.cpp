@@ -15,6 +15,9 @@ NeuralGroup::NeuralGroup(int size, double dt, std::mt19937& rng)
 {
     initializeRandom(rng);
     buildSynapsesFromWeights(); // создаём синапсы из матрицы весов
+    weight_gradients.resize(size, std::vector<double>(size, 0.0));
+    velocity.resize(size, std::vector<double>(size, 0.0));
+
 }
 
 void NeuralGroup::initializeRandom(std::mt19937& rng) {
@@ -180,4 +183,39 @@ double NeuralGroup::getAverageActivity() const {
     double sum = 0.0;
     for (double val : phi) sum += val;
     return sum / size;
+}
+
+void NeuralGroup::computeGradients(const std::vector<double>& target) {
+    if (target.size() != size) return;
+
+    for (int i = 0; i < size; ++i) {
+        double error_i = phi[i] - target[i];
+        for (int j = 0; j < size; ++j) {
+            weight_gradients[i][j] = error_i * phi[j];
+        }
+    }
+}
+
+void NeuralGroup::applyGradients() {
+    for (int i = 0; i < size; ++i) {
+        for (int j = i + 1; j < size; ++j) {
+            velocity[i][j] = gd_momentum * velocity[i][j]
+                           - gd_learning_rate * weight_gradients[i][j];
+
+            W_intra[i][j] += velocity[i][j];
+            W_intra[j][i] = W_intra[i][j];
+
+            // Ограничение
+            W_intra[i][j] = std::clamp(
+                W_intra[i][j],
+                -static_cast<double>(params.maxWeight),
+                static_cast<double>(params.maxWeight)
+            );
+            W_intra[j][i] = W_intra[i][j];
+        }
+    }
+    int idx = 0;
+        for (int i = 0; i < size; ++i)
+            for (int j = i + 1; j < size; ++j)
+                synapses[idx++].weight = static_cast<float>(W_intra[i][j]);
 }

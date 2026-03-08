@@ -3,7 +3,7 @@
 #include <sstream>
 #include <iomanip>
 #include <iostream>
-#include "../data/MemoryModule.hpp"
+#include "core/MemoryManager.hpp" 
 
 // Apple-like dark UI palette
 static const sf::Color PANEL_BG(30, 32, 34, 180);
@@ -336,6 +336,7 @@ void UIModule::handleMouseClick(const sf::Event::MouseButtonPressed& event, Neur
 
         if (likeRect.contains(mousePos) && languageModule) {
             languageModule->giveFeedback(1.0f);
+            languageModule->addExternalFeedback(1.0f);
             likePressed = true;
             dislikePressed = false;
             feedbackClock.restart();
@@ -345,6 +346,7 @@ void UIModule::handleMouseClick(const sf::Event::MouseButtonPressed& event, Neur
 
         if (dislikeRect.contains(mousePos) && languageModule) {
             languageModule->giveFeedback(0.0f);
+            languageModule->addExternalFeedback(0.0f);
             dislikePressed = true;
             likePressed = false;
             feedbackClock.restart();
@@ -401,7 +403,7 @@ void UIModule::handleMouseClick(const sf::Event::MouseButtonPressed& event, Neur
 void UIModule::draw(sf::RenderWindow& window, const NeuralFieldSystem& system, 
                    const StatisticsModule& stats, bool simulation_running,
                    const ResourceMonitor& resources, const EvolutionModule& evolution,
-                   const MemoryController& memory, int step) {
+                   const MemoryManager& memory, int step) {
     
     // Рисуем нижнюю панель
     window.draw(bottomPanel);
@@ -851,7 +853,7 @@ void UIModule::drawDebugButton(sf::RenderWindow& window) {
 }
 
 void UIModule::drawDebugPanel(sf::RenderWindow& window, const EvolutionModule& evolution, 
-                             const MemoryController& memory, int step) {
+                             const MemoryManager& memory, int step) {
     window.draw(debugPanel);
     
     const auto& metrics = evolution.getCurrentMetrics();
@@ -867,7 +869,7 @@ void UIModule::drawDebugPanel(sf::RenderWindow& window, const EvolutionModule& e
        << "  Perf Score: " << metrics.performance_score << "\n"
        << "  Energy Score: " << metrics.energy_score << "\n\n"
        << "  MEMORY:\n"
-       << "  Records: " << memory.size() << "/5000\n"
+       << "  Records: " << memory.getDumpSize() << "/5000\n"
        << "  Feature Dim: 64\n"
        << "  Decay: 0.995/step\n\n"
        << "  SYSTEM:\n"

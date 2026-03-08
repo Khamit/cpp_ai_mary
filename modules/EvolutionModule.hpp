@@ -1,9 +1,10 @@
-// EvolutionModule.hpp (обновленный)
+// modules/EvolutionModule.hpp
 #pragma once
 
 #include "../core/NeuralFieldSystem.hpp"
 #include "../core/ImmutableCore.hpp"
-#include "lang/LanguageModule.hpp"  // или просто forward declaration
+#include "../core/Component.hpp"
+#include "lang/LanguageModule.hpp"
 #include "ConfigStructs.hpp"
 #include "EvolutionMetrics.hpp"
 #include <vector>
@@ -13,10 +14,12 @@
 
 // Forward declaration
 class LanguageModule;
+class MemoryManager; 
 
-class EvolutionModule {
+class EvolutionModule : public Component {
 private:
     ImmutableCore& immutable_core;
+    MemoryManager& memoryManager;
     EvolutionMetrics current_metrics;
     std::vector<EvolutionMetrics> history;
     double total_energy_consumed;
@@ -40,8 +43,37 @@ private:
     void recordReduction();
 
 public:
-    EvolutionModule(ImmutableCore& core);
-    EvolutionModule(ImmutableCore& core, const EvolutionConfig& config);
+    // Конструктор
+    EvolutionModule(ImmutableCore& core, const EvolutionConfig& config, MemoryManager& memory);
+    
+    // == РЕАЛИЗАЦИЯ МЕТОДОВ Component
+    std::string getName() const override { return "EvolutionModule"; }
+
+    std::vector<float> projectEmbeddingToGroups(const std::vector<float>& emb);
+    
+    bool initialize(const Config& config) override {
+        std::cout << "EvolutionModule initialized from config" << std::endl;
+        return true;
+    }
+    
+    void shutdown() override {
+        std::cout << "EvolutionModule shutting down" << std::endl;
+        saveEvolutionState();
+    }
+    
+    void update(float dt) override {
+        // Эволюция не требует постоянного обновления на каждом шаге
+        // Вызывается по таймеру через proposeMutation
+    }
+    
+    void saveState(MemoryManager& memory) override {
+        saveEvolutionState();  // используем существующий метод
+    }
+    
+    void loadState(MemoryManager& memory) override {
+        // Загрузка состояния - можно реализовать позже
+    }
+    // == КОНЕЦ МЕТОДОВ Component
     
     void testEvolutionMethods();
     
@@ -58,13 +90,18 @@ public:
     double getBestFitness() const { return best_fitness; }
     void saveEvolutionState();
     
-private:
+private: 
+    // == ЗАКОММЕНТИРОВАНЫ ЛИШНИЕ МЕТОДЫ
+    /*
     // Оценка приспособленности
     double calculateCodeSizeScore() const;
     double calculatePerformanceScore(double step_time) const;
     double calculateEnergyScore(const NeuralFieldSystem& system) const;
+    */
+
+    std::vector<std::vector<float>> projectionMatrix;
     
-    // Параметрическая эволюция (НОВЫЙ МЕТОД)
+    // Параметрическая эволюция
     void mutateParameters(NeuralFieldSystem& system);
     
     // Методы защиты и бэкапов
@@ -78,7 +115,9 @@ private:
     // Минимальная мутация для стазиса
     void applyMinimalMutation(NeuralFieldSystem& system);
     
-    // Устаревшие методы - оставлены для совместимости
+    // == УСТАРЕВШИЕ МЕТОДЫ - ЗАКОММЕНТИРОВАНЫ
+    /*
     void optimizeSystemParameters();
     // Все методы генерации кода удалены
+    */
 };

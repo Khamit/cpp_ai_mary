@@ -1,155 +1,172 @@
+// LanguageModule.hpp - ИСПРАВИТЬ:
+
 #pragma once
 
 #include <string>
 #include <vector>
-#include <cctype>
-#include <iostream>
-#include <algorithm>
-#include <random>
-#include <cmath>
-#include <fstream>
-#include <unordered_map>
 #include <map>
+#include <random>
 #include <memory>
+#include "../../core/Component.hpp"
 #include "../../core/NeuralFieldSystem.hpp"
 
-// Структура для хранения слова с семантическим вектором
-struct LearnedWord {
-    std::string word;
-    float frequency;
-    float correctness;
-    std::vector<float> semantic_vector;  // 32-мерный вектор (активности групп)
-    std::vector<float> context_vector;    // контекст использования
-    int times_rated;
-    std::vector<std::string> common_phrases; // частые словосочетания
+class EvolutionModule; // forward declaration
+
+// Statistics
+struct NeuronStats {
+    int active = 0;      // phi > 0.7
+    int passive = 0;     // 0.1 < phi <= 0.7
+    int inactive = 0;    // phi <= 0.1
+    double avgActivity = 0.0;
 };
 
-// Структура для биграммы с весом
+// Структура для хранения выученного слова
+struct LearnedWord {
+    std::string word;
+    float frequency = 1.0f;
+    float correctness = 0.5f;
+    int times_rated = 1;
+    std::vector<float> semantic_vector;
+    std::vector<float> context_vector;
+};
+
+// Структура для биграммы
 struct Bigram {
     char first;
     char second;
     float probability;
-    int occurrences;
+    int occurrences = 0;
 };
 
-// Структура для семантической связи между словами
+// Структура для семантической связи
 struct SemanticLink {
     std::string word1;
     std::string word2;
-    float strength;           // сила связи
-    std::string relation;     // тип связи (синоним, антоним, часть речи и т.д.)
+    float strength;
+    std::string relation;
 };
 
-class LanguageModule {
+
+
+class LanguageModule : public Component {
 public:
-    explicit LanguageModule(NeuralFieldSystem& system);
-    int getLearnedWordsCount() const { return learned_words_.size(); }
-    // Основные методы
+    // Структура для буфера предложений мутаций
+    struct PendingMutation {
+        int from;
+        int to;
+        double delta;
+        std::string reason;
+    };
+    explicit LanguageModule(NeuralFieldSystem& system, EvolutionModule& evolution);
+    // EvolutionModule& evolution_;  // ← ЭТО БЫЛО ПРОПУЩЕНО!
+    // Component interface
+    std::string getName() const override { return "LanguageModule"; }
+    bool initialize(const Config& config) override;
+    void shutdown() override;
+    void update(float dt) override;
+    void saveState(MemoryManager& memory) override;
+    void loadState(MemoryManager& memory) override;
+
+    // Public API
     std::string process(const std::string& input);
     void giveFeedback(float rating, bool autoFeedback = false);
     void setContext(const std::string& context);
+    double getLanguageFitness() const;
+    int getLearnedWordsCount() const { return learned_words_.size(); }
+
+    //
+    float getLearningRate() const;
+    float calculateSurprise(const std::string& word) const;
+
+    // Оценка
+    void addExternalFeedback(float rating) {
+        external_feedback_sum_ += rating;
+        external_feedback_count_++;
+    }
     
-    // Методы для автоматической оценки
-    void autoEvaluateGeneratedWord(const std::string& word);
-    void updateSemanticLinks(const std::string& word, float rating);
-    
-    // Сохранение/загрузка
+    float getExternalFeedbackAvg() const {
+        return external_feedback_count_ > 0 ? 
+               external_feedback_sum_ / external_feedback_count_ : 0.5f;
+    }
+
+    // эмбеддинг
+    std::vector<float> getWordEmbedding(const std::string& word) const;
+
+    // мутации
+    void applyPendingMutations(); // Будет вызываться эволюционным модулем
+
+    // Persistence
     void saveAll();
     void loadAll();
 
-    double getLanguageFitness() const {
-        if (word_history_.empty()) return 0.5;
-        
-        float totalScore = 0;
-        int count = 0;
-        for (const auto& word : word_history_) {
-            totalScore += autoEvaluateWord(word);
-            count++;
-        }
-        return count > 0 ? totalScore / count : 0.5;
-    }
-
 private:
-    NeuralFieldSystem& system_;
-    std::mt19937 rng_;
-    
-    // ---- Группы и их специализация ----
-    static constexpr int GROUP_PHONETICS_START = 0;      // 0-3
+    // Constants
+    static constexpr int GROUP_PHONETICS_START = 0;
     static constexpr int GROUP_PHONETICS_END = 4;
-    static constexpr int GROUP_BIGRAMS_START = 4;        // 4-7
+    static constexpr int GROUP_BIGRAMS_START = 4;
     static constexpr int GROUP_BIGRAMS_END = 8;
-    static constexpr int GROUP_MORPHEMES_START = 8;      // 8-15
-    static constexpr int GROUP_MORPHEMES_END = 16;
-    static constexpr int GROUP_SEMANTIC_START = 16;      // 16-23
+    static constexpr int GROUP_SEMANTIC_START = 16;
     static constexpr int GROUP_SEMANTIC_END = 24;
-    static constexpr int GROUP_SYNTAX_START = 24;        // 24-27
-    static constexpr int GROUP_SYNTAX_END = 28;
-    static constexpr int GROUP_CONTEXT_START = 28;       // 28-29
+    static constexpr int GROUP_CONTEXT_START = 28;
     static constexpr int GROUP_CONTEXT_END = 30;
-    static constexpr int GROUP_OUTPUT = 30;               // выходная группа
-    static constexpr int GROUP_META = 31;                  // мета-группа оценки
-    
-    // ---- Языковые данные ----
+    static constexpr int GROUP_OUTPUT = 30;
+    static constexpr int GROUP_META = 31;
+
+    float external_feedback_sum_ = 0.0f;
+    int external_feedback_count_ = 0;
+
+    NeuronStats computeNeuronStats(double activeThreshold = 0.7, double passiveThreshold = 0.1) const;
+    NeuronStats stats;
+
+    // Core components
+    NeuralFieldSystem& system_;
+    EvolutionModule& evolution_;  // ← ЭТО БЫЛО ПРОПУЩЕНО!
+    std::mt19937 rng_;
+
+    // Language data
     std::vector<char> alphabet_;
     std::map<std::string, LearnedWord> learned_words_;
     std::vector<std::string> word_history_;
-    std::vector<std::string> context_history_;
-    
-    // Биграммы
     std::vector<Bigram> common_bigrams_;
-    
-    // Семантические связи между словами
     std::vector<SemanticLink> semantic_links_;
-    
-    // Часто используемые словосочетания (коллокации)
     std::map<std::string, float> collocations_;
-    
-    // Текущее состояние
-    std::string last_input_;
+
+    // State
     std::string last_generated_word_;
     std::string current_context_;
-    std::vector<int> active_groups_history_; // какие группы были активны
+    std::vector<int> active_groups_history_;
     
-    // ---- Вспомогательные методы для работы с группами ----
-    std::vector<double> getGroupActivities(int startGroup, int endGroup) const;
-    void activateGroup(int groupIndex, double strength);
-    void strengthenInterGroupConnection(int fromGroup, int toGroup, double delta);
+    // Буфер предложений мутаций - ТЕПЕРЬ ЭТО ЧЛЕН КЛАССА
+    std::vector<PendingMutation> pending_mutations_;
+
+    // Group operations
+    std::vector<double> getGroupActivities(int start, int end) const;
     std::vector<int> findActiveGroups(double threshold = 0.6) const;
-    
-    // ---- Генерация слова через группы ----
+
+    // Word generation
     std::string generateWordFromGroups();
-    char selectNextChar(char prevChar, const std::vector<int>& activeGroups);
-    
-    // ---- Обучение через группы ----
+    char selectNextChar(char prevChar);
+
+    // Эволюция
+    void requestConnectionMutation(int from, int to, double delta, const std::string& reason);
+
+    // Learning
     void learnWordPattern(const std::string& word, float rating);
     void reinforceActiveGroups(float rating);
     void updateBigramGroups(const std::string& word, float rating);
     void updateSemanticGroups(const std::string& word, float rating);
-    void updateContextGroups();  // ОДИН РАЗ
-    
-    // ---- Автоматическая оценка ----
-    float autoEvaluateWord(const std::string& word) const;           
-    float calculatePhoneticScore(const std::string& word) const;     
-    float calculateBigramScore(const std::string& word) const;       
+    void updateContextGroups();
+
+    // Evaluation
+    void autoEvaluateGeneratedWord(const std::string& word);
+    float autoEvaluateWord(const std::string& word) const;
+    float calculatePhoneticScore(const std::string& word) const;
+    float calculateBigramScore(const std::string& word) const;
     float calculateSemanticCoherence(const std::string& word) const;
-    
-    // ---- Коллокации и частотность ----
-    void updateCollocations(const std::string& word);
-    std::string suggestNextWord(const std::string& currentWord);  // ОДИН РАЗ
-    
-    // ---- Сохранение/загрузка ----
-    void saveLearnedWords();
-    void saveSemanticLinks();
-    void saveCollocations();
-    
-    // ---- Совместимость со старым кодом ----
-    std::string getWordMeaning(const std::string& word);
-    std::string getStats();
-    std::string getRandomResponse();
-    std::string decodeLastWord();
-    void encodeToNeuralField(const std::string& text);
-    
-    // Вспомогательные методы
+
+    // Utilities
     std::vector<std::string> split(const std::string& text);
     std::string toLower(std::string text);
+    std::string getRandomResponse();
+    std::string getStats();
 };

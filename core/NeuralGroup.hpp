@@ -14,6 +14,9 @@
 class NeuralGroup {
 public:
     NeuralGroup(int size, double dt, std::mt19937& rng);
+
+    void computeGradients(const std::vector<double>& target);
+    void applyGradients();
     
     // Запрет копирования
     NeuralGroup(const NeuralGroup&) = delete;
@@ -47,6 +50,13 @@ public:
     std::vector<Synapse>& getSynapses() { return synapses; }
 
 private:
+
+    // --- Gradient Descent learning ---
+    std::vector<std::vector<double>> weight_gradients;
+    std::vector<std::vector<double>> velocity;
+    double gd_learning_rate = 0.001;
+    double gd_momentum = 0.9;
+
     int size;                           // количество нейронов
     double dt;                          // шаг интегрирования
     double threshold;                    // порог активации

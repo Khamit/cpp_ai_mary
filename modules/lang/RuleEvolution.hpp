@@ -1,10 +1,10 @@
-// RuleEvolution.hpp - как правила могут "расти" в коде
+// RuleEvolution.hpp
 #pragma once
 #include <string>
 #include <vector>
 #include <fstream>
 #include <map>
-#include "MemoryModule.hpp"
+#include "core/MemoryManager.hpp"
 
 class RuleEvolution {
 public:
@@ -18,12 +18,19 @@ public:
         file << rule << "\n";
     }
 
-    static void analyzeMemory(const MemoryController& memory) {
+    static void analyzeMemory(const MemoryManager& memory) {
         std::map<std::string, int> patternFrequency;
-
-        for (const auto& record : memory.getRecords()) {
-            std::string pattern = decodeFeatures(record.features);
-            patternFrequency[pattern]++;
+        
+        // Используем новый метод getRecords()
+        auto records = memory.getRecords("LanguageModule");
+        
+        for (const auto& record : records) {
+            if (record.type == "word") {
+                auto it = record.metadata.find("word");
+                if (it != record.metadata.end()) {
+                    patternFrequency[it->second]++;
+                }
+            }
         }
 
         for (const auto& [pattern, freq] : patternFrequency) {
@@ -32,16 +39,5 @@ public:
                 saveRule(rule);
             }
         }
-    }
-
-private:
-    static std::string decodeFeatures(const std::vector<float>& features) {
-        std::string result;
-        for (auto f : features) {
-            char c = static_cast<char>(f * 255);
-            if (std::isprint(static_cast<unsigned char>(c)))
-                result += c;
-        }
-        return result;
     }
 };

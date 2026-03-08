@@ -1,4 +1,4 @@
-// EvolutionModule.cpp
+// modules/EvolutionModule.cpp
 #include "EvolutionModule.hpp"
 #include <iostream>
 #include <cmath>
@@ -8,31 +8,14 @@
 #include <random>
 #include <chrono>
 #include "lang/LanguageModule.hpp"
+#include "../core/MemoryManager.hpp"
 
 using namespace std::filesystem;
 
 // Конструкторы
-EvolutionModule::EvolutionModule(ImmutableCore& core) 
+EvolutionModule::EvolutionModule(ImmutableCore& core, const EvolutionConfig& config, MemoryManager& memory)
     : immutable_core(core), 
-      total_energy_consumed(0.0),
-      total_steps(0),
-      in_stasis(false),
-      best_fitness(0.0),
-      backup_dir("backups"),
-      last_evaluation(std::chrono::steady_clock::now()),
-      REDUCTION_COOLDOWN(std::chrono::seconds(30)),
-      MAX_REDUCTIONS_PER_MINUTE(2),
-      min_fitness_for_optimization(0.8),
-      mutation_rate(0.01),
-      last_reduction_time(std::chrono::steady_clock::now()),
-      reductions_this_minute(0)
-{
-    std::cout << "EvolutionModule initialized with defaults" << std::endl;
-    std::filesystem::create_directories(backup_dir);
-}
-
-EvolutionModule::EvolutionModule(ImmutableCore& core, const EvolutionConfig& config)
-    : immutable_core(core), 
+    memoryManager(memory),
       total_energy_consumed(0.0),
       total_steps(0),
       in_stasis(false),
@@ -46,6 +29,18 @@ EvolutionModule::EvolutionModule(ImmutableCore& core, const EvolutionConfig& con
       last_reduction_time(std::chrono::steady_clock::now() - REDUCTION_COOLDOWN),
       reductions_this_minute(0)
 {
+    // init emb
+    const size_t EMB_SIZE = 128; // размер embedding
+    projectionMatrix.resize(NeuralFieldSystem::NUM_GROUPS);
+
+    std::mt19937 gen(std::random_device{}());
+    std::normal_distribution<float> dist(0.0f, 0.1f);
+
+    for (auto& row : projectionMatrix) {
+        row.resize(EMB_SIZE);
+        for (auto& v : row) v = dist(gen);
+    }
+    // stat
     std::cout << "EvolutionModule initialized with config:" << std::endl;
     std::cout << "  - Reduction cooldown: " << REDUCTION_COOLDOWN.count() << "s" << std::endl;
     std::cout << "  - Max reductions: " << MAX_REDUCTIONS_PER_MINUTE << "/min" << std::endl;
@@ -72,6 +67,18 @@ bool EvolutionModule::canReduceComplexity() {
     }
     
     return true;
+}
+
+std::vector<float> EvolutionModule::projectEmbeddingToGroups(const std::vector<float>& emb) {
+    std::vector<float> groups(NeuralFieldSystem::NUM_GROUPS, 0.0f);
+
+    for (size_t g = 0; g < groups.size(); ++g) {
+    size_t dim = std::min(emb.size(), projectionMatrix[g].size());
+    for (size_t i = 0; i < dim; ++i)
+        groups[g] += emb[i] * projectionMatrix[g][i];
+        groups[g] = std::tanh(groups[g]);
+    }
+    return groups;
 }
 
 void EvolutionModule::recordReduction() {
@@ -147,7 +154,7 @@ void EvolutionModule::evaluateFitness(
     {
         best_fitness = current_metrics.overall_fitness;
 
-        std::cout << "\n🏆 New best fitness: "
+        std::cout << "\nNew best fitness: "
                   << best_fitness
                   << " | Lang: " << langFitness
                   << " | Energy: " << energyFitness
@@ -186,7 +193,7 @@ void EvolutionModule::evaluateFitness(
     // ===== 10. Периодический вывод =====
     if (total_steps % 500 == 0)
     {
-        std::cout << "📊 Fitness Report | "
+        std::cout << "Fitness Report | "
                   << "Lang: " << langFitness
                   << " | Energy: " << energyFitness
                   << " | Stability: " << stabilityFitness
@@ -196,7 +203,7 @@ void EvolutionModule::evaluateFitness(
                   << std::endl;
     }
 }
-
+/*
 // Устаревшие методы оценки - оставляем заглушки
 double EvolutionModule::calculateCodeSizeScore() const { return 0.5; }
 double EvolutionModule::calculatePerformanceScore(double) const { return 0.5; }
@@ -204,7 +211,7 @@ double EvolutionModule::calculateEnergyScore(const NeuralFieldSystem& system) co
     double energy = system.computeTotalEnergy();
     return 1.0 / (energy + 0.001);
 }
-
+*/
 // Предложение мутации
 bool EvolutionModule::proposeMutation(NeuralFieldSystem& system) {
     if (in_stasis) {
@@ -213,11 +220,11 @@ bool EvolutionModule::proposeMutation(NeuralFieldSystem& system) {
     }
     
     if (!canReduceComplexity()) {
-        std::cout << "⏳ Mutation on cooldown, skipping..." << std::endl;
+        std::cout << "Mutation on cooldown, skipping..." << std::endl;
         return false;
     }
     
-    std::cout << "🧬 Proposing mutation at step " << total_steps << std::endl;
+    std::cout << "Proposing mutation at step " << total_steps << std::endl;
     
     if (immutable_core.requestPermission("system_mutation")) {
         mutateParameters(system);
@@ -276,13 +283,14 @@ void EvolutionModule::testEvolutionMethods() {
 // evolveCodeOptimization, optimizeConfigFiles, createOptimalConfig,
 // generateOptimizedCode, generateOptimizedDynamics, generateOptimizedLearning,
 // analyzeCodeEfficiency - все удалены
-
+/*
 void EvolutionModule::optimizeSystemParameters() {
     // Заглушка - параметры мутируются в mutateParameters
 }
+*/
 
 void EvolutionModule::applyMinimalMutation(NeuralFieldSystem& system) {
-    std::cout << "🔋 Minimal mutation in stasis mode" << std::endl;
+    std::cout << " Minimal mutation in stasis mode" << std::endl;
     mutateParameters(system); // просто вызываем ту же мутацию
 }
 
@@ -306,7 +314,7 @@ bool EvolutionModule::createBackup() {
             meta.close();
         }
         
-        std::cout << "💾 Backup created: " << backup_name << std::endl;
+        std::cout << "Backup created: " << backup_name << std::endl;
         return true;
         
     } catch (const std::exception& e) {
@@ -367,9 +375,9 @@ void EvolutionModule::rollbackToBestVersion() {
     if (restoreFromBackup()) {
         best_fitness = 0.0;
         current_metrics = EvolutionMetrics();
-        std::cout << "✅ Rollback completed successfully" << std::endl;
+        std::cout << "Rollback completed successfully" << std::endl;
     } else {
-        std::cout << "❌ Rollback failed" << std::endl;
+        std::cout << "Rollback failed" << std::endl;
     }
 }
 
@@ -388,41 +396,26 @@ bool EvolutionModule::validateImprovement() const {
 }
 
 void EvolutionModule::saveEvolutionState() {
-    try {
-        std::ofstream state_file("dump/evolution_state.txt");
-        if (state_file.is_open()) {
-            state_file << "Evolution State\n";
-            state_file << "===============\n";
-            state_file << "Total steps: " << total_steps << "\n";
-            state_file << "Current fitness: " << current_metrics.overall_fitness << "\n";
-            state_file << "Best fitness: " << best_fitness << "\n";
-            state_file.close();
-        }
-        
-        std::ofstream history_file("dump/evolution_history.csv");
-        if (history_file.is_open()) {
-            history_file << "step,fitness\n";
-            for (size_t i = 0; i < history.size(); ++i) {
-                history_file << i << "," << history[i].overall_fitness << "\n";
-            }
-            history_file.close();
-        }
-        
-    } catch (...) {
-        std::cout << "Failed to save evolution state" << std::endl;
-    }
+    EvolutionDumpData data;
+    data.generation = total_steps / 1000;
+    data.metrics = current_metrics;
+    data.energy_state = 0; // или вычислить
+    data.code_hash = getCurrentCodeHash();
+    
+    // Используем MemoryManager
+    memoryManager.saveEvolutionState(data, "evolution_state.bin");
 }
 
 void EvolutionModule::enterStasis(NeuralFieldSystem& system) {
     in_stasis = true;
     system.enterLowPowerMode();
-    std::cout << "💤 SYSTEM ENTERED STASIS MODE" << std::endl;
+    std::cout << "SYSTEM ENTERED STASIS MODE" << std::endl;
     saveEvolutionState();
 }
 
 void EvolutionModule::exitStasis() {
     in_stasis = false;
-    std::cout << "⚡ SYSTEM EXITED STASIS MODE" << std::endl;
+    std::cout << "SYSTEM EXITED STASIS MODE" << std::endl;
 }
 
 bool EvolutionModule::isInStasis() const {

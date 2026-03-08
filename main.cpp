@@ -8,6 +8,9 @@
 #include <filesystem>
 
 // Подключаем новую архитектуру
+// nen
+#include "core/CoreSystem.hpp"
+// Подключаем CoreSystem вместо отдельных компонентов
 #include "core/NeuralFieldSystem.hpp"
 #include "modules/LearningModule.hpp"
 #include "modules/DynamicsModule.hpp"
@@ -19,9 +22,10 @@
 #include "modules/EvolutionModule.hpp"
 #include "modules/ResourceMonitor.hpp"
 #include "modules/ConfigStructs.hpp"
-#include "data/MemoryModule.hpp"
 #include "modules/MetaCognitiveModule.hpp"
 #include "modules/lang/LanguageModule.hpp"  // Добавлено!
+//#include "core/MemoryManager.hpp"
+//#include "core/Component.hpp"
 
 class ConfigLoader {
 public:
@@ -179,7 +183,7 @@ int main() {
                               resConfig, evolConfig);
 
     // Параметры системы для новой архитектуры
-    double dt = 0.001;  // шаг интегрирования
+    double dt = 0.001;
     unsigned int windowWidth = 800;
     unsigned int windowHeight = 700;
 
@@ -188,57 +192,55 @@ int main() {
               << NeuralFieldSystem::GROUP_SIZE << " neurons = "
               << NeuralFieldSystem::TOTAL_NEURONS << " total neurons" << std::endl;
     
-    // ИНИЦИАЛИЗАЦИЯ НОВОЙ АРХИТЕКТУРЫ
-    NeuralFieldSystem neuralSystem(dt);
+    // ===== СОЗДАЕМ И ИНИЦИАЛИЗИРУЕМ CORESYSTEM =====
+    CoreSystem core;
+
+    // Инициализируем с конфигурационным файлом
+    if (!core.initialize("config/system_config.json")) {
+        std::cerr << "Failed to initialize CoreSystem" << std::endl;
+        return 1;
+    }
     
-    std::mt19937 rng(42);
-    neuralSystem.initializeRandom(rng);
-    
-    // Инициализация модулей
-    ImmutableCore immutable_core;
-    EvolutionModule evolution(immutable_core, evolConfig);
+    // Получаем доступ к компонентам ядра - ТОЛЬКО ОДИН РАЗ!
+    NeuralFieldSystem& neuralSystem = core.getNeuralSystem();  // Это ссылка
+    MemoryManager& memoryManager = core.getMemory();
+    ImmutableCore& immutable_core = core.getImmutableCore();
+
+    // Регистрируем модули в CoreSystem
+    auto* evolution = core.registerComponent<EvolutionModule>(
+        "evolution",
+        immutable_core, 
+        evolConfig, 
+        memoryManager);
+
+    // Теперь создаем LanguageModule с обоими параметрами
+    // neuralSystem - это ссылка, поэтому передаем как есть
+    auto* language = core.registerComponent<LanguageModule>(
+        "language", 
+        neuralSystem,      // передаем ссылку
+        *evolution         // разыменовываем указатель в ссылку
+    );
+
+    auto* metacog = core.registerComponent<MetaCognitiveModule>("metacognition", neuralSystem);
+    // Создаем остальные модули (они пока не Component)
     ResourceMonitor resources(resConfig);
-    MetaCognitiveModule metacog(neuralSystem);
-    
-    evolution.testEvolutionMethods();
-    
-    // Learning и Dynamics модули (адаптированы под новую архитектуру)
     LearningModule learning(learnConfig);
     DynamicsModule dynamics(dynConfig);
 
-    // ИНИЦИАЛИЗАЦИЯ МОДУЛЯ ПАМЯТИ
-    MemoryConfig memConfig;
-    memConfig.max_records = 5000;
-    memConfig.feature_dim = 64;  // 64 признака из getFeatures()
-    memConfig.global_decay_factor = 0.995f;
-    memConfig.similarity_threshold = 0.7f;
-    
-    MemoryController memory(memConfig);
-
-    // ИНИЦИАЛИЗАЦИЯ ЯЗЫКОВОГО МОДУЛЯ (НОВАЯ ВЕРСИЯ)
-    LanguageModule language(neuralSystem);
-    
-    // Переменные для работы с памятью
+    // Переменные для работы
     float bestFitness = 0.0f;
     uint8_t lastAction = 0;
     float lastReward = 0.0f;
     float cumulativeReward = 0.0f;
     int actionsTaken = 0;
     
-    std::cout << "! Memory module initialized:" << std::endl;
-    std::cout << "   - Max records: " << memConfig.max_records << std::endl;
-    std::cout << "   - Feature dim: " << memConfig.feature_dim << std::endl;
-    std::cout << "   - Decay factor: " << memConfig.global_decay_factor << std::endl;
-
     // Инициализация UI и визуализации
     UIModule ui(uiConfig, windowWidth, windowHeight);
-    ui.setLanguageModule(&language);
+    ui.setLanguageModule(language);
     int visWidth = ui.getVisualizationWidth();
     int visHeight = ui.getVisualizationHeight();
-    ui.setNeuralSystem(&neuralSystem);
+    ui.setNeuralSystem(&neuralSystem);  // передаем указатель на neuralSystem
     
-    // Для визуализации нам нужен доступ к плоским векторам
-    // Визуализация должна быть адаптирована под новую архитектуру
     VisualizationModule visualization(visConfig, NeuralFieldSystem::NUM_GROUPS, 
                                       NeuralFieldSystem::GROUP_SIZE, visWidth, visHeight);
     InteractionModule interaction(interConfig, NeuralFieldSystem::NUM_GROUPS, 
@@ -247,21 +249,21 @@ int main() {
 
     // Создание окна
     sf::RenderWindow window(sf::VideoMode({windowWidth, windowHeight}), 
-                           "Advanced Neural Field System - MaryAI (Group Architecture)");
+                           "Advanced Neural Field System - MaryAI");
 
     // Переменные симуляции
     int step = 0;
     bool simulation_running = false;
     bool system_in_stasis = false;
 
-    // Загружаем предыдущую память если есть
-    if (std::ifstream("dump/best_memory.dat").good()) {
-        if (memory.loadFromFile("dump/best_memory.dat")) {
-            std::cout << "! Loaded " << memory.size() << " memories from file" << std::endl;
-        }
+    // Загружаем память если есть
+    if (std::ifstream("dump/short_term.bin").good()) {
+        memoryManager.loadAll();
+        std::cout << "! Loaded memory from dump/" << std::endl;
     }
-    
-    // Основной цикл
+    // новый UI 
+    // ========= Новый Основной Цикл =============== !!!!
+        // Основной цикл
     while (window.isOpen()) {
         // ОБРАБОТКА СОБЫТИЙ
         while (auto eventOpt = window.pollEvent()) {
@@ -274,10 +276,8 @@ int main() {
                 ui.handleMouseWheel(*mouseWheel);
             }
             else if (const auto* mousePressed = event.getIf<sf::Event::MouseButtonPressed>()) {
-                // Сначала обрабатываем UI
                 ui.handleMouseClick(*mousePressed, neuralSystem, simulation_running, statistics);
                 
-                // Потом проверяем визуализацию
                 int mouseX = mousePressed->position.x;
                 int currentVisWidth = ui.getVisualizationWidth();
                 
@@ -294,7 +294,6 @@ int main() {
             }
         }
 
-        // МОНИТОРИНГ РЕСУРСОВ
         resources.update();
         
         if (!system_in_stasis && resources.checkAndTriggerOverload()) {
@@ -304,22 +303,20 @@ int main() {
         if (simulation_running) {
             auto start_time = std::chrono::high_resolution_clock::now();
             
-            // ОСНОВНАЯ СИМУЛЯЦИЯ (НОВАЯ АРХИТЕКТУРА)
-            neuralSystem.step();  // Один шаг эволюции всей системы
+            // Обновляем CoreSystem
+            core.update(dt);
             
-            // Применяем дополнительные модули если нужно
             if (dynConfig.enabled && !system_in_stasis) {
-                // dynamics.applyDynamics(neuralSystem); // Нужно адаптировать
+                // dynamics.applyDynamics(neuralSystem);
             }
                 
             if (learnConfig.enabled && !system_in_stasis) {
-                // learning.applyLearning(neuralSystem); // Нужно адаптировать
+                // learning.applyLearning(neuralSystem);
             }
 
-            // Каждые 100 шагов - саморефлексия
             if (step % 100 == 0) {
                 neuralSystem.reflect();
-                metacog.think();
+                metacog->think();
                 
                 if (neuralSystem.evaluateProgress()) {
                     std::cout << "Goal achieved!" << std::endl;
@@ -331,28 +328,40 @@ int main() {
             auto end_time = std::chrono::high_resolution_clock::now();
             double step_time = std::chrono::duration<double>(end_time - start_time).count();
 
-            
             // ЭВОЛЮЦИЯ И ОЦЕНКА
-            evolution.evaluateFitness(neuralSystem, step_time, language);
+            evolution->evaluateFitness(neuralSystem, step_time, *language);
             
             // ========== РАБОТА С ПАМЯТЬЮ ==========
             if (!system_in_stasis) {
                 std::vector<float> currentFeatures = neuralSystem.getFeatures();
-                auto similarIndices = memory.findSimilar(currentFeatures, 3);
+                auto similarIndices = memoryManager.findSimilar("neural", currentFeatures, 3);
                 
                 if (!similarIndices.empty()) {
                     std::vector<int> actionVotes(10, 0);
+                    
+                    const auto& neuralMemory = memoryManager.getLongTermMemory().at("neural");
+                    
                     for (size_t idx : similarIndices) {
-                        const auto& past = memory.getRecords()[idx];
-                        actionVotes[past.action % 10] += static_cast<int>(past.utility * 10);
+                        if (idx < neuralMemory.size()) {
+                            const auto& past = neuralMemory[idx];
+                            
+                            auto actionIt = past.metadata.find("action");
+                            auto utilityIt = past.metadata.find("utility");
+                            
+                            if (actionIt != past.metadata.end() && utilityIt != past.metadata.end()) {
+                                int pastAction = std::stoi(actionIt->second);
+                                float pastUtility = std::stof(utilityIt->second);
+                                actionVotes[pastAction % 10] += static_cast<int>(pastUtility * 10);
+                            }
+                        }
                     }
-                    lastAction = std::max_element(actionVotes.begin(), actionVotes.end()) 
-                               - actionVotes.begin();
+                    
+                    lastAction = std::max_element(actionVotes.begin(), actionVotes.end()) - actionVotes.begin();
                 } else {
                     lastAction = rand() % 5;
                 }
                 
-                float currentFitness = evolution.getOverallFitness();
+                float currentFitness = evolution->getOverallFitness();
                 float fitnessDelta = currentFitness - bestFitness;
                 lastReward = fitnessDelta * 10.0f;
                 
@@ -361,24 +370,24 @@ int main() {
                 
                 float utility = (currentFitness * 0.5f) + (cumulativeReward * 0.3f) + 0.2f;
                 
-                MemoryRecord newRec(currentFeatures, lastAction, lastReward, utility);
-                memory.addRecord(newRec);
+                std::map<std::string, std::string> metadata;
+                metadata["action"] = std::to_string(lastAction);
+                metadata["reward"] = std::to_string(lastReward);
+                metadata["utility"] = std::to_string(utility);
+                metadata["step"] = std::to_string(step);
                 
-                if (step % 200 == 0 && step > 0) {
-                    memory.decayAll();
-                }
+                memoryManager.store("neural", "features", currentFeatures, utility, metadata);
                 
                 if (currentFitness > bestFitness) {
                     bestFitness = currentFitness;
-                    memory.saveToFile("dump/best_memory.dat");
+                    
                     std::cout << "\n🏆 New best fitness: " << bestFitness 
-                              << " | Records: " << memory.size() << std::endl;
+                              << " | Records: " << memoryManager.getLongTermMemory().size() << std::endl;
                 }
                 
                 if (step % 1000 == 0 && step > 0) {
-                    std::string checkpointFile = "dump/memory_checkpoint_" + std::to_string(step) + ".dat";
-                    memory.saveToFile(checkpointFile);
-                    std::cout << "\nCheckpoint saved: " << checkpointFile << std::endl;
+                    memoryManager.saveAll();
+                    std::cout << "\n💾 Checkpoint saved" << std::endl;
                 }
                 
                 actionsTaken++;
@@ -389,32 +398,29 @@ int main() {
 
             // УМНЫЙ ВЫЗОВ ЭВОЛЮЦИИ
             if (step % evolConfig.evolution_interval_steps == 0 && !system_in_stasis) {
-                if (evolution.getOverallFitness() < evolConfig.min_fitness_for_optimization) {
-                    evolution.proposeMutation(neuralSystem);
+                if (evolution->getOverallFitness() < evolConfig.min_fitness_for_optimization) {
+                    evolution->proposeMutation(neuralSystem);
                 }
             }
             
-            // ОБНОВЛЕНИЕ СТАТИСТИКИ
             statistics.update(neuralSystem, step, dt);
 
-            // УПРАВЛЕНИЕ СТАЗИСОМ
             if (step % 1000 == 0 && system_in_stasis) {
                 if (resources.getCurrentLoad() < 30.0) {
-                    evolution.exitStasis();
+                    evolution->exitStasis();
                     system_in_stasis = false;
                     std::cout << "Auto-exited stasis" << std::endl;
                 }
             }
 
-            // ВЫВОД В КОНСОЛЬ
             if (step % 100 == 0) {
                 const auto& stats = statistics.getCurrentStats();
-                const auto& metrics = evolution.getCurrentMetrics();
+                const auto& metrics = evolution->getCurrentMetrics();
                 std::cout << "\rStep " << step 
                           << " | Energy: " << stats.total_energy
                           << " | Fitness: " << metrics.overall_fitness
                           << " | Best: " << bestFitness
-                          << " | Memory: " << memory.size() << "/" << memConfig.max_records
+                          << " | Memory: " << memoryManager.getLongTermMemory().size() 
                           << " | CPU: " << resources.getCurrentLoad() << "%   ";
                 std::cout.flush();
             }
@@ -429,7 +435,7 @@ int main() {
         }
 
         ui.draw(window, neuralSystem, statistics, simulation_running && !system_in_stasis, 
-                resources, evolution, memory, step);
+                resources, *evolution, memoryManager, step);
         
         window.display();
     }
@@ -438,9 +444,9 @@ int main() {
     std::cout << "\n\n💾 Saving all data to dump/ folder..." << std::endl;
     
     statistics.saveToFile("dump/simulation_statistics.csv");
-    evolution.saveEvolutionState();
-    memory.saveToFile("dump/final_memory.dat");
-    language.saveAll();  // Сохраняем языковые данные
+    evolution->saveEvolutionState();
+    memoryManager.saveAll();
+    language->saveAll();
     
     if (std::filesystem::exists("config/system_config.json")) {
         std::filesystem::copy_file("config/system_config.json", 
@@ -457,16 +463,19 @@ int main() {
         meta << "Total neurons: " << NeuralFieldSystem::TOTAL_NEURONS << "\n";
         meta << "Total steps: " << step << "\n";
         meta << "Best fitness: " << bestFitness << "\n";
-        meta << "Final memory records: " << memory.size() << "/" << memConfig.max_records << "\n";
+        meta << "Memory records: " << memoryManager.getLongTermMemory().size() << "\n";
         meta << "Actions taken: " << actionsTaken << "\n";
-        meta << "Learned words: " << language.getLearnedWordsCount() << "\n";  // Потребуется метод getLearnedWordsCount()
+        meta << "Learned words: " << language->getLearnedWordsCount() << "\n";
         meta.close();
     }
+    
+    // Завершаем работу CoreSystem
+    core.shutdown();
     
     std::cout << "\n=== FINAL STATS ===" << std::endl;
     std::cout << "Total steps: " << step << std::endl;
     std::cout << "Best fitness: " << bestFitness << std::endl;
-    std::cout << "Memory records: " << memory.size() << "/" << memConfig.max_records << std::endl;
+    std::cout << "Memory records: " << memoryManager.getLongTermMemory().size() << std::endl;
     std::cout << "Actions taken: " << actionsTaken << std::endl;
     std::cout << "Neurons: " << NeuralFieldSystem::TOTAL_NEURONS << " ("
               << NeuralFieldSystem::NUM_GROUPS << "x" << NeuralFieldSystem::GROUP_SIZE << ")" << std::endl;

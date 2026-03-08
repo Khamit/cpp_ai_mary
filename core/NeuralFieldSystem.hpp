@@ -12,6 +12,43 @@
  * Поддерживает 32 группы по 32 нейрона (всего 1024 нейрона).
  * Межгрупповые связи представлены матрицей 32x32.
  */
+ struct AttentionMechanism {
+    std::vector<double> attention_weights;  // веса внимания для групп
+    //TODO: Реализовать - нигде не используется!
+    std::vector<float> context_vector;     // контекстный вектор
+    // температура задана здесь!
+    float temperature = 1.0f;              // температура для softmax
+    
+    void computeAttention(const std::vector<double>& groupActivities) {
+        const size_t n = groupActivities.size();
+        attention_weights.resize(n);
+
+        if (n == 0) return;
+
+        float maxVal = static_cast<float>(*std::max_element(
+            groupActivities.begin(), groupActivities.end()));
+
+        // Защита от нулевой или отрицательной температуры
+        const float temp = (temperature <= 1e-6f) ? 1e-6f : temperature;
+
+        float sum = 0.0f;
+        for (size_t i = 0; i < n; i++) {
+            float v = std::exp((static_cast<float>(groupActivities[i]) - maxVal) / temp);
+            attention_weights[i] = v;
+            sum += v;
+        }
+
+        // Защита от деления на 0
+        if (sum <= 1e-12f) {
+            float uniform = 1.0f / static_cast<float>(n);
+            for (auto& w : attention_weights) w = uniform;
+            return;
+        }
+
+        float invSum = 1.0f / sum;
+        for (auto& w : attention_weights) w *= invSum;
+    }
+};
 class NeuralFieldSystem {
 public:
     static constexpr int NUM_GROUPS = 32;       ///< 32 группы
@@ -90,6 +127,9 @@ public:
     const std::vector<NeuralGroup>& getGroups() const { return groups; }
 
 private:
+    // ВНИМАНИЕ
+    AttentionMechanism attention;
+
     double dt;
     std::vector<NeuralGroup> groups;                 // 32 группы
     std::vector<std::vector<double>> interWeights;   // межгрупповые связи 32x32

@@ -1,11 +1,14 @@
+// modules/MetaCognitiveModule.hpp
 #pragma once
 #include "../core/NeuralFieldSystem.hpp"
+#include "../core/Component.hpp" 
 #include <string>
 #include <vector>
 #include <fstream>
 #include <random>
+#include <filesystem>
 
-class MetaCognitiveModule {
+class MetaCognitiveModule : public Component {  // <- Наследуем Component
 private:
     NeuralFieldSystem& neural_system;
     std::vector<std::string> insights;
@@ -16,6 +19,39 @@ public:
     MetaCognitiveModule(NeuralFieldSystem& ns) 
         : neural_system(ns), rng(std::random_device{}()) {}
     
+    // Реализация методов Component
+    std::string getName() const override { return "MetaCognitiveModule"; }
+    
+    bool initialize(const Config& config) override {
+        std::cout << "MetaCognitiveModule initialized" << std::endl;
+        return true;
+    }
+    
+    void shutdown() override {
+        std::cout << "MetaCognitiveModule shutting down" << std::endl;
+    }
+    
+    void update(float dt) override {
+        // Вызываем think каждый шаг обновления
+        think();
+    }
+    
+    void saveState(MemoryManager& memory) override {
+        std::vector<float> data;
+        data.push_back(static_cast<float>(insights.size()));
+        data.push_back(static_cast<float>(insight_quality.size()));
+        
+        std::map<std::string, std::string> metadata;
+        metadata["module"] = "metacognitive";
+        
+        memory.store(getName(), "state", data, 0.8f, metadata);
+    }
+    
+    void loadState(MemoryManager& memory) override {
+        // Загрузка состояния - можно реализовать позже
+    }
+    
+    // Специфические методы
     void think() {
         // Получаем состояние рефлексии
         auto state = neural_system.getReflectionState();

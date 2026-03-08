@@ -55,20 +55,34 @@ void NeuralFieldSystem::applyReentry(int iterations) {
     // Временные векторы для новых активностей групп
     std::vector<double> newGroupAvg(NUM_GROUPS, 0.0);
     std::vector<double> currAvg = getGroupAverages();
+    // attention.computeAttention(currAvg);
 
-    for (int iter = 0; iter < iterations; ++iter) {
-        // Вычисляем вход от других групп
-        for (int g = 0; g < NUM_GROUPS; ++g) {
-            double input = 0.0;
-            for (int h = 0; h < NUM_GROUPS; ++h) {
-                input += interWeights[g][h] * currAvg[h];
-            }
-            auto& phiGrp = groups[g].getPhiNonConst();
+for (int iter = 0; iter < iterations; ++iter) {
+
+    attention.computeAttention(currAvg);  // ← СНАЧАЛА внимание
+    // Очистка
+    std::fill(newGroupAvg.begin(), newGroupAvg.end(), 0.0);
+    // Вычисление вход групп
+    for (int g = 0; g < NUM_GROUPS; ++g) {
+        double input = 0.0;
+        for (int h = 0; h < NUM_GROUPS; ++h) {
+            float att = attention.attention_weights[h];
+            input += interWeights[g][h] * currAvg[h] * att;
+        }
+            // Лишнее получение phiGrp
+            // Ты его не используешь в этом месте.
+            // auto& phiGrp = groups[g].getPhiNonConst();
+            /*
+            Было так:
             // Преобразуем вход в изменение активности групп (простая модель)
             newGroupAvg[g] = currAvg[g] + dt * input;
             // Ограничение
             if (newGroupAvg[g] > 1.0) newGroupAvg[g] = 1.0;
             if (newGroupAvg[g] < 0.0) newGroupAvg[g] = 0.0;
+            */
+
+            newGroupAvg[g] = currAvg[g] + dt * input;
+            newGroupAvg[g] = std::clamp(newGroupAvg[g], 0.0, 1.0);
         }
         currAvg.swap(newGroupAvg);
     }
@@ -101,6 +115,13 @@ void NeuralFieldSystem::step(float globalReward, bool useSTDP) {
         } else {
             group.learnHebbian(globalReward);
         }
+    }
+
+    // 4. Градиентное обучение (если есть цель)
+    for (auto& group : groups) {
+        std::vector<double> target(GROUP_SIZE, 0.5); // пример цели
+        group.computeGradients(target);
+        group.applyGradients();
     }
     
     stepCounter++;

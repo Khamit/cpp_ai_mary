@@ -1,122 +1,18 @@
 {
-  "ase": {
-    "frequency": 1,
+  "haokh": {
     "correctness": 0,
     "times_rated": 1
   },
-  "enp": {
-    "frequency": 1,
+  "irltl": {
     "correctness": 0,
     "times_rated": 1
   },
-  "ern": {
-    "frequency": 1,
+  "oycuh": {
     "correctness": 0,
     "times_rated": 1
   },
-  "ese": {
-    "frequency": 1,
+  "ytors": {
     "correctness": 0,
     "times_rated": 1
-  },
-  "gdp": {
-    "frequency": 1,
-    "correctness": 0,
-    "times_rated": 1
-  },
-  "gie": {
-    "frequency": 1,
-    "correctness": 0,
-    "times_rated": 1
-  },
-  "htr": {
-    "frequency": 1,
-    "correctness": 0,
-    "times_rated": 1
-  },
-  "ieo": {
-    "frequency": 1,
-    "correctness": 0,
-    "times_rated": 1
-  },
-  "kal": {
-    "frequency": 1,
-    "correctness": 0,
-    "times_rated": 1
-  },
-  "nnl": {
-    "frequency": 1,
-    "correctness": 0,
-    "times_rated": 1
-  },
-  "nos": {
-    "frequency": 1,
-    "correctness": 0,
-    "times_rated": 1
-  },
-  "ott": {
-    "frequency": 1,
-    "correctness": 0,
-    "times_rated": 1
-  },
-  "pse": {
-    "frequency": 1,
-    "correctness": 0,
-    "times_rated": 1
-  },
-  "ptn": {
-    "frequency": 1,
-    "correctness": 0,
-    "times_rated": 1
-  },
-  "roh": {
-    "frequency": 1,
-    "correctness": 0,
-    "times_rated": 1
-  },
-  "rtt": {
-    "frequency": 1,
-    "correctness": 0,
-    "times_rated": 1
-  },
-  "ses": {
-    "frequency": 1,
-    "correctness": 0,
-    "times_rated": 1
-  },
-  "tes": {
-    "frequency": 1,
-    "correctness": 0,
-    "times_rated": 1
-  },
-  "uha": {
-    "frequency": 1,
-    "correctness": 0,
-    "times_rated": 1
-  },
-  "uie": {
-    "frequency": 1,
-    "correctness": 0,
-    "times_rated": 1
-  },
-  "wcn": {
-    "frequency": 1,
-    "correctness": 0,
-    "times_rated": 1
-  },
-  "wyt": {
-    "frequency": 1,
-    "correctness": 0,
-    "times_rated": 1
-  },
-  "ylc": {
-    "frequency": 1,
-    "correctness": 0,
-    "times_rated": 1
-  },
-  "zha": {
-    "frequency": 1,
-    "correctness": 0,
-    "times_rated": 1
-  },
+  }
 }

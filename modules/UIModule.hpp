@@ -7,11 +7,10 @@
 #include "ResourceMonitor.hpp"
 #include "EvolutionModule.hpp"
 #include <string>
-// Включить
 #include "lang/LanguageModule.hpp"
 
-// Forward declaration вместо include (чтобы избежать циклических зависимостей)
-class MemoryController;  // Добавлено!
+// Forward declaration
+class MemoryManager; 
 
    struct ChatMessage {
     std::string text;
@@ -32,10 +31,10 @@ public:
                      bool& simulation_running, StatisticsModule& stats);
     void handleMouseClick(const sf::Event::MouseButtonPressed& event, NeuralFieldSystem& system, 
                         bool& simulation_running, StatisticsModule& stats);
-    void draw(sf::RenderWindow& window, const NeuralFieldSystem& system, 
-            const StatisticsModule& stats, bool simulation_running,
-            const ResourceMonitor& resources, const EvolutionModule& evolution,
-            const MemoryController& memory, int step);  // Добавлено
+ void draw(sf::RenderWindow& window, const NeuralFieldSystem& system, 
+        const StatisticsModule& stats, bool simulation_running,
+        const ResourceMonitor& resources, const EvolutionModule& evolution,
+        const MemoryManager& memory, int step); 
     
     int getVisualizationWidth() const { return windowWidth - config.control_panel_width; }
     
@@ -101,8 +100,9 @@ private:
     sf::RectangleShape debugPanel;
     
     // Новые методы
-    void drawDebugPanel(sf::RenderWindow& window, const EvolutionModule& evolution, 
-                       const MemoryController& memory, int step);
+void drawDebugPanel(sf::RenderWindow& window, const EvolutionModule& evolution, 
+                   const MemoryManager& memory, int step);
+
     void drawDebugButton(sf::RenderWindow& window);
 
     // === AI CHAT ===
