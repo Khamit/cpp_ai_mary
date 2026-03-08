@@ -4,68 +4,82 @@ A sophisticated C++ simulation framework featuring a self-evolving neural field 
 
 ![Neural Field Simulation](docs/simulation_preview.png)
 
-### 🧠 Overview
-The core is a hybrid neuroevolutionary system with 1024 neurons (32 groups × 32 neurons), combining:
-Neural field dynamics with reentry (recurrent feedback)
-STDP plasticity with eligibility traces
-Group-level evolutionary algorithms
-Modular architecture with explicit component separation
+# ⚠️ Important Notice for Using the Project
 
-## 🎯 Key Features
-Multilevel Learning:
-STDP at synapses (learnSTDP)
-Hebbian learning (learnHebbian)
-Gradient descent (computeGradients / applyGradients)
-Evolutionary mutations at group level
+**Mary AI Core** is a local artificial intelligence core designed to run entirely on the user's device. Below are the key points regarding rights and responsibilities:  
 
-Attention Mechanism:
-Softmax attention between groups
-Integrated with reentry connections
+1. **Local Use**  
+   - The model **does not connect to the internet** and **does not transmit data anywhere**.  
+   - All operations are performed entirely on the user's device.  
 
-Memory Management:
-Short-term and long-term memory
-Data quantization (float → int8, ×4 memory saving)
-Threshold-based consolidation
+2. **Data Handling**  
+   - The core **does not collect, store, or transmit personal data** in its original form.  
+   - Any data entered by the user for training or adaptation **remains fully under the user's control**.  
 
-Immutable Core (ImmutableCore):
-Protects critical functions
-Enforces physical constraints (energy, CPU, code safety)
+3. **Adaptation and Modifications**  
+   - Users may **modify the core or extend it with new data or features**.  
+   - Any changes made by the user **are not the responsibility of the code author**.  
+   - The project author is responsible **only for the functionality and behavior of the code published in this repository**.  
 
-💡 Strengths
-Hybrid approach: combines biological plasticity (STDP) with gradient-based methods
-Energy-efficient: quantization and pruning save memory
-Modular: components can be added/removed without modifying the core
-Safe: immutable core protects critical functionality
-Multiscale memory: short-term to consolidated memory
+4. **Responsibility and Risks**  
+   - The author is **not liable** for:  
+     - any consequences of using modified versions of the core,  
+     - the user's handling of local data,  
+     - the behavior of the system after user modifications.  
+   - The user **bears full responsibility** for using, adapting, or distributing modified versions of the core.  
 
-⚠️ Limitations
-Fixed size: 1024 neurons, cannot scale dynamically
-Sequential processing: no parallel group execution
-STDP synchronous: real STDP is asynchronous
-No intra-group recurrence: only inter-group connections
-Simplified gradients: target = 0.5 for all neurons
+5. **Transparency and Ethics**  
+   - The model is intended to **assist the user** and should not be used for critical decisions affecting health, finances, or safety of others.  
+   - Any outputs or recommendations from the model **are results of the local program and should not be considered official advice**.  
 
-### EvolutionModule - Self-Optimizing Code
+6. **Compliance with Laws and Standards**  
+   - The core aligns with low-risk AI system requirements:  
+     - local data processing,  
+     - no automatic collection of personal data,  
+     - transparent usage.  
+   - Any user modifications or extensions **are outside the author's control**, and compliance with applicable laws is the user's responsibility.  
+
+💡 **Summary:**  
+The author is responsible **only for the code published in this repository**. The user fully controls local use, training, and modifications of the model. Any actions after modifications are **entirely the user's responsibility**.
+
+## (!) Key Features
+
+### Core Neural Engine
+- **1024 neurons** (32x32 grid) for complex pattern formation
+- Symplectic integration for energy conservation
+- Real-time field visualization with SFML
+- Configurable physical parameters (mass, coupling, damping)
+
+### (!) MemoryModule - Intelligent Experience Storage
+- **Priority-based memory** with automatic cleanup
+- 64-dimensional feature vectors from neural activity
+- Cosine similarity search for relevant past experiences
+- Automatic decay (forgetting) mechanism: `utility *= 0.995`
+- Persistent storage with checkpoint system
+- Memory limits: configurable up to 10,000 records
+
+### (!) EvolutionModule - Self-Optimizing Code
 Real-time fitness evaluation based on three metrics:
 - **Code Efficiency Score**: Evaluates code size and complexity
 - **Performance Score**: Measures computational efficiency
 - **Energy Score**: Tracks system energy consumption
 
-Architectural Highlights:
-```bash
-// Unique combination:
-- Neural field theory + STDP + Evolution
-- 32 groups × 32 neurons = 1024 neurons
-- Inter-group attention connections
-- Eligibility trace for reward-modulated STDP
-```
+Features:
+- Autonomous code mutation proposals
+- Fitness-based evolution triggers (threshold: 0.8)
+- Automatic backup before evolution cycles
+- Stasis mode during resource constraints
 
-### Unique Advantage - The only system combining:
-Neural field theory (spatial organization)
-STDP with eligibility traces (temporal plasticity)
-Group-level evolution (architectural adaptation)
-Reentry mechanism (integration across timescales)
-Ideal for exploring cognitive architectures and artificial consciousness, where multi-timescale learning integration is crucial.
+### ResourceMonitor - Intelligent Resource Management
+- Adaptive CPU thresholds (default: 85%)
+- Memory usage tracking (default: 90%)
+- Debounce protection for overload detection
+- Dynamic performance scaling
+
+### ImmutableCore - Secure Foundation
+- Permission system for mutations
+- Safety protocols for stable evolution
+- Rollback mechanisms for failed optimizations
 
 ### 🤝 Contributing
 We welcome contributions! Please see our Contributing Guidelines for details.
