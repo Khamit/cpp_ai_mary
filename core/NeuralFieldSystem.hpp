@@ -73,7 +73,11 @@ public:
      * 2. Межгрупповое взаимодействие (повторный вход).
      * 3. Обучение (внутригрупповое и межгрупповое).
      */
-    void step(float globalReward = 0.0f, bool useSTDP = true);  // значение по умолчанию
+    // НОВАЯ ВЕРСИЯ step с трехуровневой архитектурой
+    void step(float globalReward, int stepNumber);  // перегрузка с int
+    
+    // Для обратной совместимости (если нужно)
+    //void step(float globalReward = 0.0f, bool useSTDP = true); // старая версия
 
     /** Вычислить общую энергию системы (для совместимости). */
     double computeTotalEnergy() const;
@@ -150,4 +154,12 @@ private:
     static constexpr int HISTORY_SIZE = 100;
     std::string current_goal;
     std::vector<double> goal_embedding;
+
+    // НОВЫЕ МЕТОДЫ
+    float computeGlobalImportance();  // вычисление важности для консолидации
+    void applyPruningByElevation();   // прореживание на основе высоты
+    void consolidateInterWeights();   // консолидация межгрупповых связей
+    
+    // НОВЫЕ ПОЛЯ
+    bool pendingEvolutionRequest_ = false;  // флаг для эволюции
 };

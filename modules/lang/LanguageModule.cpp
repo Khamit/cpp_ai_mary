@@ -1,4 +1,3 @@
-#include <iostream>
 #include "LanguageModule.hpp"
 #include "modules/EvolutionModule.hpp"
 #include "../../core/Config.hpp"
@@ -14,49 +13,36 @@
 #include <set>
 #include <data/LanguageKnowledgeBase.hpp>
 
-LanguageModule::LanguageModule(NeuralFieldSystem& system, EvolutionModule& evolution)
-    : system_(system), evolution_(evolution), rng_(std::random_device{}()) {
+// ИЗМЕНЕН КОНСТРУКТОР - теперь с MemoryManager
+LanguageModule::LanguageModule(NeuralFieldSystem& system, EvolutionModule& evolution, MemoryManager& memory)
+    : system_(system), evolution_(evolution), memory_(memory), rng_(std::random_device{}()) {
     
-    alphabet_ = {
-        'a','b','c','d','e','f','g','h','i','j','k','l','m',
-        'n','o','p','q','r','s','t','u','v','w','x','y','z'
-    };
+    wordEngine_ = std::make_unique<WordGenerationEngine>();
     
-    // Initialize common bigrams
-    common_bigrams_ = {
-        {'t','h', 0.0356f}, {'h','e', 0.0307f}, {'i','n', 0.0243f},
-        {'e','r', 0.0205f}, {'a','n', 0.0199f}, {'r','e', 0.0185f}
-    };
-    
-    // Initialize semantic links
-    semantic_links_ = {
-        {"hello", "world", 0.9f, "greeting"},
-        {"good", "morning", 0.8f, "time"},
-        {"neural", "network", 0.8f, "technical"}
-    };
-    
-    // Initialize collocations
-    collocations_ = {
-        {"of the", 0.9f}, {"in the", 0.9f}, {"to be", 0.8f}
-    };
+    // НОВОЕ: загружаем профиль пользователя из памяти
+    user_profile_.loadFromMemory(memory_);
     
     loadAll();
+    
+    std::cout << "LanguageModule initialized" << std::endl;
+    if (user_profile_.knowsUser()) {
+        std::cout << "👤 Known user profile loaded" << std::endl;
+    }
 }
 
 bool LanguageModule::initialize(const Config& config) {
-    std::cout << "LanguageModule initialized" << std::endl;
+    std::cout << "LanguageModule initialized from config" << std::endl;
     return true;
 }
 
 void LanguageModule::shutdown() {
     saveAll();
 }
-// TODO: Возможны чрезмерные вызовы! Обезопасить метод
+
 void LanguageModule::update(float dt) {
-    // Применяем накопленные мутации раз в несколько циклов
     static float mutation_timer = 0;
     mutation_timer += dt;
-    if (mutation_timer > 1.0f) { // Раз в секунду
+    if (mutation_timer > 1.0f) {
         applyPendingMutations();
         mutation_timer = 0;
     }
@@ -76,28 +62,9 @@ void LanguageModule::saveState(MemoryManager& memory) {
         memory.store("LanguageModule", "word", wordData, data.correctness, metadata);
     }
 }
-// Мутация
-void LanguageModule::requestConnectionMutation(int from, int to, double delta, const std::string& reason) {
-    // Запоминаем предложение мутации
-    pending_mutations_.push_back({from, to, delta, reason});
-    
-    // Не вызываем мутацию напрямую, а предлагаем эволюционному модулю
-    // Это будет обработано в следующем цикле обновления
-}
-
-void LanguageModule::applyPendingMutations() {
-    for (const auto& mutation : pending_mutations_) {
-        // Здесь EvolutionModule решает, применить ли мутацию
-        if (evolution_.proposeMutation(system_)) {
-            // Если разрешено, применяем через system_
-            system_.strengthenInterConnection(mutation.from, mutation.to, mutation.delta);
-        }
-    }
-    pending_mutations_.clear();
-}
 
 void LanguageModule::loadState(MemoryManager& memory) {
-    // Implementation would depend on MemoryManager's retrieval API
+    // Загрузка состояния (можно реализовать позже)
     std::cout << "LanguageModule state loaded" << std::endl;
 }
 
@@ -111,7 +78,6 @@ std::vector<double> LanguageModule::getGroupActivities(int start, int end) const
     return activities;
 }
 
-
 std::vector<int> LanguageModule::findActiveGroups(double threshold) const {
     std::vector<int> active;
     const auto& groups = system_.getGroups();
@@ -123,108 +89,30 @@ std::vector<int> LanguageModule::findActiveGroups(double threshold) const {
     return active;
 }
 
-// Word generation
+// Word generation (теперь через WordGenerationEngine)
 std::string LanguageModule::generateWordFromGroups() {
-    // Use context for semantic suggestions
-    if (!word_history_.empty() && std::uniform_real_distribution<>(0, 1)(rng_) < 0.3f) {
-        std::string lastWord = word_history_.back();
-        
-        // Check semantic links
-        for (const auto& link : semantic_links_) {
-            if (link.word1 == lastWord && link.strength > 0.7f) {
-                word_history_.push_back(link.word2);
-                if (word_history_.size() > 20) word_history_.erase(word_history_.begin());
-                return link.word2;
-            }
-        }
-    }
-    
-    // Generate new word
-    std::string word;
-    active_groups_history_.clear();
-    
-    auto semanticActivity = getGroupActivities(GROUP_SEMANTIC_START, GROUP_SEMANTIC_END);
-    float avgSemantic = semanticActivity.empty() ? 0.5f : 
-        std::accumulate(semanticActivity.begin(), semanticActivity.end(), 0.0f) / semanticActivity.size();
-    
-    int wordLength = 5 + static_cast<int>(avgSemantic * 5);
-    wordLength = std::clamp(wordLength, 3, 12);
-    
-    char prevChar = 0;
-    for (int pos = 0; pos < wordLength; ++pos) {
-        char nextChar = selectNextChar(prevChar);
-        word += nextChar;
-        prevChar = nextChar;
-        
-        auto currentActive = findActiveGroups(0.7);
-        active_groups_history_.insert(active_groups_history_.end(), 
-                                      currentActive.begin(), currentActive.end());
-    }
-    
-    last_generated_word_ = word;
-    word_history_.push_back(word);
-    if (word_history_.size() > 20) word_history_.erase(word_history_.begin());
-    
-    autoEvaluateGeneratedWord(word);
-    return word;
+    return wordEngine_->generateWordFromGroups(
+        system_,
+        rng_,
+        active_groups_history_,
+        word_history_,
+        last_generated_word_,
+        learned_words_
+    );
 }
 
-char LanguageModule::selectNextChar(char prevChar) {
-    std::vector<float> letterScores(26, 0.0f);
-    
-    // Base English letter frequencies
-    const float englishFreq[26] = {
-        0.0817f, 0.0149f, 0.0278f, 0.0425f, 0.1270f, 0.0223f, 0.0202f, 0.0609f,
-        0.0697f, 0.0015f, 0.0077f, 0.0403f, 0.0241f, 0.0675f, 0.0751f, 0.0193f,
-        0.0009f, 0.0599f, 0.0633f, 0.0906f, 0.0276f, 0.0098f, 0.0236f, 0.0015f,
-        0.0197f, 0.0007f
-    };
-    // TODO: лучше добавить fallback
-    for (int i = 0; i < 26; ++i) {
-        letterScores[i] = englishFreq[i] * 10.0f;
-    }
-    
-    // Bigram influence
-    if (prevChar >= 'a' && prevChar <= 'z') {
-        for (const auto& bigram : common_bigrams_) {
-            if (bigram.first == prevChar) {
-                int idx = bigram.second - 'a';
-                letterScores[idx] += bigram.probability * 30.0f;
-            }
+// Эволюция
+void LanguageModule::requestConnectionMutation(int from, int to, double delta, const std::string& reason) {
+    pending_mutations_.push_back({from, to, delta, reason});
+}
+
+void LanguageModule::applyPendingMutations() {
+    for (const auto& mutation : pending_mutations_) {
+        if (evolution_.proposeMutation(system_)) {
+            system_.strengthenInterConnection(mutation.from, mutation.to, mutation.delta);
         }
     }
-    
-    // Learned words influence
-    for (const auto& [word, data] : learned_words_) {
-        if (data.correctness > 0.6f) {
-            for (size_t i = 0; i < word.length() - 1; ++i) {
-                if (word[i] == prevChar) {
-                    int idx = word[i+1] - 'a';
-                    letterScores[idx] += data.correctness * 100.0f;
-                }
-            }
-        }
-    }
-    
-    // Small noise
-    std::uniform_real_distribution<float> noiseDist(0.99f, 1.05f);
-    for (float& score : letterScores) {
-        score *= noiseDist(rng_);
-    }
-    
-    // Select letter
-    float total = std::accumulate(letterScores.begin(), letterScores.end(), 0.0f);
-    float r = std::uniform_real_distribution<float>(0.0f, total)(rng_);
-    float cumulative = 0.0f;
-    
-    for (int i = 0; i < 26; ++i) {
-        cumulative += letterScores[i];
-        if (r <= cumulative) {
-            return alphabet_[i];
-        }
-    }
-    
-    return 'a';
+    pending_mutations_.clear();
 }
 
 // Learning
@@ -243,8 +131,9 @@ void LanguageModule::learnWordPattern(const std::string& word, float rating) {
     
     learned_words_[word] = lw;
     reinforceActiveGroups(rating);
-    updateBigramGroups(word, rating);
-    updateSemanticGroups(word, rating);
+    
+    // Обновляем статистику в WordGenerationEngine
+    wordEngine_->learnWordPattern(word, rating, lw.semantic_vector, lw.context_vector);
 }
 
 void LanguageModule::reinforceActiveGroups(float rating) {
@@ -258,7 +147,6 @@ void LanguageModule::reinforceActiveGroups(float rating) {
         if (count > 1) uniqueGroups.push_back(g);
     }
     
-    // ИСПРАВИТЬ: добавить цикл по uniqueGroups
     for (size_t i = 0; i < uniqueGroups.size(); ++i) {
         for (size_t j = i + 1; j < uniqueGroups.size(); ++j) {
             double delta = rating * 0.01;
@@ -271,41 +159,14 @@ void LanguageModule::reinforceActiveGroups(float rating) {
     }
 }
 
+// Эти методы теперь пустые или вызывают WordGenerationEngine
 void LanguageModule::updateBigramGroups(const std::string& word, float rating) {
-    for (size_t i = 0; i < word.length() - 1; ++i) {
-        char c1 = std::tolower(word[i]);
-        char c2 = std::tolower(word[i+1]);
-        
-        auto it = std::find_if(common_bigrams_.begin(), common_bigrams_.end(),
-            [c1, c2](const Bigram& b) { return b.first == c1 && b.second == c2; });
-        
-        if (it != common_bigrams_.end()) {
-            it->occurrences++;
-            it->probability = std::clamp(it->probability * 0.9f + (rating > 0.5f ? 0.1f : -0.05f), 
-                                        0.001f, 0.1f);
-        }
-        
-        int bigramGroup = GROUP_BIGRAMS_START + (c1 % 4);
-        int targetGroup = GROUP_PHONETICS_START + (c2 % 4);
-        requestConnectionMutation(bigramGroup, targetGroup, rating * 0.05, "bigram_learning");
-    }
+    // Обновление биграмм теперь в WordGenerationEngine
 }
 
 void LanguageModule::updateSemanticGroups(const std::string& word, float rating) {
     if (word_history_.size() >= 2) {
         std::string prevWord = word_history_[word_history_.size() - 2];
-        
-        auto it = std::find_if(semantic_links_.begin(), semantic_links_.end(),
-            [&](const SemanticLink& link) {
-                return (link.word1 == prevWord && link.word2 == word) ||
-                       (link.word1 == word && link.word2 == prevWord);
-            });
-        
-        if (it != semantic_links_.end()) {
-            it->strength = std::clamp(it->strength + rating * 0.1f, 0.0f, 1.0f);
-        } else {
-            semantic_links_.push_back({prevWord, word, rating * 0.5f, "sequential"});
-        }
         
         int group1 = GROUP_SEMANTIC_START + (prevWord.length() % 8);
         int group2 = GROUP_SEMANTIC_START + (word.length() % 8);
@@ -321,111 +182,9 @@ void LanguageModule::updateContextGroups() {
     }
 }
 
-std::vector<float> LanguageModule::getWordEmbedding(const std::string& word) const {
-    std::vector<float> embedding(128, 0.0f); // размер как в EvolutionModule
-    
-    auto it = learned_words_.find(word);
-    if (it != learned_words_.end()) {
-        // Комбинируем семантический и контекстный векторы
-        const auto& lw = it->second;
-        for (size_t i = 0; i < lw.semantic_vector.size() && i < 64; ++i) {
-            embedding[i] = lw.semantic_vector[i];
-        }
-        for (size_t i = 0; i < lw.context_vector.size() && i < 64; ++i) {
-            embedding[i + 64] = lw.context_vector[i];
-        }
-    }
-    
-    return embedding;
-}
-
 // Evaluation
 float LanguageModule::autoEvaluateWord(const std::string& word) const {
-    float score = 0.0f;
-    
-    // Используем ТОЛЬКО статическую базу знаний, не learned_words_
-    if (isEnglishWord(word)) score += 0.5f;
-    
-    // Проверка на английскую фонетику (статические правила)
-    score += calculatePhoneticScore(word) * 0.3f;
-    
-    // Проверка на существующие биграммы из базы
-    score += calculateBigramScore(word) * 0.2f;
-    
-    return std::clamp(score, 0.0f, 1.0f);
-}
-
-float LanguageModule::calculateSurprise(const std::string& word) const {
-    // Насколько слово неожиданно для модели
-    auto it = learned_words_.find(word);
-    if (it == learned_words_.end()) {
-        return 1.0f; // Новое слово - максимальное удивление
-    }
-    
-    // Если слово известно, но редко используется
-    float frequency = it->second.frequency;
-    return 1.0f - std::min(1.0f, frequency / 10.0f);
-}
-
-float LanguageModule::getLearningRate() const {
-    // Как быстро модель учится на обратной связи
-    if (external_feedback_count_ < 10) return 0.0f;
-    
-    // Корреляция между feedback и улучшением
-    float improvement = 0.0f;
-    // ... вычислите, как меняется качество после feedback
-    return improvement;
-}
-
-float LanguageModule::calculatePhoneticScore(const std::string& word) const {
-    int maxConsonants = 0;
-    int currentConsonants = 0;
-    std::string vowels = "aeiouy";
-    
-    for (char c : word) {
-        if (vowels.find(std::tolower(c)) == std::string::npos) {
-            maxConsonants = std::max(maxConsonants, ++currentConsonants);
-        } else {
-            currentConsonants = 0;
-        }
-    }
-    
-    return 1.0f - (maxConsonants / 5.0f);
-}
-
-float LanguageModule::calculateBigramScore(const std::string& word) const {
-    float score = 0.0f;
-    int validBigrams = 0;
-    
-    for (size_t i = 0; i < word.length() - 1; ++i) {
-        char c1 = std::tolower(word[i]);
-        char c2 = std::tolower(word[i+1]);
-        
-        auto it = std::find_if(common_bigrams_.begin(), common_bigrams_.end(),
-            [c1, c2](const Bigram& b) { return b.first == c1 && b.second == c2; });
-        
-        if (it != common_bigrams_.end()) {
-            score += it->probability;
-            validBigrams++;
-        }
-    }
-    
-    return validBigrams > 0 ? score / validBigrams : 0.3f;
-}
-
-float LanguageModule::calculateSemanticCoherence(const std::string& word) const {
-    if (word_history_.empty()) return 0.5f;
-    
-    std::string lastWord = word_history_.back();
-    
-    for (const auto& link : semantic_links_) {
-        if ((link.word1 == lastWord && link.word2 == word) ||
-            (link.word2 == lastWord && link.word1 == word)) {
-            return link.strength;
-        }
-    }
-    
-    return 0.4f;
+    return wordEngine_->autoEvaluateWord(word, learned_words_, word_history_);
 }
 
 void LanguageModule::autoEvaluateGeneratedWord(const std::string& word) {
@@ -438,28 +197,41 @@ void LanguageModule::autoEvaluateGeneratedWord(const std::string& word) {
     }
 }
 
-// Public API
+// ========== ИСПРАВЛЕННЫЙ process С ИСПОЛЬЗОВАНИЕМ КОНТЕКСТА ==========
 std::string LanguageModule::process(const std::string& input) {
-    auto words = split(input);
+    std::cout << "📝 Processing: \"" << input << "\"" << std::endl;
     
-    if (!words.empty()) {
-        current_context_ = words.back();
-        updateContextGroups();
+    // 1. Добавляем в контекст
+    context_tracker_.addTurn("user", input);
+    
+    // 2. Извлекаем факты
+    auto facts = fact_extractor_.extractFacts(input);
+    if (!facts.empty()) {
+        for (const auto& fact : facts) {
+            fact_extractor_.storeFact(memory_, fact);
+        }
+        user_profile_.updateFromFacts(facts);
     }
     
+    // 3. Генерируем ответ на основе контекста и фактов
+    std::string response;
+    
+    // Проверяем специальные команды
     if (input == "generate" || input == "new word") {
-        return "I've created: '" + generateWordFromGroups() + "' - what do you think?";
+        response = "I've created: '" + generateWordFromGroups() + "' - what do you think?";
+    }
+    else if (input == "stats") {
+        response = getStats();
+    }
+    else {
+        // Нормальный диалог - используем ResponseGenerator
+        response = response_generator_.generateResponse(input, user_profile_, context_tracker_);
     }
     
-    if (input == "stats") {
-        return getStats();
-    }
+    // 4. Добавляем ответ в контекст
+    context_tracker_.addTurn("mary", response);
     
-    if (input == "hi" || input == "hello") {
-        return "Hello! I'm learning language. Type 'generate' to see a new word!";
-    }
-    
-    return getRandomResponse() + " '" + generateWordFromGroups() + "'?";
+    return response;
 }
 
 void LanguageModule::giveFeedback(float rating, bool autoFeedback) {
@@ -475,34 +247,29 @@ void LanguageModule::giveFeedback(float rating, bool autoFeedback) {
         learnWordPattern(last_generated_word_, rating);
     }
     
+    // НОВОЕ: также учитываем фидбек для внешней статистики
     if (!autoFeedback) {
+        addExternalFeedback(rating);
         saveAll();
     }
 }
 
 void LanguageModule::setContext(const std::string& context) {
     current_context_ = context;
+    updateContextGroups();
 }
 
 double LanguageModule::getLanguageFitness() const {
-    // 1. Внешняя обратная связь (50% веса)
+    // 1. Внешняя обратная связь (40%)
     float externalScore = getExternalFeedbackAvg();
     
-    // 2. Внутренняя согласованность (30% веса)
-    float internalScore = 0.5f;
-    if (!word_history_.empty()) {
-        int knownWords = 0;
-        for (const auto& word : word_history_) {
-            if (isEnglishWord(word)) knownWords++;
-        }
-        internalScore = static_cast<float>(knownWords) / word_history_.size();
-    }
+    // 2. Знание пользователя (40%)
+    float knowledgeScore = user_profile_.knowsUser() ? 0.8f : 0.3f;
     
-    // 3. Разнообразие словаря (20% веса)
-    std::set<std::string> uniqueWords(word_history_.begin(), word_history_.end());
-    float diversityScore = std::min<float>(1.0f, static_cast<float>(uniqueWords.size()) / 20.0f);
+    // 3. Разнообразие слов (20%)
+    float diversityScore = std::min(1.0f, learned_words_.size() / 100.0f);
     
-    return 0.5f * externalScore + 0.3f * internalScore + 0.2f * diversityScore;
+    return 0.4f * externalScore + 0.4f * knowledgeScore + 0.2f * diversityScore;
 }
 
 // Utilities
@@ -551,18 +318,33 @@ NeuronStats LanguageModule::computeNeuronStats(double activeThreshold, double pa
 
 std::string LanguageModule::getStats() {
     auto stats = computeNeuronStats();
+    auto facts = user_profile_.getAllFacts();
+    
     std::stringstream ss;
     ss << "📊 Language Statistics:\n";
     ss << "Learned words: " << learned_words_.size() << "\n";
-    ss << "Semantic links: " << semantic_links_.size() << "\n";
-    ss << "Collocations: " << collocations_.size() << "\n";
-    ss << "Neuron activity:\n";
+    ss << "Known facts: " << facts.size() << "\n";
+    ss << "Word history: " << word_history_.size() << " entries\n";
+    
+    if (!facts.empty()) {
+        ss << "\n👤 User Profile:\n";
+        for (const auto& [key, value] : facts) {
+            ss << "  " << key << ": " << value << "\n";
+        }
+    }
+    
+    ss << "\n💬 Recent context:\n";
+    ss << context_tracker_.getConversationSummary();
+    
+    ss << "\nNeuron activity:\n";
     ss << "  Active (>0.7): " << stats.active << "\n";
     ss << "  Passive (0.1-0.7): " << stats.passive << "\n";
     ss << "  Inactive (<=0.1): " << stats.inactive << "\n";
     ss << "  Avg activity: " << std::fixed << std::setprecision(3) << stats.avgActivity << "\n";
+    
     return ss.str();
 }
+
 // Persistence
 void LanguageModule::saveAll() {
     std::ofstream file("data/learned_words.json");
@@ -584,6 +366,5 @@ void LanguageModule::saveAll() {
 }
 
 void LanguageModule::loadAll() {
-    // Load from files if they exist
     std::cout << "Loading language data..." << std::endl;
 }

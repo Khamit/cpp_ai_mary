@@ -1,5 +1,3 @@
-// LanguageModule.hpp - ИСПРАВИТЬ:
-
 #pragma once
 
 #include <string>
@@ -7,10 +5,18 @@
 #include <map>
 #include <random>
 #include <memory>
+#include "WordGenerationEngine.hpp"
 #include "../../core/Component.hpp"
 #include "../../core/NeuralFieldSystem.hpp"
 
-class EvolutionModule; // forward declaration
+// НОВЫЕ МОДУЛИ - ДОБАВИТЬ ЭТИ INCLUDE
+#include "FactExtractor.hpp"
+#include "UserProfile.hpp"
+#include "ContextTracker.hpp"
+#include "ResponseGenerator.hpp"
+
+class EvolutionModule;
+class MemoryManager;
 
 // Statistics
 struct NeuronStats {
@@ -30,24 +36,6 @@ struct LearnedWord {
     std::vector<float> context_vector;
 };
 
-// Структура для биграммы
-struct Bigram {
-    char first;
-    char second;
-    float probability;
-    int occurrences = 0;
-};
-
-// Структура для семантической связи
-struct SemanticLink {
-    std::string word1;
-    std::string word2;
-    float strength;
-    std::string relation;
-};
-
-
-
 class LanguageModule : public Component {
 public:
     // Структура для буфера предложений мутаций
@@ -57,8 +45,10 @@ public:
         double delta;
         std::string reason;
     };
-    explicit LanguageModule(NeuralFieldSystem& system, EvolutionModule& evolution);
-    // EvolutionModule& evolution_;  // ← ЭТО БЫЛО ПРОПУЩЕНО!
+    
+    // ИЗМЕНЕНО: добавили MemoryManager в конструктор
+    explicit LanguageModule(NeuralFieldSystem& system, EvolutionModule& evolution, MemoryManager& memory);
+
     // Component interface
     std::string getName() const override { return "LanguageModule"; }
     bool initialize(const Config& config) override;
@@ -74,10 +64,6 @@ public:
     double getLanguageFitness() const;
     int getLearnedWordsCount() const { return learned_words_.size(); }
 
-    //
-    float getLearningRate() const;
-    float calculateSurprise(const std::string& word) const;
-
     // Оценка
     void addExternalFeedback(float rating) {
         external_feedback_sum_ += rating;
@@ -89,11 +75,8 @@ public:
                external_feedback_sum_ / external_feedback_count_ : 0.5f;
     }
 
-    // эмбеддинг
-    std::vector<float> getWordEmbedding(const std::string& word) const;
-
     // мутации
-    void applyPendingMutations(); // Будет вызываться эволюционным модулем
+    void applyPendingMutations();
 
     // Persistence
     void saveAll();
@@ -115,37 +98,35 @@ private:
     float external_feedback_sum_ = 0.0f;
     int external_feedback_count_ = 0;
 
-    NeuronStats computeNeuronStats(double activeThreshold = 0.7, double passiveThreshold = 0.1) const;
-    NeuronStats stats;
-
     // Core components
     NeuralFieldSystem& system_;
-    EvolutionModule& evolution_;  // ← ЭТО БЫЛО ПРОПУЩЕНО!
+    EvolutionModule& evolution_;
+    MemoryManager& memory_;  // ДОБАВЛЕНО
     std::mt19937 rng_;
+    std::unique_ptr<WordGenerationEngine> wordEngine_;
+
+    // НОВЫЕ МОДУЛИ ДЛЯ КОНТЕКСТА - ДОБАВЛЕНО
+    FactExtractor fact_extractor_;
+    UserProfile user_profile_;
+    ContextTracker context_tracker_;
+    ResponseGenerator response_generator_;
 
     // Language data
-    std::vector<char> alphabet_;
     std::map<std::string, LearnedWord> learned_words_;
     std::vector<std::string> word_history_;
-    std::vector<Bigram> common_bigrams_;
-    std::vector<SemanticLink> semantic_links_;
-    std::map<std::string, float> collocations_;
-
-    // State
     std::string last_generated_word_;
     std::string current_context_;
     std::vector<int> active_groups_history_;
     
-    // Буфер предложений мутаций - ТЕПЕРЬ ЭТО ЧЛЕН КЛАССА
+    // Буфер предложений мутаций
     std::vector<PendingMutation> pending_mutations_;
 
     // Group operations
     std::vector<double> getGroupActivities(int start, int end) const;
     std::vector<int> findActiveGroups(double threshold = 0.6) const;
 
-    // Word generation
+    // Word generation (теперь через WordGenerationEngine)
     std::string generateWordFromGroups();
-    char selectNextChar(char prevChar);
 
     // Эволюция
     void requestConnectionMutation(int from, int to, double delta, const std::string& reason);
@@ -160,13 +141,11 @@ private:
     // Evaluation
     void autoEvaluateGeneratedWord(const std::string& word);
     float autoEvaluateWord(const std::string& word) const;
-    float calculatePhoneticScore(const std::string& word) const;
-    float calculateBigramScore(const std::string& word) const;
-    float calculateSemanticCoherence(const std::string& word) const;
 
     // Utilities
     std::vector<std::string> split(const std::string& text);
     std::string toLower(std::string text);
     std::string getRandomResponse();
     std::string getStats();
+    NeuronStats computeNeuronStats(double activeThreshold = 0.7, double passiveThreshold = 0.1) const;
 };

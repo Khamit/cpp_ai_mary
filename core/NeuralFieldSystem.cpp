@@ -4,6 +4,9 @@
 #include <numeric>
 #include <algorithm>
 
+constexpr int CONSOLIDATION_INTERVAL = 100;   // Уровень 2: редко
+constexpr int EVOLUTION_INTERVAL = 5000;      // Уровень 3: очень редко
+
 NeuralFieldSystem::NeuralFieldSystem(double dt)
     : dt(dt),
       groups(),
@@ -49,6 +52,18 @@ void NeuralFieldSystem::rebuildFlatVectors() const {
         }
     }
     flatDirty = false;
+}
+
+void NeuralFieldSystem::consolidateInterWeights() {
+    // Консолидация межгрупповых связей
+    // Аналогично внутригрупповой, но для матрицы interWeights
+    
+    // Пока просто затухание (можно расширить позже)
+    for (auto& row : interWeights) {
+        for (auto& w : row) {
+            w *= 0.999f;  // медленное забывание
+        }
+    }
 }
 
 void NeuralFieldSystem::applyReentry(int iterations) {
@@ -100,32 +115,53 @@ for (int iter = 0; iter < iterations; ++iter) {
     }
 }
 
-void NeuralFieldSystem::step(float globalReward, bool useSTDP) {
-    // 1. Эволюция
+void NeuralFieldSystem::step(float globalReward, int stepNumber) {
+    // УРОВЕНЬ 1: каждый шаг
     for (auto& group : groups) group.evolve();
-    
-    // 2. Повторный вход
     applyReentry(3);
     
-    // 3. Обучение с выбором метода
-    static int stepCounter = 0; // или передавать из main
     for (auto& group : groups) {
-        if (useSTDP) {
-            group.learnSTDP(globalReward, stepCounter);
-        } else {
-            group.learnHebbian(globalReward);
-        }
-    }
-
-    // 4. Градиентное обучение (если есть цель)
-    for (auto& group : groups) {
-        std::vector<double> target(GROUP_SIZE, 0.5); // пример цели
-        group.computeGradients(target);
-        group.applyGradients();
+        group.learnSTDP(globalReward, stepNumber);      // eligibility
+        group.updateElevationFast(globalReward, group.getAverageActivity());
     }
     
-    stepCounter++;
+    // УРОВЕНЬ 2: редко (раз в 100 шагов)
+    if (stepNumber % CONSOLIDATION_INTERVAL == 0) {
+        float globalImportance = computeGlobalImportance();
+        for (auto& group : groups) {
+            group.consolidateEligibility(globalImportance);
+            group.consolidateElevation(globalImportance);
+        }
+        consolidateInterWeights();
+        applyPruningByElevation();
+    }
+    
+    // УРОВЕНЬ 3: очень редко (раз в 5000 шагов)
+    if (stepNumber % EVOLUTION_INTERVAL == 0) {
+        pendingEvolutionRequest_ = true;  // сигнал для EvolutionModule
+    }
+    
     flatDirty = true;
+}
+
+// НОВЫЙ МЕТОД: Прореживание связей на основе высоты
+void NeuralFieldSystem::applyPruningByElevation() {
+    const float PRUNING_THRESHOLD = -0.3f; // Нейроны с высотой ниже этого
+    
+    for (auto& group : groups) {
+        if (group.getElevation() < PRUNING_THRESHOLD) {
+            // Этот нейрон в режиме "забывания"
+            // Ослабляем его входящие и исходящие связи
+            // (можно реализовать по-разному)
+            group.decayAllWeights(0.9f); // пример
+        }
+    }
+}
+
+// Вспомогательный метод для вычисления важности
+float NeuralFieldSystem::computeGlobalImportance() {
+    // Например, на основе энергии системы или внешней награды
+    return std::abs(computeTotalEnergy() - 0.5f);
 }
 
 double NeuralFieldSystem::computeTotalEnergy() const {

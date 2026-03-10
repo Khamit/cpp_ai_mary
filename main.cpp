@@ -12,8 +12,6 @@
 #include "core/CoreSystem.hpp"
 // Подключаем CoreSystem вместо отдельных компонентов
 #include "core/NeuralFieldSystem.hpp"
-#include "modules/LearningModule.hpp"
-#include "modules/DynamicsModule.hpp"
 #include "modules/VisualizationModule.hpp"
 #include "modules/InteractionModule.hpp"
 #include "modules/StatisticsModule.hpp"
@@ -30,8 +28,6 @@
 class ConfigLoader {
 public:
     static bool loadFromFile(const std::string& filename, 
-                            LearningConfig& learnConfig,
-                            DynamicsConfig& dynConfig,
                             VisualizationConfig& visConfig,
                             InteractionConfig& interConfig,
                             UIConfig& uiConfig,
@@ -49,8 +45,6 @@ private:
 
 // Реализации методов ConfigLoader (остаются без изменений)
 bool ConfigLoader::loadFromFile(const std::string& filename, 
-                               LearningConfig& learnConfig,
-                               DynamicsConfig& dynConfig,
                                VisualizationConfig& visConfig,
                                InteractionConfig& interConfig,
                                UIConfig& uiConfig,
@@ -67,22 +61,6 @@ bool ConfigLoader::loadFromFile(const std::string& filename,
                        std::istreambuf_iterator<char>());
     file.close();
     
-    // Парсинг основных модулей
-    learnConfig.enabled = getBoolValue(content, "\"enabled\"", true);
-    learnConfig.learning_rate = getDoubleValue(content, "\"learning_rate\"", 0.001);
-    learnConfig.weight_decay = getDoubleValue(content, "\"weight_decay\"", 0.999);
-    learnConfig.max_weight = getDoubleValue(content, "\"max_weight\"", 0.1);
-    learnConfig.min_weight = getDoubleValue(content, "\"min_weight\"", -0.1);
-    learnConfig.rule = getStringValue(content, "\"rule\"", "hebbian");
-    
-    dynConfig.enabled = getBoolValue(content, "\"enabled\"", true);
-    dynConfig.damping_enabled = getBoolValue(content, "\"damping_enabled\"", true);
-    dynConfig.damping_factor = getDoubleValue(content, "\"damping_factor\"", 0.999);
-    dynConfig.limits_enabled = getBoolValue(content, "\"limits_enabled\"", true);
-    dynConfig.max_phi = getDoubleValue(content, "\"max_phi\"", 2.0);
-    dynConfig.min_phi = getDoubleValue(content, "\"min_phi\"", -2.0);
-    dynConfig.max_pi = getDoubleValue(content, "\"max_pi\"", 10.0);
-    dynConfig.min_pi = getDoubleValue(content, "\"min_pi\"", -10.0);
     
     visConfig.enabled = getBoolValue(content, "\"enabled\"", true);
     visConfig.dynamic_normalization = getBoolValue(content, "\"dynamic_normalization\"", true);
@@ -170,8 +148,6 @@ int main() {
     std::filesystem::create_directories("data");
     
     // Загрузка полной конфигурации
-    LearningConfig learnConfig;
-    DynamicsConfig dynConfig;
     VisualizationConfig visConfig;
     InteractionConfig interConfig;
     UIConfig uiConfig;
@@ -179,7 +155,7 @@ int main() {
     EvolutionConfig evolConfig;
     
     bool configLoaded = ConfigLoader::loadFromFile("config/system_config.json", 
-                              learnConfig, dynConfig, visConfig, interConfig, uiConfig,
+                               visConfig, interConfig, uiConfig,
                               resConfig, evolConfig);
 
     // Параметры системы для новой архитектуры
@@ -213,19 +189,16 @@ int main() {
         evolConfig, 
         memoryManager);
 
-    // Теперь создаем LanguageModule с обоими параметрами
     // neuralSystem - это ссылка, поэтому передаем как есть
     auto* language = core.registerComponent<LanguageModule>(
         "language", 
-        neuralSystem,      // передаем ссылку
-        *evolution         // разыменовываем указатель в ссылку
+        neuralSystem, 
+        *evolution,      // EvolutionModule
+        memoryManager     // MemoryManager - НОВЫЙ ПАРАМЕТР
     );
-
     auto* metacog = core.registerComponent<MetaCognitiveModule>("metacognition", neuralSystem);
     // Создаем остальные модули (они пока не Component)
     ResourceMonitor resources(resConfig);
-    LearningModule learning(learnConfig);
-    DynamicsModule dynamics(dynConfig);
 
     // Переменные для работы
     float bestFitness = 0.0f;
@@ -302,18 +275,11 @@ int main() {
 
         if (simulation_running) {
             auto start_time = std::chrono::high_resolution_clock::now();
-            
-            // Обновляем CoreSystem
-            core.update(dt);
-            
-            if (dynConfig.enabled && !system_in_stasis) {
-                // dynamics.applyDynamics(neuralSystem);
-            }
-                
-            if (learnConfig.enabled && !system_in_stasis) {
-                // learning.applyLearning(neuralSystem);
-            }
 
+            // ===== ЕДИНСТВЕННЫЙ ВЫЗОВ НЕЙРОСИСТЕМЫ =====
+            neuralSystem.step(lastReward, step);
+            
+            // Рефлексия (редко)
             if (step % 100 == 0) {
                 neuralSystem.reflect();
                 metacog->think();
@@ -323,8 +289,6 @@ int main() {
                 }
             }
             
-            step++;
-
             auto end_time = std::chrono::high_resolution_clock::now();
             double step_time = std::chrono::duration<double>(end_time - start_time).count();
 
@@ -405,6 +369,7 @@ int main() {
             
             statistics.update(neuralSystem, step, dt);
 
+            // Проверка выхода из стазиса
             if (step % 1000 == 0 && system_in_stasis) {
                 if (resources.getCurrentLoad() < 30.0) {
                     evolution->exitStasis();
@@ -412,7 +377,7 @@ int main() {
                     std::cout << "Auto-exited stasis" << std::endl;
                 }
             }
-
+            // Вывод статистики
             if (step % 100 == 0) {
                 const auto& stats = statistics.getCurrentStats();
                 const auto& metrics = evolution->getCurrentMetrics();
@@ -424,6 +389,7 @@ int main() {
                           << " | CPU: " << resources.getCurrentLoad() << "%   ";
                 std::cout.flush();
             }
+            step++;  // УВЕЛИЧИВАЕМ СЧЕТЧИК ПОСЛЕ ВСЕГО
         }
 
         // ВИЗУАЛИЗАЦИЯ

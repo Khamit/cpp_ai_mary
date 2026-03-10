@@ -1,5 +1,6 @@
 // modules/MetaCognitiveModule.hpp
 #pragma once
+
 #include "../core/NeuralFieldSystem.hpp"
 #include "../core/Component.hpp" 
 #include <string>
@@ -7,7 +8,7 @@
 #include <fstream>
 #include <random>
 #include <filesystem>
-
+//используется, но его реализация примитивна. Можно оставить как задел.
 class MetaCognitiveModule : public Component {  // <- Наследуем Component
 private:
     NeuralFieldSystem& neural_system;

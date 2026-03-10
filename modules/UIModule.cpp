@@ -439,7 +439,7 @@ void UIModule::draw(sf::RenderWindow& window, const NeuralFieldSystem& system,
     drawControlPanel(window, stats, simulation_running);
     
     if (config.show_stats) {
-        drawStatistics(window, stats);
+        drawStatistics(window, stats, evolution);
     }
 }
 
@@ -783,7 +783,11 @@ void UIModule::drawReflectionPanel(sf::RenderWindow& window) {
         std::cerr << "Error in drawReflectionPanel: " << e.what() << std::endl;
     }
 }
-void UIModule::drawStatistics(sf::RenderWindow& window, const StatisticsModule& stats) {
+void UIModule::drawStatistics(
+    sf::RenderWindow& window, 
+    const StatisticsModule& stats, 
+    const EvolutionModule& evolution) {
+
     const auto& current = stats.getCurrentStats();
     
     std::stringstream ss;
@@ -801,8 +805,8 @@ void UIModule::drawStatistics(sf::RenderWindow& window, const StatisticsModule& 
     // Эволюция
     std::stringstream evolution_ss;
     evolution_ss << "Evolution:\n\n"
-                 << "Fitness: " << formatDouble(0.83) << "\n"
-                 << "Best: " << formatDouble(0.91) << "\n"
+                    << "Fitness: " << formatDouble(evolution.getOverallFitness()) << "\n"
+                    << "Best: " << formatDouble(evolution.getBestFitness()) << "\n"
                  << "Generation: " << stats.getHistory().size() / 100 << "\n"
                  << "Mutations: " << (current.step / 1000);
     

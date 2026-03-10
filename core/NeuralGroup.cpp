@@ -130,15 +130,16 @@ void NeuralGroup::learnSTDP(float reward, int currentStep)
                         std::exp(dt / params.tau_minus);
             }
 
-            // Обновляем eligibility trace (медленная память)
-            syn.eligibility =
-                syn.eligibility * params.eligibilityDecay +
-                delta;
-
-            // Reward-modulated update
-            syn.weight += params.stdpRate *
-                          reward *
-                          syn.eligibility;
+    // Модифицируем обновление веса с учетом высоты нейрона
+    float elevation_factor = 1.0f + elevation_;  // от 0 до 2
+    
+    // Обновляем eligibility trace (не меняется)
+    syn.eligibility = syn.eligibility * params.eligibilityDecay + delta;
+    
+    // Reward-modulated update с фактором высоты
+    // Если высота отрицательная, вес меняется меньше (защита от шума)
+    // Если высота положительная, вес меняется больше (укрепление)
+    syn.weight += params.stdpRate * reward * syn.eligibility * elevation_factor;
 
             // Ограничение веса
             syn.weight = std::clamp(
@@ -218,4 +219,87 @@ void NeuralGroup::applyGradients() {
         for (int i = 0; i < size; ++i)
             for (int j = i + 1; j < size; ++j)
                 synapses[idx++].weight = static_cast<float>(W_intra[i][j]);
+}
+
+// Вызывается на КАЖДОМ шаге (Уровень 1)
+void NeuralGroup::updateElevationFast(float reward, float activity) {
+    // Быстрое изменение высоты под влиянием текущего опыта
+    // Например: если нейрон активен и получил награду, высота растет
+    if (activity > getEffectiveThreshold() && reward > 0) {
+        elevation_ += elevation_learning_rate_ * reward * activity;
+    }
+    
+    // Если нейрон активен, но награда отрицательна, высота падает
+    if (activity > getEffectiveThreshold() && reward < 0) {
+        elevation_ += elevation_learning_rate_ * reward * activity; // reward отрицательный
+    }
+    
+    // Медленное возвращение к базовому уровню (гомеостаз)
+    elevation_ *= elevation_decay_;
+    
+    // Ограничение
+    elevation_ = std::clamp(elevation_, -1.0f, 1.0f);
+}
+
+void NeuralGroup::decayAllWeights(float factor) {
+    for (auto& syn : synapses) {
+        syn.weight *= factor;
+    }
+    // Синхронизация с W_intra
+    int idx = 0;
+    for (int i = 0; i < size; ++i) {
+        for (int j = i + 1; j < size; ++j) {
+            W_intra[i][j] = synapses[idx].weight;
+            W_intra[j][i] = synapses[idx].weight;
+            idx++;
+        }
+    }
+}
+
+// Вызывается при консолидации (Уровень 2)
+void NeuralGroup::consolidateElevation(float globalImportance) {
+    // На основе накопленной статистики за период
+    if (activity_counter_ > 0) {
+        float avg_importance = cumulative_importance_ / activity_counter_;
+        
+        // Если нейрон был важен, укрепляем его высоту
+        // Если не важен - позволяем ей снижаться
+        elevation_ += (avg_importance - 0.5f) * 0.1f;
+        elevation_ = std::clamp(elevation_, -1.0f, 1.0f);
+    }
+    
+    // Сброс счетчиков
+    cumulative_importance_ = 0.0f;
+    activity_counter_ = 0;
+}
+
+void NeuralGroup::consolidateEligibility(float globalImportance) {
+    for (auto& syn : synapses) {
+        // Перенос eligibility trace в вес с учетом глобальной важности
+        // и высоты нейрона (elevation)
+        float consolidation_factor = params.consolidationRate * globalImportance;
+        
+        // Высота влияет на консолидацию:
+        // - положительная высота -> укрепляем связи
+        // - отрицательная высота -> ослабляем/игнорируем
+        consolidation_factor *= (1.0f + elevation_);
+        
+        syn.weight += consolidation_factor * syn.eligibility;
+        
+        // Уменьшаем eligibility после консолидации
+        syn.eligibility *= 0.5f;
+        
+        // Ограничение веса
+        syn.weight = std::clamp(syn.weight, -params.maxWeight, params.maxWeight);
+    }
+    
+    // Синхронизация с W_intra для обратной совместимости
+    int idx = 0;
+    for (int i = 0; i < size; ++i) {
+        for (int j = i + 1; j < size; ++j) {
+            W_intra[i][j] = synapses[idx].weight;
+            W_intra[j][i] = synapses[idx].weight;
+            idx++;
+        }
+    }
 }

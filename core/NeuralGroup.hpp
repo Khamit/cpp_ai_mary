@@ -49,6 +49,38 @@ public:
     // Доступ к синапсам (для консолидации)
     std::vector<Synapse>& getSynapses() { return synapses; }
 
+    // Новые методы для работы с высотой
+    void setElevation(float elev) { elevation_ = elev; }
+    float getElevation() const { return elevation_; }
+    
+    // НОВЫЕ МЕТОДЫ ДЛЯ ТРЕХУРОВНЕВОЙ АРХИТЕКТУРЫ
+    // Уровень 1: быстрое обновление высоты (каждый шаг)
+    void updateElevationFast(float reward, float activity);
+    
+    // Уровень 2: консолидация высоты (редко)
+    void consolidateElevation(float globalImportance);
+    
+    // NeuralGroup.hpp - добавить в public раздел после других методов
+
+    // УРОВЕНЬ 2: Консолидация (редко)
+    void consolidateEligibility(float globalImportance);  // перенос eligibility в веса
+    
+    // Для совместимости с STDP (переименовать позже)
+    void updateEligibilityTraces(float reward, int currentStep) {
+        // Это просто обертка для learnSTDP, пока не переименуете
+        learnSTDP(reward, currentStep);
+    }
+    
+    // Получить модифицированный порог активации с учетом высоты
+    double getEffectiveThreshold() const {
+        // Высота может как понижать порог (облегчая активацию),
+        // так и повышать (затрудняя). Например:
+        return threshold - elevation_ * 0.05; 
+    }
+
+        // Вспомогательный метод для прореживания
+    void decayAllWeights(float factor); // НУЖНО ДОБАВИТЬ!
+
 private:
 
     // --- Gradient Descent learning ---
@@ -78,4 +110,17 @@ private:
     
     // Построение синапсов из W_intra (для миграции)
     void buildSynapsesFromWeights();
+
+    // НОВОЕ: Высота нейрона (или группы)
+    // Положительная -> консервация, укрепление
+    // Отрицательная -> пластичность, забывание
+    float elevation_ = 0.0f;  
+    
+    // Параметры для обновления высоты
+    float elevation_learning_rate_ = 0.001f;
+    float elevation_decay_ = 0.999f;  // медленное возвращение к нулю
+    
+    // Для подсчета важности нейрона (используется в консолидации)
+    float cumulative_importance_ = 0.0f;
+    int activity_counter_ = 0;
 };

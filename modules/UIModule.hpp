@@ -89,7 +89,7 @@ private:
     sf::RectangleShape bottomPanel; // Новая нижняя панель
     
     void drawControlPanel(sf::RenderWindow& window, const StatisticsModule& stats, bool simulation_running);
-    void drawStatistics(sf::RenderWindow& window, const StatisticsModule& stats);
+    void drawStatistics(sf::RenderWindow& window, const StatisticsModule& stats, const EvolutionModule& evolution);
     void drawBottomPanel(sf::RenderWindow& window, const ResourceMonitor& resources, const EvolutionModule& evolution);
     std::string formatDouble(double value, int precision = 4) const;
     //!!! Добавить новые поля

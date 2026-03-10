@@ -42,6 +42,8 @@ private:
     bool canReduceComplexity();
     void recordReduction();
 
+    mutable std::mt19937 rng_{std::random_device{}()}; // если нет
+
 public:
     // Конструктор
     EvolutionModule(ImmutableCore& core, const EvolutionConfig& config, MemoryManager& memory);
@@ -89,6 +91,20 @@ public:
     double getOverallFitness() const { return current_metrics.overall_fitness; }
     double getBestFitness() const { return best_fitness; }
     void saveEvolutionState();
+
+        // НОВЫЕ МЕТОДЫ ДЛЯ ТРЕХУРОВНЕВОЙ АРХИТЕКТУРЫ
+    bool shouldMutate() const {
+        // Проверка, нужно ли мутировать на этом шаге
+        return std::uniform_real_distribution<>(0, 1)(rng_) < mutation_rate;
+    }
+    
+    float randomMutation() {
+        std::normal_distribution<> dist(0.0, 0.1);
+        return dist(rng_);
+    }
+    
+    void setBaseElevation(float elev);  // если нужно
+    float getBaseElevation() const;
     
 private: 
     // == ЗАКОММЕНТИРОВАНЫ ЛИШНИЕ МЕТОДЫ

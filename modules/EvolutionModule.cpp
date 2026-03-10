@@ -214,6 +214,21 @@ double EvolutionModule::calculateEnergyScore(const NeuralFieldSystem& system) co
 */
 // Предложение мутации
 bool EvolutionModule::proposeMutation(NeuralFieldSystem& system) {
+    /*
+    // Новое
+    // Только если система давно не улучшалась
+    // Мутация архитектурных параметров (Уровень 3)
+    for (auto& group : system.getGroups()) {
+        if (shouldMutate()) {
+            // Мутация базовой высоты покоя (resting elevation)
+            float newBaseElevation = group.getBaseElevation() + randomMutation();
+            group.setBaseElevation(newBaseElevation);
+            
+            std::cout << "Эволюционная мутация высоты группы" << std::endl;
+        }
+    }
+*/
+// Старое
     if (in_stasis) {
         applyMinimalMutation(system);
         return true;
