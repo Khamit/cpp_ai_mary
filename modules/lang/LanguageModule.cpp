@@ -2,6 +2,7 @@
 #include "modules/EvolutionModule.hpp"
 #include "../../core/Config.hpp"
 #include "../../core/MemoryManager.hpp"
+#include <thread>
 #include <numeric>
 #include <iomanip>
 #include <sstream>
@@ -13,6 +14,7 @@
 #include <set>
 #include <data/LanguageKnowledgeBase.hpp>
 #include "data/ExternalKnowledge.hpp"
+#include <learning/EffectiveLearning.hpp>
 
 // ИЗМЕНЕН КОНСТРУКТОР - теперь с MemoryManager
 LanguageModule::LanguageModule(NeuralFieldSystem& system, EvolutionModule& evolution, MemoryManager& memory)
@@ -330,7 +332,7 @@ std::string LanguageModule::process(const std::string& input) {
     
     // 3. Генерация ответа
     std::string response;
-    
+
     if (input == "generate") {
         response = generateWordFromGroups();
     } else {
@@ -570,4 +572,63 @@ void LanguageModule::saveConversation(const std::string& input, const std::strin
     std::cout << "Saving conversation: " << input << " -> " << response << std::endl; // ОТЛАДКА
     
     memory_.store("conversations", "qa_pair", convData, confidence, metadata);
+}
+
+void LanguageModule::runAutoLearning(int steps, EffectiveLearning* effectiveLearning) {
+    autoLearningActive_ = true;
+    
+    std::cout << "Starting AUTO-LEARNING for " << steps << " steps..." << std::endl;
+    
+    // Если есть EffectiveLearning, используем его продвинутые методы
+    if (effectiveLearning) {
+        // Запускаем ночное обучение в отдельном потоке
+        autoLearningThread_ = std::thread([this, steps, effectiveLearning]() {
+            effectiveLearning->runNightTraining(steps / 3600); // конвертируем шаги в часы
+            autoLearningActive_ = false;
+            std::cout << "AUTO-LEARNING completed!" << std::endl;
+        });
+        autoLearningThread_.detach();
+        return;
+    }
+    
+    // Базовое автообучение без EffectiveLearning
+    autoLearningThread_ = std::thread([this, steps]() {
+        std::vector<std::string> trainingData = {
+            "hello", "hi", "how are you", "what is your name",
+            "bye", "thanks", "help", "what can you do",
+            "tell me a story", "generate something"
+        };
+        
+        for (int i = 0; i < steps; i++) {
+            if (!autoLearningActive_) break;
+            
+            // Выбираем случайный пример
+            std::string input = trainingData[rand() % trainingData.size()];
+            
+            // Обрабатываем
+            std::string response = process(input);
+            
+            // Автооценка
+            float score = autoEvaluateWord(response);
+            giveFeedback(score, true);
+            
+            if (i % 100 == 0) {
+                std::cout << "Auto-learning progress: " << i << "/" << steps 
+                          << " (" << (i*100/steps) << "%)" << std::endl;
+            }
+            
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        
+        autoLearningActive_ = false;
+        saveAll();
+        std::cout << "AUTO-LEARNING completed!" << std::endl;
+    });
+    
+    autoLearningThread_.detach();
+}
+
+void LanguageModule::stopAutoLearning() {
+    autoLearningActive_ = false;
+    std::cout << "Stopping auto-learning..." << std::endl;
 }

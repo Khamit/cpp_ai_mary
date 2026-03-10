@@ -5,6 +5,7 @@
 #include <map>
 #include <random>
 #include <memory>
+#include <thread>
 #include "WordGenerationEngine.hpp"
 #include "../../core/Component.hpp"
 #include "../../core/NeuralFieldSystem.hpp"
@@ -14,6 +15,7 @@
 #include "UserProfile.hpp"
 #include "ContextTracker.hpp"
 #include "ResponseGenerator.hpp"
+#include <learning/EffectiveLearning.hpp>
 
 class EvolutionModule;
 class MemoryManager;
@@ -63,6 +65,14 @@ public:
     void setContext(const std::string& context);
     double getLanguageFitness() const;
     int getLearnedWordsCount() const { return learned_words_.size(); }
+
+    // AUTO LEARNING
+    // Запуск автоматического обучения
+    void runAutoLearning(int steps, EffectiveLearning* effectiveLearning = nullptr);
+    void stopAutoLearning();
+
+    // Получить статус обучения
+    bool isLearning() const { return autoLearningActive_; }
 
     // Оценка
     void addExternalFeedback(float rating) {
@@ -133,6 +143,10 @@ private:
 
     // Word generation (теперь через WordGenerationEngine)
     std::string generateWordFromGroups();
+
+    // auto learn
+    bool autoLearningActive_ = false;
+    std::thread autoLearningThread_;
 
     // Эволюция
     void requestConnectionMutation(int from, int to, double delta, const std::string& reason);

@@ -22,6 +22,7 @@
 #include "modules/ConfigStructs.hpp"
 #include "modules/MetaCognitiveModule.hpp"
 #include "modules/lang/LanguageModule.hpp"  // Добавлено!
+#include "learning/EffectiveLearning.hpp"
 //#include "core/MemoryManager.hpp"
 //#include "core/Component.hpp"
 
@@ -181,6 +182,7 @@ int main() {
     NeuralFieldSystem& neuralSystem = core.getNeuralSystem();  // Это ссылка
     MemoryManager& memoryManager = core.getMemory();
     ImmutableCore& immutable_core = core.getImmutableCore();
+    EffectiveLearning* effectiveLearning = nullptr;
 
     // Регистрируем модули в CoreSystem
     auto* evolution = core.registerComponent<EvolutionModule>(
@@ -196,7 +198,17 @@ int main() {
         *evolution,      // EvolutionModule
         memoryManager     // MemoryManager - НОВЫЙ ПАРАМЕТР
     );
-    auto* metacog = core.registerComponent<MetaCognitiveModule>("metacognition", neuralSystem);
+
+    auto* metacog = core.registerComponent<MetaCognitiveModule>(
+        "metacognition", neuralSystem
+    );
+
+    effectiveLearning = new EffectiveLearning(
+    neuralSystem, 
+    *language, 
+    memoryManager, 
+    LanguageKnowledgeBase::getInstance()
+    );
     
     // Создаем остальные модули (они пока не Component)
     ResourceMonitor resources(resConfig);
@@ -204,6 +216,7 @@ int main() {
     // Подключаем детектор к нейросистеме
     evolution->connectToSystem(neuralSystem);
 
+    
     // Переменные для работы
     float bestFitness = 0.0f;
     uint8_t lastAction = 0;
@@ -275,6 +288,17 @@ int main() {
         
         if (!system_in_stasis && resources.checkAndTriggerOverload()) {
             std::cout << "⚠️ System overload detected! Reducing memory activity..." << std::endl;
+        }
+
+        // Проверяем состояние автообучения
+        static bool lastAutoLearningState = false;
+        if (ui.isAutoLearningActive() != lastAutoLearningState) {
+            if (ui.isAutoLearningActive()) {
+                language->runAutoLearning(10000, effectiveLearning); // 10000 шагов
+            } else {
+                language->stopAutoLearning();
+            }
+            lastAutoLearningState = ui.isAutoLearningActive();
         }
 
         if (simulation_running) {
@@ -349,13 +373,13 @@ int main() {
                 if (currentFitness > bestFitness) {
                     bestFitness = currentFitness;
                     
-                    std::cout << "\n🏆 New best fitness: " << bestFitness 
+                    std::cout << "\nNew best fitness: " << bestFitness 
                               << " | Records: " << memoryManager.getLongTermMemory().size() << std::endl;
                 }
                 
                 if (step % 1000 == 0 && step > 0) {
                     memoryManager.saveAll();
-                    std::cout << "\n💾 Checkpoint saved" << std::endl;
+                    std::cout << "\nCheckpoint saved" << std::endl;
                 }
                 
                 actionsTaken++;
@@ -411,9 +435,13 @@ int main() {
     }
 
     // ФИНАЛЬНОЕ СОХРАНЕНИЕ
-    std::cout << "\n\n💾 Saving all data to dump/ folder..." << std::endl;
-    
-    statistics.saveToFile("dump/simulation_statistics.csv");
+    std::cout << "\n\nSaving all data to dump/ folder..." << std::endl;
+    // для анализа поведения системы после запуска
+    //statistics.saveToFile("dump/simulation_statistics.csv");
+    if (step % 10000 == 0) {  // сохранять каждые 10000 шагов
+        statistics.saveToFile("dump/simulation_statistics.csv");
+    }
+    // остальные логи
     evolution->saveEvolutionState();
     memoryManager.saveAll();
     language->saveAll();

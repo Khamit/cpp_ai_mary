@@ -281,7 +281,7 @@ bool EvolutionModule::proposeMutation(NeuralFieldSystem& system) {
 // проверка фактов
 FactCheckResult EvolutionModule::checkFactualConsistency(const std::string& statement) {
     FactCheckResult result;
-    result.isConsistent = true;
+    result.isConsistent = true; // По умолчанию считаем консистентным
     result.confidence = 1.0f;
     
     // Разбиваем на утверждения

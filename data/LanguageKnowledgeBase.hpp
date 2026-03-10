@@ -157,6 +157,32 @@ public:
         return std::find(commonWords_.begin(), commonWords_.end(), word) != commonWords_.end();
     }
 
+    // Эмбеддинг фразы в вектор (для активации групп нейронов)
+    std::vector<double> embedPhrase(const std::string& phrase) const {
+        std::vector<double> embedding(32, 0.0); // 32 нейрона на группу
+        
+        auto words = splitPhrase(phrase);
+        
+        for (size_t i = 0; i < words.size() && i < 32; ++i) {
+            const auto& word = words[i];
+            
+            // Частотность слова
+            float freq = getWordFrequency(word);
+            embedding[i] = freq;
+            
+            // Добавляем семантическую информацию
+            auto semanticField = getSemanticField(word);
+            if (semanticField == "greeting") embedding[i] += 0.2f;
+            else if (semanticField == "technology") embedding[i] += 0.3f;
+            else if (semanticField == "question") embedding[i] += 0.1f;
+            
+            // Нормализация
+            embedding[i] = std::clamp(embedding[i], 0.0, 1.0);
+        }
+        
+        return embedding;
+    }
+
 private:
     LanguageKnowledgeBase() {
         initializeWordFrequency();
@@ -632,39 +658,57 @@ private:
     std::vector<std::string> commonWords_;
     std::map<std::string, std::string> wordToField_;
     std::map<std::string, std::vector<std::string>> semanticFields_;
-};
+    };
 
-// Удобные функции-обертки для использования в LanguageModule
-inline bool isEnglishWord(const std::string& word) {
-    return LanguageKnowledgeBase::getInstance().isEnglishWord(word);
-}
+    // Удобные функции-обертки для использования в LanguageModule
+    inline bool isEnglishWord(const std::string& word) {
+        return LanguageKnowledgeBase::getInstance().isEnglishWord(word);
+    }
 
-inline float getWordFrequency(const std::string& word) {
-    return LanguageKnowledgeBase::getInstance().getWordFrequency(word);
-}
+    inline float getWordFrequency(const std::string& word) {
+        return LanguageKnowledgeBase::getInstance().getWordFrequency(word);
+    }
 
-inline std::string getPartOfSpeech(const std::string& word) {
-    return LanguageKnowledgeBase::getInstance().getPartOfSpeech(word);
-}
+    inline std::string getPartOfSpeech(const std::string& word) {
+        return LanguageKnowledgeBase::getInstance().getPartOfSpeech(word);
+    }
 
-inline float evaluateBigram(const std::string& word1, const std::string& word2) {
-    return LanguageKnowledgeBase::getInstance().evaluateBigram(word1, word2);
-}
+    inline float evaluateBigram(const std::string& word1, const std::string& word2) {
+        return LanguageKnowledgeBase::getInstance().evaluateBigram(word1, word2);
+    }
 
-inline std::vector<std::string> getSemanticLinks(const std::string& word) {
-    return LanguageKnowledgeBase::getInstance().getSemanticLinks(word);
-}
+    inline std::vector<std::string> getSemanticLinks(const std::string& word) {
+        return LanguageKnowledgeBase::getInstance().getSemanticLinks(word);
+    }
 
-inline float getCollocationStrength(const std::string& word1, const std::string& word2) {
-    return LanguageKnowledgeBase::getInstance().getCollocationStrength(word1, word2);
-}
+    inline float getCollocationStrength(const std::string& word1, const std::string& word2) {
+        return LanguageKnowledgeBase::getInstance().getCollocationStrength(word1, word2);
+    }
 
-inline bool isCommonWord(const std::string& word) {
-    return LanguageKnowledgeBase::getInstance().isCommonWord(word);
-}
+    inline bool isCommonWord(const std::string& word) {
+        return LanguageKnowledgeBase::getInstance().isCommonWord(word);
+    }
 
-inline std::string getSemanticField(const std::string& word) {
-    return LanguageKnowledgeBase::getInstance().getSemanticField(word);
-}
+    inline std::string getSemanticField(const std::string& word) {
+        return LanguageKnowledgeBase::getInstance().getSemanticField(word);
+    }
+
+    static std::vector<std::string> splitPhrase(const std::string& phrase) {
+        std::vector<std::string> words;
+        std::stringstream ss(phrase);
+        std::string word;
+        while (ss >> word) {
+            // Очищаем от пунктуации
+            word.erase(std::remove_if(word.begin(), word.end(), 
+                    [](char c) { return std::ispunct(c); }), word.end());
+            // В нижний регистр
+            std::transform(word.begin(), word.end(), word.begin(), ::tolower);
+            if (!word.empty()) {
+                words.push_back(word);
+            }
+        }
+        return words;
+    }
+
 
 //#endif // LANGUAGE_KNOWLEDGE_BASE_HPP

@@ -25,13 +25,14 @@ struct UIConfig {
 
 class UIModule {
 public:
+
     UIModule(const UIConfig& config, int windowWidth, int windowHeight);
     
     void handleEvents(sf::RenderWindow& window, NeuralFieldSystem& system, 
                      bool& simulation_running, StatisticsModule& stats);
     void handleMouseClick(const sf::Event::MouseButtonPressed& event, NeuralFieldSystem& system, 
                         bool& simulation_running, StatisticsModule& stats);
- void draw(sf::RenderWindow& window, const NeuralFieldSystem& system, 
+    void draw(sf::RenderWindow& window, const NeuralFieldSystem& system, 
         const StatisticsModule& stats, bool simulation_running,
         const ResourceMonitor& resources, const EvolutionModule& evolution,
         const MemoryManager& memory, int step); 
@@ -56,6 +57,8 @@ public:
         languageModule = module;
     } // <- Здесь была закрывающая скобка метода
 
+    bool isAutoLearningActive() const { return autoLearningActive; }
+
     // ИСПРАВЛЕНО: Добавили новый метод
     std::string getCurrentInput() const { return currentInput; }
 
@@ -63,8 +66,7 @@ public:
     void setNeuralSystem(NeuralFieldSystem* system) {
         neural_system = system;
     }
-
-      void drawReflectionPanel(sf::RenderWindow& window); // убрали UIModule::
+    void drawReflectionPanel(sf::RenderWindow& window);
 
       // Скроллинг
     void handleMouseWheel(const sf::Event::MouseWheelScrolled& event);
@@ -138,4 +140,11 @@ void drawDebugPanel(sf::RenderWindow& window, const EvolutionModule& evolution,
     bool likePressed = false;
     bool dislikePressed = false;
     sf::Clock feedbackClock; // для таймера сброса подсветки
+
+    // Кнопки для автообучения
+    sf::RectangleShape autoLearnButton;
+    sf::RectangleShape stopLearnButton;
+    sf::Text autoLearnText;
+    sf::Text stopLearnText;
+    bool autoLearningActive = false;  // флаг активности автообучения
 };

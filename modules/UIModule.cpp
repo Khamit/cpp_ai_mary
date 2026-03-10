@@ -36,7 +36,9 @@ UIModule::UIModule(const UIConfig& config, int windowWidth, int windowHeight)
       chatHistoryText(font),
       sendText(font),
       likeText(font),
-      dislikeText(font)
+      dislikeText(font),
+      autoLearnText(font),
+      stopLearnText(font)
 {
     // Загрузка шрифта
     if (!font.openFromFile("SF-Pro-Display-Regular.otf")) {
@@ -212,6 +214,30 @@ UIModule::UIModule(const UIConfig& config, int windowWidth, int windowHeight)
     configText.setCharacterSize(14);
     configText.setFillColor(TEXT_BOTTOM);
     configText.setPosition(sf::Vector2f(200.0f, static_cast<float>(windowHeight - bottom_panel_height + 15)));
+
+    // Кнопки автообучения
+    autoLearnButton.setSize(sf::Vector2f(buttonWidth, buttonHeight));
+    autoLearnButton.setPosition(sf::Vector2f(startX, 200.0f));  // под reset
+    autoLearnButton.setFillColor(sf::Color(70, 120, 70));  // зеленоватый
+    autoLearnButton.setOutlineColor(sf::Color(100, 200, 100));
+    autoLearnButton.setOutlineThickness(1.0f);
+
+    stopLearnButton = autoLearnButton;
+    stopLearnButton.setPosition(sf::Vector2f(startX, 250.0f));
+    stopLearnButton.setFillColor(sf::Color(120, 70, 70));  // красноватый
+    stopLearnButton.setOutlineColor(sf::Color(200, 100, 100));
+
+    autoLearnText.setFont(font);
+    autoLearnText.setString("Start Auto-Learning");
+    autoLearnText.setCharacterSize(16);
+    autoLearnText.setFillColor(TEXT_MAIN);
+    autoLearnText.setPosition(sf::Vector2f(startX + 20.0f, 210.0f));
+
+    stopLearnText.setFont(font);
+    stopLearnText.setString("Stop Auto-Learning");
+    stopLearnText.setCharacterSize(16);
+    stopLearnText.setFillColor(TEXT_MAIN);
+    stopLearnText.setPosition(sf::Vector2f(startX + 20.0f, 260.0f));
 }
 
 // modules/UIModule.cpp - исправьте метод handleEvents
@@ -396,6 +422,16 @@ void UIModule::handleMouseClick(const sf::Event::MouseButtonPressed& event, Neur
         std::mt19937 rng(42);
         system.initializeRandom(rng);
         std::cout << "System RESET" << std::endl;
+        return;
+    }
+    else if (autoLearnButton.getGlobalBounds().contains(mousePos)) {
+    autoLearningActive = true;
+    std::cout << "AUTO-LEARNING STARTED" << std::endl;
+    return;
+    }
+    else if (stopLearnButton.getGlobalBounds().contains(mousePos)) {
+        autoLearningActive = false;
+        std::cout << "AUTO-LEARNING STOPPED" << std::endl;
         return;
     }
 }
@@ -585,6 +621,11 @@ void UIModule::drawControlPanel(sf::RenderWindow& window, const StatisticsModule
     startButton.setFillColor(simulation_running ? BTN_ACTIVE : BTN_BG);
     stopButton.setFillColor(!simulation_running ? BTN_ACTIVE : BTN_BG);
     resetButton.setFillColor(BTN_BG);
+    // Рисуем кнопки автообучения
+    window.draw(autoLearnButton);
+    window.draw(stopLearnButton);
+    window.draw(autoLearnText);
+    window.draw(stopLearnText);
     
     window.draw(startButton);
     window.draw(stopButton);
@@ -593,7 +634,9 @@ void UIModule::drawControlPanel(sf::RenderWindow& window, const StatisticsModule
     window.draw(startText);
     window.draw(stopText);
     window.draw(resetText);
+
     // не понял? sf::Text?
+    // Статус симуляции
     sf::Text statusText(font);
     statusText.setFont(font);
     statusText.setCharacterSize(16);
@@ -601,6 +644,29 @@ void UIModule::drawControlPanel(sf::RenderWindow& window, const StatisticsModule
         static_cast<float>(windowWidth - config.control_panel_width + 10),
         10.0f
     ));
+
+    if (simulation_running) {
+        statusText.setString("* Running");
+        statusText.setFillColor(TEXT_ACCENT);
+    } else {
+        statusText.setString("# Paused");
+        statusText.setFillColor(TEXT_MAIN);
+    }
+    window.draw(statusText);
+
+    // Статус автообучения
+    if (autoLearningActive) {
+        sf::Text autoStatusText(font);
+        autoStatusText.setString("AUTO-LEARNING ACTIVE");
+        autoStatusText.setCharacterSize(14);
+        autoStatusText.setFillColor(sf::Color(100, 255, 100));
+        autoStatusText.setPosition(sf::Vector2f(
+            static_cast<float>(windowWidth - config.control_panel_width + 10),
+            290.0f
+        ));
+        window.draw(autoStatusText);
+    }
+
     
     if (simulation_running) {
         statusText.setString("* Running");
