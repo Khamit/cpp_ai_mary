@@ -510,3 +510,23 @@ std::vector<std::vector<double>> MemoryManager::loadWeights(const std::string& c
     
     return weights;
 }
+
+std::vector<MemoryRecord> MemoryManager::getRecordsByIndices(
+    const std::string& component,
+    const std::vector<size_t>& indices) const
+{
+    std::vector<MemoryRecord> result;
+    
+    auto it = longTermMemory.find(component);
+    if (it == longTermMemory.end()) return result;
+
+    const auto& records = it->second;
+    
+    for (size_t idx : indices) {
+        if (idx < records.size()) {
+            result.push_back(records[idx]);
+        }
+    }
+    
+    return result;
+}

@@ -4,14 +4,18 @@
 #include <map>
 #include "UserProfile.hpp"
 #include "ContextTracker.hpp"
+#include "../../core/MemoryManager.hpp"
 
 class ResponseGenerator {
 public:
     ResponseGenerator();
     
     std::string generateResponse(const std::string& user_input,
-                                  const UserProfile& profile,
-                                  const ContextTracker& context);
+                             const UserProfile& profile,
+                             const ContextTracker& context,
+                             const std::vector<MemoryRecord>& similar);
+
+    std::string getDirectResponse(const std::string& input);
     
 private:
     // Шаблоны ответов

@@ -58,7 +58,7 @@ public:
     void updateElevationFast(float reward, float activity);
     
     // Уровень 2: консолидация высоты (редко)
-    void consolidateElevation(float globalImportance, float hallucinationPenalty);
+    void consolidateElevation(float globalImportance, float hallucinationPenalty = 0.0f);
     
     // NeuralGroup.hpp - добавить в public раздел после других методов
 

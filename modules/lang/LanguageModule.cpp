@@ -12,7 +12,7 @@
 #include <map>
 #include <set>
 #include <data/LanguageKnowledgeBase.hpp>
-#include <data/ExternalKnowledge.hpp>
+#include "data/ExternalKnowledge.hpp"
 
 // ИЗМЕНЕН КОНСТРУКТОР - теперь с MemoryManager
 LanguageModule::LanguageModule(NeuralFieldSystem& system, EvolutionModule& evolution, MemoryManager& memory)
@@ -137,11 +137,25 @@ void LanguageModule::learnWordPattern(const std::string& word, float rating) {
     wordEngine_->learnWordPattern(word, rating, lw.semantic_vector, lw.context_vector);
 }
 
-// В LanguageModule.cpp
-
 ConfidenceScore LanguageModule::evaluateConfidence(const std::string& input, const std::string& response) {
     ConfidenceScore score;
     score.overall = 0.0f;
+    
+    std::string lowerInput = toLower(input);
+    
+    // Для приветствий и простых вопросов даем высокую уверенность
+    if (lowerInput.find("hello") != std::string::npos ||
+        lowerInput.find("hi") != std::string::npos ||
+        lowerInput.find("how are") != std::string::npos ||
+        lowerInput.find("your name") != std::string::npos ||
+        lowerInput.find("are you ok") != std::string::npos) {
+        score.overall = 0.9f;
+        score.factual = 0.9f;
+        score.contextual = 0.9f;
+        score.linguistic = 0.9f;
+        score.hasKnowledge = true;
+        return score;
+    }
     
     // 1. Проверка наличия в базе знаний
     auto words = split(response);
@@ -149,7 +163,7 @@ ConfidenceScore LanguageModule::evaluateConfidence(const std::string& input, con
     int totalContentWords = 0;
     
     for (const auto& word : words) {
-        if (word.length() > 3) { // только значимые слова
+        if (word.length() > 3) {
             totalContentWords++;
             if (isEnglishWord(word) || learned_words_.count(word)) {
                 knownWords++;
@@ -171,7 +185,7 @@ ConfidenceScore LanguageModule::evaluateConfidence(const std::string& input, con
     score.contextual = recentTopics.empty() ? 0.5f : 
         std::min(1.0f, contextMatches / 3.0f);
     
-    // 3. Проверка фактов (если это фактологический вопрос)
+    // 3. Проверка фактов
     if (input.find("what is") != std::string::npos || 
         input.find("who is") != std::string::npos) {
         
@@ -186,11 +200,11 @@ ConfidenceScore LanguageModule::evaluateConfidence(const std::string& input, con
             score.fallbackReason = "topic_unknown";
         }
     } else {
-        score.factual = 0.7f; // не фактологический вопрос
+        score.factual = 0.7f;
         score.hasKnowledge = true;
     }
     
-    // 4. Общая уверенность (взвешенная)
+    // 4. Общая уверенность
     score.overall = 0.4f * score.linguistic + 
                     0.3f * score.contextual + 
                     0.3f * score.factual;
@@ -289,13 +303,30 @@ void LanguageModule::autoEvaluateGeneratedWord(const std::string& word) {
 
 // ========== ИСПРАВЛЕННЫЙ process С ИСПОЛЬЗОВАНИЕМ КОНТЕКСТА ==========
 std::string LanguageModule::process(const std::string& input) {
+    std::cout << "...Processing: \"" << input << "\"" << std::endl;
+
+     // Проверяем прямые ответы
+    std::string directResponse = response_generator_.getDirectResponse(input);
+    if (!directResponse.empty()) {
+        context_tracker_.addTurn("user", input);
+        context_tracker_.addTurn("mary", directResponse);
+        return directResponse;
+    }
+    
     // 1. Контекст и факты
     context_tracker_.addTurn("user", input);
     auto facts = fact_extractor_.extractFacts(input);
     
     // 2. Поиск в памяти (RAG)
     auto queryEmb = embedText(input);
-    auto similar = memory_.findSimilar("conversations", queryEmb, 5);
+    auto similarIdx = memory_.findSimilar("conversations", queryEmb, 5);
+    std::vector<MemoryRecord> similarRecords;
+    for (auto idx : similarIdx) {
+        auto records = memory_.getRecordsByIndices("conversations", {idx});
+        if (!records.empty()) {
+            similarRecords.push_back(records[0]);
+        }
+    }
     
     // 3. Генерация ответа
     std::string response;
@@ -303,32 +334,43 @@ std::string LanguageModule::process(const std::string& input) {
         response = generateWordFromGroups();
     } else {
         response = response_generator_.generateResponse(
-            input, user_profile_, context_tracker_, similar);
+            input, user_profile_, context_tracker_, similarRecords);
     }
+    
+    std::cout << "Generated response: \"" << response << "\"" << std::endl; // ОТЛАДКА
     
     // 4. Оценка уверенности
     ConfidenceScore confidence = evaluateConfidence(input, response);
+    std::cout << "Confidence: " << confidence.overall << std::endl; 
+    
+    // Проверяем, не приветствие ли это (пропускаем фильтр)
+    std::string lowerInput = toLower(input);
+    bool isSimpleGreeting = (lowerInput.find("hi") != std::string::npos ||
+                            lowerInput.find("hello") != std::string::npos ||
+                            lowerInput.find("how are") != std::string::npos ||
+                            lowerInput.find("your name") != std::string::npos);
     
     // 5. Факт-чекинг через эволюцию
     auto factCheck = evolution_.checkFactualConsistency(response);
     
-    // 6. Применяем фильтры
-    if (confidence.overall < confidenceThreshold_ || !factCheck.isConsistent) {
+    // 6. Применяем фильтры (НО НЕ ДЛЯ ПРИВЕТСТВИЙ)
+    if (!isSimpleGreeting && (confidence.overall < confidenceThreshold_ || !factCheck.isConsistent)) {
         if (!factCheck.supportingEvidence.empty()) {
-            // Если есть противоречия, но есть поддержка
             response = "Based on what I know, " + response;
         } else {
             response = getFallbackResponse(confidence);
         }
+        std::cout << "🔄 Filtered response: \"" << response << "\"" << std::endl;
     }
-    
     // 7. Внешний поиск при низкой уверенности
     if (confidence.factual < 0.4f && !user_profile_.knowsUser()) {
-        std::string wikiInfo = ExternalKnowledge::getInstance().queryWikipedia(
-            extractTopicFromQuestion(input));
+        std::string topic = extractTopicFromQuestion(input);
+        std::cout << "Searching Wikipedia for: " << topic << std::endl; // ОТЛАДКА
+        std::string wikiInfo = ExternalKnowledge::getInstance().queryWikipedia(topic);
         if (!wikiInfo.empty()) {
             response = "According to Wikipedia: " + wikiInfo;
             confidence.overall = 0.9f;
+            std::cout << "Wikipedia response" << std::endl; // ОТЛАДКА
         }
     }
     
@@ -336,6 +378,10 @@ std::string LanguageModule::process(const std::string& input) {
     saveConversation(input, response, confidence.overall);
     
     context_tracker_.addTurn("mary", response);
+    
+    std::cout << "Final response: \"" << response << "\"" << std::endl; // ОТЛАДКА
+    std::cout << "Chat history size: " << context_tracker_.getConversationSummary().length() << std::endl; // ОТЛАДКА
+    
     return response;
 }
 
@@ -472,4 +518,55 @@ void LanguageModule::saveAll() {
 
 void LanguageModule::loadAll() {
     std::cout << "Loading language data..." << std::endl;
+}
+
+// Добавьте в конец файла
+
+std::string LanguageModule::extractTopicFromQuestion(const std::string& input) {
+    // Простая эвристика: ищем "what is X", "who is X"
+    std::string lower = toLower(input);
+    
+    if (lower.find("what is ") == 0) {
+        return lower.substr(8);
+    }
+    if (lower.find("who is ") == 0) {
+        return lower.substr(7);
+    }
+    if (lower.find("what ") == 0) {
+        return lower.substr(5);
+    }
+    
+    return input;
+}
+
+std::vector<float> LanguageModule::embedText(const std::string& text) {
+    // Простейшая эмбеддинг-функция (можно улучшить)
+    std::vector<float> embedding(64, 0.0f);
+    
+    auto words = split(text);
+    for (size_t i = 0; i < words.size() && i < 64; ++i) {
+        // Хэшируем слово в индекс
+        size_t hash = std::hash<std::string>{}(words[i]);
+        embedding[i] = static_cast<float>(hash % 100) / 100.0f;
+    }
+    
+    return embedding;
+}
+
+void LanguageModule::saveConversation(const std::string& input, const std::string& response, float confidence) {
+    std::vector<float> convData;
+    convData.push_back(confidence);
+    
+    // Добавляем хэш от ввода для поиска
+    size_t inputHash = std::hash<std::string>{}(input);
+    convData.push_back(static_cast<float>(inputHash % 1000) / 1000.0f);
+    
+    std::map<std::string, std::string> metadata;
+    metadata["input"] = input;
+    metadata["response"] = response;
+    metadata["confidence"] = std::to_string(confidence);
+    
+    std::cout << "Saving conversation: " << input << " -> " << response << std::endl; // ОТЛАДКА
+    
+    memory_.store("conversations", "qa_pair", convData, confidence, metadata);
 }

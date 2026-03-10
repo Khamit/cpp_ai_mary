@@ -29,6 +29,7 @@ struct SemanticLink {
         : word1(w1), word2(w2), strength(s), relation(r) {}
 };
 
+// Структура для хранения выученного слова
 struct LearnedWord {
     std::string word;
     float frequency = 1.0f;

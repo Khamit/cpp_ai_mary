@@ -141,8 +141,12 @@ private:
     
 public:
     MemoryManager();
-    
-    // Получить все записи для компонента (для RuleEvolution)
+
+    std::vector<MemoryRecord> getRecordsByIndices(
+    const std::string& component,
+    const std::vector<size_t>& indices) const;
+
+    // Добавьте правильный метод getRecords (которого не хватает!)
     std::vector<MemoryRecord> getRecords(const std::string& component) const {
         auto it = longTermMemory.find(component);
         if (it != longTermMemory.end()) {

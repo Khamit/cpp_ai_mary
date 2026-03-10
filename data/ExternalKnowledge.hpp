@@ -4,6 +4,7 @@
 #include <vector>
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
+#include "LanguageKnowledgeBase.hpp" 
 
 class ExternalKnowledge {
 public:
@@ -41,8 +42,17 @@ public:
     
     // WordNet (локальная база данных)
     std::vector<std::string> getSynonyms(const std::string& word) {
-        // Подключение к локальной WordNet базе
-        return lookupWordNet(word);
+        // Используем существующую базу знаний LanguageKnowledgeBase
+        std::vector<std::string> result;
+        
+        // Пробуем получить синонимы из встроенной базы
+        auto synonyms = LanguageKnowledgeBase::getInstance().getSynonyms(word);
+        if (!synonyms.empty()) {
+            return synonyms;
+        }
+        
+        // Если нет в базе, возвращаем пустой вектор
+        return result;
     }
     
     // ConceptNet API (бесплатно)

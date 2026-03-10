@@ -36,16 +36,6 @@ struct NeuronStats {
     double avgActivity = 0.0;
 };
 
-// Структура для хранения выученного слова
-struct LearnedWord {
-    std::string word;
-    float frequency = 1.0f;
-    float correctness = 0.5f;
-    int times_rated = 1;
-    std::vector<float> semantic_vector;
-    std::vector<float> context_vector;
-};
-
 class LanguageModule : public Component {
 public:
     // Структура для буфера предложений мутаций
@@ -167,4 +157,9 @@ private:
 
     float confidenceThreshold_ = 0.6f;  // порог уверенности
     float factualThreshold_ = 0.5f;      // порог для фактов
+
+        // НОВЫЕ МЕТОДЫ
+    std::string extractTopicFromQuestion(const std::string& input);
+    std::vector<float> embedText(const std::string& text);
+    void saveConversation(const std::string& input, const std::string& response, float confidence);
 };

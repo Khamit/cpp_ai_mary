@@ -257,7 +257,7 @@ void NeuralGroup::decayAllWeights(float factor) {
 }
 
 // Вызывается при консолидации (Уровень 2)
-void NeuralGroup::consolidateElevation(float globalImportance, float hallucinationPenalty = 0.0f) {
+void NeuralGroup::consolidateElevation(float globalImportance, float hallucinationPenalty) {
     // Старая логика...
     if (activity_counter_ > 0) {
         float avg_importance = cumulative_importance_ / activity_counter_;
