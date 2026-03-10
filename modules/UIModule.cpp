@@ -281,7 +281,7 @@ void UIModule::sendMessage() {
     
     std::cout << "Sending message: " << currentInput << std::endl;
     std::string response = languageModule->process(currentInput);
-    
+    // Вот здесь ответ ДОБАВЛЯЕТСЯ в историю чата
     chatHistory.push_back({currentInput, true});
     chatHistory.push_back({response, false});
     

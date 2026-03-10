@@ -330,6 +330,7 @@ std::string LanguageModule::process(const std::string& input) {
     
     // 3. Генерация ответа
     std::string response;
+    
     if (input == "generate") {
         response = generateWordFromGroups();
     } else {
