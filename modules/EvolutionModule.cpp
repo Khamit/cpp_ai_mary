@@ -3,6 +3,7 @@
 #include <iostream>
 #include <cmath>
 #include <filesystem>
+#include <sstream>
 #include <fstream>
 #include <algorithm>
 #include <random>
@@ -15,7 +16,10 @@ using namespace std::filesystem;
 // Конструкторы
 EvolutionModule::EvolutionModule(ImmutableCore& core, const EvolutionConfig& config, MemoryManager& memory)
     : immutable_core(core), 
-    memoryManager(memory),
+      memoryManager(memory),
+      current_metrics(),  
+      detector_(),        
+      history(),
       total_energy_consumed(0.0),
       total_steps(0),
       in_stasis(false),
@@ -229,6 +233,30 @@ bool EvolutionModule::proposeMutation(NeuralFieldSystem& system) {
     }
 */
 // Старое
+
+    // Используем детектор для поиска хронических галлюцинаторов
+    auto hNeurons = detector_.findHNeurons(0.85f);
+    
+    if (!hNeurons.empty()) {
+        std::cout << "🧬 Эволюция: обнаружено " << hNeurons.size() 
+                  << " нейронов галлюцинаций. Подавление...\n";
+        
+        for (const auto& hn : hNeurons) {
+            auto& group = system.getGroups()[hn.groupIndex];
+            
+            // Вариант А: жестко ставим отрицательную высоту
+            group.setElevation(-0.9f);
+            
+            // Вариант Б: полное отключение (обнуление всех связей)
+            if (hn.hallucinationScore > 0.95f) {
+                group.decayAllWeights(0.0f);
+                std::cout << "   → Группа " << hn.groupIndex 
+                          << ", нейрон " << hn.neuronIndex << " деактивирован\n";
+            }
+        }
+        return true;
+    }
+
     if (in_stasis) {
         applyMinimalMutation(system);
         return true;
@@ -249,6 +277,46 @@ bool EvolutionModule::proposeMutation(NeuralFieldSystem& system) {
         enterStasis(system);
         return false;
     }
+}
+// проверка фактов
+FactCheckResult EvolutionModule::checkFactualConsistency(const std::string& statement) {
+    FactCheckResult result;
+    result.isConsistent = true;
+    result.confidence = 1.0f;
+    
+    // Разбиваем на утверждения
+    auto sentences = splitIntoSentences(statement);
+    
+    for (const auto& sentence : sentences) {
+        // Извлекаем потенциальные факты
+        auto extractedFacts = extractPotentialFacts(sentence);
+        
+        for (const auto& fact : extractedFacts) {
+            // Проверяем по известным фактам
+            if (knownFacts_.empty()) {
+                // Если нет базы знаний, снижаем уверенность
+                result.confidence *= 0.8f;
+                continue;
+            }
+            
+            bool found = false;
+            for (const auto& known : knownFacts_) {
+                if (areFactsConsistent(fact, known)) {
+                    found = true;
+                    result.supportingEvidence.push_back(known);
+                    break;
+                }
+            }
+            
+            if (!found) {
+                result.isConsistent = false;
+                result.contradictions.push_back(sentence);
+                result.confidence *= 0.5f;
+            }
+        }
+    }
+    
+    return result;
 }
 
 // НОВЫЙ МЕТОД: мутация параметров групп
@@ -435,4 +503,71 @@ void EvolutionModule::exitStasis() {
 
 bool EvolutionModule::isInStasis() const {
     return in_stasis;
+}
+
+    std::vector<std::string> EvolutionModule::splitIntoSentences(const std::string& text) {
+    std::vector<std::string> sentences;
+    std::string current;
+    
+    for (char c : text) {
+        current += c;
+        if (c == '.' || c == '!' || c == '?') {
+            if (!current.empty()) {
+                sentences.push_back(current);
+                current.clear();
+            }
+        }
+    }
+    
+    if (!current.empty()) {
+        sentences.push_back(current);
+    }
+    
+    return sentences;
+}
+
+std::vector<std::string> EvolutionModule::extractPotentialFacts(const std::string& sentence) {
+    std::vector<std::string> facts;
+    std::istringstream iss(sentence);
+    std::string word;
+    std::string currentFact;
+    
+    // Простая эвристика: ищем конструкции вида "X is Y" или "X are Y"
+    size_t isPos = sentence.find(" is ");
+    if (isPos != std::string::npos) {
+        facts.push_back(sentence.substr(0, isPos) + " = " + 
+                        sentence.substr(isPos + 4));
+    }
+    
+    size_t arePos = sentence.find(" are ");
+    if (arePos != std::string::npos) {
+        facts.push_back(sentence.substr(0, arePos) + " = " + 
+                        sentence.substr(arePos + 5));
+    }
+    
+    return facts;
+}
+
+bool EvolutionModule::areFactsConsistent(const std::string& fact1, const std::string& fact2) {
+    // Простейшая проверка: если факты противоречат друг другу
+    // Например: "cat is animal" и "cat is plant"
+    
+    size_t eqPos1 = fact1.find('=');
+    size_t eqPos2 = fact2.find('=');
+    
+    if (eqPos1 != std::string::npos && eqPos2 != std::string::npos) {
+        std::string subject1 = fact1.substr(0, eqPos1);
+        std::string subject2 = fact2.substr(0, eqPos2);
+        
+        // Если речь об одном и том же
+        if (subject1 == subject2) {
+            std::string value1 = fact1.substr(eqPos1 + 1);
+            std::string value2 = fact2.substr(eqPos2 + 1);
+            
+            // Если значения разные - противоречие
+            return value1 == value2;
+        }
+    }
+    
+    return true; // если не о том же, то противоречия нет
 }

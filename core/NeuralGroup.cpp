@@ -257,18 +257,18 @@ void NeuralGroup::decayAllWeights(float factor) {
 }
 
 // Вызывается при консолидации (Уровень 2)
-void NeuralGroup::consolidateElevation(float globalImportance) {
-    // На основе накопленной статистики за период
+void NeuralGroup::consolidateElevation(float globalImportance, float hallucinationPenalty = 0.0f) {
+    // Старая логика...
     if (activity_counter_ > 0) {
         float avg_importance = cumulative_importance_ / activity_counter_;
-        
-        // Если нейрон был важен, укрепляем его высоту
-        // Если не важен - позволяем ей снижаться
         elevation_ += (avg_importance - 0.5f) * 0.1f;
+        
+        // НОВОЕ: если нейрон связан с галлюцинациями, понижаем его влияние
+        elevation_ -= hallucinationPenalty * 0.2f;
+        
         elevation_ = std::clamp(elevation_, -1.0f, 1.0f);
     }
     
-    // Сброс счетчиков
     cumulative_importance_ = 0.0f;
     activity_counter_ = 0;
 }

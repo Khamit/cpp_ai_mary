@@ -17,6 +17,16 @@
 
 class EvolutionModule;
 class MemoryManager;
+// система оценки уверенности
+struct ConfidenceScore {
+    float overall;           // общая уверенность (0-1)
+    float factual;           // уверенность в фактах
+    float contextual;        // привязка к контексту
+    float linguistic;        // лингвистическая правильность
+    bool hasKnowledge;       // есть ли знания по теме
+    std::string fallbackReason; // причина низкой уверенности
+};
+
 
 // Statistics
 struct NeuronStats {
@@ -74,6 +84,12 @@ public:
         return external_feedback_count_ > 0 ? 
                external_feedback_sum_ / external_feedback_count_ : 0.5f;
     }
+
+        // Новые методы
+    ConfidenceScore evaluateConfidence(const std::string& input, const std::string& response);
+    bool shouldRespond(const ConfidenceScore& confidence);
+    std::string getFallbackResponse(const ConfidenceScore& confidence);
+    
 
     // мутации
     void applyPendingMutations();
@@ -148,4 +164,7 @@ private:
     std::string getRandomResponse();
     std::string getStats();
     NeuronStats computeNeuronStats(double activeThreshold = 0.7, double passiveThreshold = 0.1) const;
+
+    float confidenceThreshold_ = 0.6f;  // порог уверенности
+    float factualThreshold_ = 0.5f;      // порог для фактов
 };

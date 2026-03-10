@@ -197,8 +197,12 @@ int main() {
         memoryManager     // MemoryManager - НОВЫЙ ПАРАМЕТР
     );
     auto* metacog = core.registerComponent<MetaCognitiveModule>("metacognition", neuralSystem);
+    
     // Создаем остальные модули (они пока не Component)
     ResourceMonitor resources(resConfig);
+
+    // Подключаем детектор к нейросистеме
+    evolution->connectToSystem(neuralSystem);
 
     // Переменные для работы
     float bestFitness = 0.0f;

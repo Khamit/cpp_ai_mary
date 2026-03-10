@@ -12,6 +12,7 @@
 #include <map>
 #include <set>
 #include <data/LanguageKnowledgeBase.hpp>
+#include <data/ExternalKnowledge.hpp>
 
 // ИЗМЕНЕН КОНСТРУКТОР - теперь с MemoryManager
 LanguageModule::LanguageModule(NeuralFieldSystem& system, EvolutionModule& evolution, MemoryManager& memory)
@@ -136,6 +137,95 @@ void LanguageModule::learnWordPattern(const std::string& word, float rating) {
     wordEngine_->learnWordPattern(word, rating, lw.semantic_vector, lw.context_vector);
 }
 
+// В LanguageModule.cpp
+
+ConfidenceScore LanguageModule::evaluateConfidence(const std::string& input, const std::string& response) {
+    ConfidenceScore score;
+    score.overall = 0.0f;
+    
+    // 1. Проверка наличия в базе знаний
+    auto words = split(response);
+    int knownWords = 0;
+    int totalContentWords = 0;
+    
+    for (const auto& word : words) {
+        if (word.length() > 3) { // только значимые слова
+            totalContentWords++;
+            if (isEnglishWord(word) || learned_words_.count(word)) {
+                knownWords++;
+            }
+        }
+    }
+    
+    score.linguistic = totalContentWords > 0 ? 
+        static_cast<float>(knownWords) / totalContentWords : 0.5f;
+    
+    // 2. Проверка привязки к контексту
+    auto recentTopics = context_tracker_.getRecentTopics();
+    int contextMatches = 0;
+    for (const auto& topic : recentTopics) {
+        if (response.find(topic) != std::string::npos) {
+            contextMatches++;
+        }
+    }
+    score.contextual = recentTopics.empty() ? 0.5f : 
+        std::min(1.0f, contextMatches / 3.0f);
+    
+    // 3. Проверка фактов (если это фактологический вопрос)
+    if (input.find("what is") != std::string::npos || 
+        input.find("who is") != std::string::npos) {
+        
+        std::string topic = extractTopicFromQuestion(input);
+        score.hasKnowledge = user_profile_.getAllFacts().count(topic) > 0 ||
+                            LanguageKnowledgeBase::getInstance().isEnglishWord(topic);
+        
+        if (score.hasKnowledge) {
+            score.factual = 0.8f;
+        } else {
+            score.factual = 0.2f;
+            score.fallbackReason = "topic_unknown";
+        }
+    } else {
+        score.factual = 0.7f; // не фактологический вопрос
+        score.hasKnowledge = true;
+    }
+    
+    // 4. Общая уверенность (взвешенная)
+    score.overall = 0.4f * score.linguistic + 
+                    0.3f * score.contextual + 
+                    0.3f * score.factual;
+    
+    return score;
+}
+
+bool LanguageModule::shouldRespond(const ConfidenceScore& confidence) {
+    if (confidence.overall < confidenceThreshold_) {
+        return false;
+    }
+    
+    if (confidence.factual < factualThreshold_ && !confidence.hasKnowledge) {
+        return false;
+    }
+    
+    return true;
+}
+
+std::string LanguageModule::getFallbackResponse(const ConfidenceScore& confidence) {
+    if (confidence.factual < factualThreshold_) {
+        return "I'm not sure about that. Could you provide more information?";
+    }
+    
+    if (confidence.contextual < 0.3f) {
+        return "I'm not sure how that relates to our conversation. Can you clarify?";
+    }
+    
+    if (confidence.linguistic < 0.4f) {
+        return "I'm still learning these concepts. Can you rephrase?";
+    }
+    
+    return "I'm not confident in my answer. Would you like me to learn about this topic?";
+}
+
 void LanguageModule::reinforceActiveGroups(float rating) {
     std::map<int, int> groupCounts;
     for (int g : active_groups_history_) {
@@ -199,38 +289,53 @@ void LanguageModule::autoEvaluateGeneratedWord(const std::string& word) {
 
 // ========== ИСПРАВЛЕННЫЙ process С ИСПОЛЬЗОВАНИЕМ КОНТЕКСТА ==========
 std::string LanguageModule::process(const std::string& input) {
-    std::cout << "📝 Processing: \"" << input << "\"" << std::endl;
-    
-    // 1. Добавляем в контекст
+    // 1. Контекст и факты
     context_tracker_.addTurn("user", input);
-    
-    // 2. Извлекаем факты
     auto facts = fact_extractor_.extractFacts(input);
-    if (!facts.empty()) {
-        for (const auto& fact : facts) {
-            fact_extractor_.storeFact(memory_, fact);
-        }
-        user_profile_.updateFromFacts(facts);
-    }
     
-    // 3. Генерируем ответ на основе контекста и фактов
+    // 2. Поиск в памяти (RAG)
+    auto queryEmb = embedText(input);
+    auto similar = memory_.findSimilar("conversations", queryEmb, 5);
+    
+    // 3. Генерация ответа
     std::string response;
-    
-    // Проверяем специальные команды
-    if (input == "generate" || input == "new word") {
-        response = "I've created: '" + generateWordFromGroups() + "' - what do you think?";
-    }
-    else if (input == "stats") {
-        response = getStats();
-    }
-    else {
-        // Нормальный диалог - используем ResponseGenerator
-        response = response_generator_.generateResponse(input, user_profile_, context_tracker_);
+    if (input == "generate") {
+        response = generateWordFromGroups();
+    } else {
+        response = response_generator_.generateResponse(
+            input, user_profile_, context_tracker_, similar);
     }
     
-    // 4. Добавляем ответ в контекст
+    // 4. Оценка уверенности
+    ConfidenceScore confidence = evaluateConfidence(input, response);
+    
+    // 5. Факт-чекинг через эволюцию
+    auto factCheck = evolution_.checkFactualConsistency(response);
+    
+    // 6. Применяем фильтры
+    if (confidence.overall < confidenceThreshold_ || !factCheck.isConsistent) {
+        if (!factCheck.supportingEvidence.empty()) {
+            // Если есть противоречия, но есть поддержка
+            response = "Based on what I know, " + response;
+        } else {
+            response = getFallbackResponse(confidence);
+        }
+    }
+    
+    // 7. Внешний поиск при низкой уверенности
+    if (confidence.factual < 0.4f && !user_profile_.knowsUser()) {
+        std::string wikiInfo = ExternalKnowledge::getInstance().queryWikipedia(
+            extractTopicFromQuestion(input));
+        if (!wikiInfo.empty()) {
+            response = "According to Wikipedia: " + wikiInfo;
+            confidence.overall = 0.9f;
+        }
+    }
+    
+    // 8. Сохраняем в память
+    saveConversation(input, response, confidence.overall);
+    
     context_tracker_.addTurn("mary", response);
-    
     return response;
 }
 

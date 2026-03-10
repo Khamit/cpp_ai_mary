@@ -1,6 +1,7 @@
 // modules/EvolutionModule.hpp
 #pragma once
 
+#include "hallucination/HNeuronDetector.hpp"
 #include "../core/NeuralFieldSystem.hpp"
 #include "../core/ImmutableCore.hpp"
 #include "../core/Component.hpp"
@@ -16,11 +17,19 @@
 class LanguageModule;
 class MemoryManager; 
 
+struct FactCheckResult {
+    bool isConsistent;
+    float confidence;
+    std::vector<std::string> contradictions;
+    std::vector<std::string> supportingEvidence;
+};
+
 class EvolutionModule : public Component {
 private:
     ImmutableCore& immutable_core;
     MemoryManager& memoryManager;
     EvolutionMetrics current_metrics;
+    HNeuronDetector detector_;
     std::vector<EvolutionMetrics> history;
     double total_energy_consumed;
     size_t total_steps;
@@ -45,8 +54,17 @@ private:
     mutable std::mt19937 rng_{std::random_device{}()}; // если нет
 
 public:
+
+    void connectToSystem(NeuralFieldSystem& system) {
+        detector_.setSystem(&system);
+    }
+    
+    FactCheckResult checkFactualConsistency(const std::string& statement);
+
     // Конструктор
     EvolutionModule(ImmutableCore& core, const EvolutionConfig& config, MemoryManager& memory);
+
+    HNeuronDetector& getDetector() { return detector_; }
     
     // == РЕАЛИЗАЦИЯ МЕТОДОВ Component
     std::string getName() const override { return "EvolutionModule"; }
@@ -116,6 +134,9 @@ private:
     */
 
     std::vector<std::vector<float>> projectionMatrix;
+
+    std::vector<std::string> knownFacts_;
+    std::map<std::string, float> factConfidence_;
     
     // Параметрическая эволюция
     void mutateParameters(NeuralFieldSystem& system);
@@ -131,9 +152,8 @@ private:
     // Минимальная мутация для стазиса
     void applyMinimalMutation(NeuralFieldSystem& system);
     
-    // == УСТАРЕВШИЕ МЕТОДЫ - ЗАКОММЕНТИРОВАНЫ
-    /*
-    void optimizeSystemParameters();
-    // Все методы генерации кода удалены
-    */
+    // НОВЫЕ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
+    std::vector<std::string> splitIntoSentences(const std::string& text);
+    std::vector<std::string> extractPotentialFacts(const std::string& sentence);
+    bool areFactsConsistent(const std::string& fact1, const std::string& fact2);
 };
