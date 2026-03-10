@@ -166,7 +166,7 @@ void EvolutionModule::evaluateFitness(
                   << " | Time: " << timeFitness
                   << std::endl;
 
-        createBackup();
+        //createBackup();
     }
 
     history.push_back(current_metrics);
@@ -377,7 +377,7 @@ void EvolutionModule::applyMinimalMutation(NeuralFieldSystem& system) {
     mutateParameters(system); // просто вызываем ту же мутацию
 }
 
-// ========== МЕТОДЫ ЗАЩИТЫ И БЭКАПОВ ==========
+// ========== МЕТОДЫ ЗАЩИТЫ И БЭКАПОВ ========== Позже 
 bool EvolutionModule::createBackup() {
     try {
         auto now = std::chrono::system_clock::now();
