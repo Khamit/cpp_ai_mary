@@ -12,9 +12,9 @@
 #include <fstream>
 #include <map>
 #include <set>
-#include <data/LanguageKnowledgeBase.hpp>
+#include "data/LanguageKnowledgeBase.hpp"
 #include "data/ExternalKnowledge.hpp"
-#include <learning/EffectiveLearning.hpp>
+#include "modules/learning/EffectiveLearning.hpp" 
 
 // ИЗМЕНЕН КОНСТРУКТОР - теперь с MemoryManager
 LanguageModule::LanguageModule(NeuralFieldSystem& system, EvolutionModule& evolution, MemoryManager& memory)
@@ -475,7 +475,7 @@ std::string LanguageModule::getStats() {
     auto facts = user_profile_.getAllFacts();
     
     std::stringstream ss;
-    ss << "📊 Language Statistics:\n";
+    ss << "Language Statistics:\n";
     ss << "Learned words: " << learned_words_.size() << "\n";
     ss << "Known facts: " << facts.size() << "\n";
     ss << "Word history: " << word_history_.size() << " entries\n";
@@ -487,7 +487,7 @@ std::string LanguageModule::getStats() {
         }
     }
     
-    ss << "\n💬 Recent context:\n";
+    ss << "\nRecent context:\n";
     ss << context_tracker_.getConversationSummary();
     
     ss << "\nNeuron activity:\n";

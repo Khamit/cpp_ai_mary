@@ -6,7 +6,9 @@
 #include <unordered_map>
 #include <array>
 #include <iostream>
-
+#include <sstream>
+#include <algorithm>
+#include <cctype>
 /**
  * @file LanguageKnowledgeBase.hpp
  * @brief База знаний для языкового модуля с предварительно загруженными словами и связками
@@ -182,6 +184,23 @@ public:
         
         return embedding;
     }
+
+    static std::vector<std::string> splitPhrase(const std::string& phrase) {
+    std::vector<std::string> words;
+    std::stringstream ss(phrase);
+    std::string word;
+    while (ss >> word) {
+        // Очищаем от пунктуации
+        word.erase(std::remove_if(word.begin(), word.end(), 
+                [](char c) { return std::ispunct(static_cast<unsigned char>(c)); }), word.end());
+        // В нижний регистр
+        std::transform(word.begin(), word.end(), word.begin(), ::tolower);
+        if (!word.empty()) {
+            words.push_back(word);
+        }
+    }
+    return words;
+}
 
 private:
     LanguageKnowledgeBase() {
@@ -692,23 +711,5 @@ private:
     inline std::string getSemanticField(const std::string& word) {
         return LanguageKnowledgeBase::getInstance().getSemanticField(word);
     }
-
-    static std::vector<std::string> splitPhrase(const std::string& phrase) {
-        std::vector<std::string> words;
-        std::stringstream ss(phrase);
-        std::string word;
-        while (ss >> word) {
-            // Очищаем от пунктуации
-            word.erase(std::remove_if(word.begin(), word.end(), 
-                    [](char c) { return std::ispunct(c); }), word.end());
-            // В нижний регистр
-            std::transform(word.begin(), word.end(), word.begin(), ::tolower);
-            if (!word.empty()) {
-                words.push_back(word);
-            }
-        }
-        return words;
-    }
-
 
 //#endif // LANGUAGE_KNOWLEDGE_BASE_HPP

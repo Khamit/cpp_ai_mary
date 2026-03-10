@@ -22,7 +22,7 @@
 #include "modules/ConfigStructs.hpp"
 #include "modules/MetaCognitiveModule.hpp"
 #include "modules/lang/LanguageModule.hpp"  // Добавлено!
-#include "learning/EffectiveLearning.hpp"
+#include "modules/learning/EffectiveLearning.hpp"
 //#include "core/MemoryManager.hpp"
 //#include "core/Component.hpp"
 
@@ -202,14 +202,13 @@ int main() {
     auto* metacog = core.registerComponent<MetaCognitiveModule>(
         "metacognition", neuralSystem
     );
-
+    // effectiveLearning
     effectiveLearning = new EffectiveLearning(
-    neuralSystem, 
-    *language, 
-    memoryManager, 
-    LanguageKnowledgeBase::getInstance()
+        neuralSystem, 
+        *language, 
+        memoryManager, 
+        const_cast<LanguageKnowledgeBase&>(LanguageKnowledgeBase::getInstance())
     );
-    
     // Создаем остальные модули (они пока не Component)
     ResourceMonitor resources(resConfig);
 

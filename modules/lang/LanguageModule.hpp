@@ -15,7 +15,7 @@
 #include "UserProfile.hpp"
 #include "ContextTracker.hpp"
 #include "ResponseGenerator.hpp"
-#include <learning/EffectiveLearning.hpp>
+#include "modules/learning/EffectiveLearning.hpp"
 
 class EvolutionModule;
 class MemoryManager;

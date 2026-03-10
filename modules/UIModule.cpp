@@ -616,11 +616,13 @@ void UIModule::drawChat(sf::RenderWindow& window)
     }
 }
 
+// Исправленный метод:
 void UIModule::drawControlPanel(sf::RenderWindow& window, const StatisticsModule& stats, bool simulation_running) {
     
     startButton.setFillColor(simulation_running ? BTN_ACTIVE : BTN_BG);
     stopButton.setFillColor(!simulation_running ? BTN_ACTIVE : BTN_BG);
     resetButton.setFillColor(BTN_BG);
+    
     // Рисуем кнопки автообучения
     window.draw(autoLearnButton);
     window.draw(stopLearnButton);
@@ -635,10 +637,8 @@ void UIModule::drawControlPanel(sf::RenderWindow& window, const StatisticsModule
     window.draw(stopText);
     window.draw(resetText);
 
-    // не понял? sf::Text?
-    // Статус симуляции
+    // Статус симуляции (ТОЛЬКО ОДИН РАЗ)
     sf::Text statusText(font);
-    statusText.setFont(font);
     statusText.setCharacterSize(16);
     statusText.setPosition(sf::Vector2f(
         static_cast<float>(windowWidth - config.control_panel_width + 10),
@@ -652,7 +652,7 @@ void UIModule::drawControlPanel(sf::RenderWindow& window, const StatisticsModule
         statusText.setString("# Paused");
         statusText.setFillColor(TEXT_MAIN);
     }
-    window.draw(statusText);
+    window.draw(statusText);  // Рисуем ОДИН раз
 
     // Статус автообучения
     if (autoLearningActive) {
@@ -666,19 +666,7 @@ void UIModule::drawControlPanel(sf::RenderWindow& window, const StatisticsModule
         ));
         window.draw(autoStatusText);
     }
-
-    
-    if (simulation_running) {
-        statusText.setString("* Running");
-        statusText.setFillColor(TEXT_ACCENT);
-    } else {
-        statusText.setString("# Paused");
-        statusText.setFillColor(TEXT_MAIN);
-    }
-    
-    window.draw(statusText);
 }
-
 // Reflection draw
 // ИСПРАВЛЕНО: добавляем параметр sf::RenderWindow& window
 void UIModule::drawMeter(sf::RenderWindow& window, const std::string& label, float value, float x, float y) {
