@@ -8,11 +8,9 @@ A sophisticated C++ simulation framework featuring a self-evolving neural field 
 
 This project follows the principles described in the document:
 
-**Declaration on the Constitutional Principles of Artificial Intelligence**
+**Declaration on the Constitutional Principles of Artificial Intelligence**(/docs/AI_CONSTITUTION_DECLARATION.md)
 
-See the full document here:
-
-/docs/AI_CONSTITUTION_DECLARATION.md
+===============================================
 
 ### 🧠 Overview
 The core is a hybrid neuroevolutionary system with 1024 neurons (32 groups × 32 neurons), combining:
