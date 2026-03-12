@@ -17,9 +17,14 @@ void CoreHub::connectToGroups(const std::vector<NeuralGroup>& groups, const std:
 void CoreHub::integrate(std::vector<NeuralGroup>& groups) {
     if (hubs.empty()) return;
     
-    // Собираем входы от хабов
+    // Собираем входы от хабов с учетом их энтропии
     for (size_t i = 0; i < hubs.size(); ++i) {
         hubInputs[i] = hubs[i]->getAverageActivity();
+        
+        // НОВОЕ: модуляция энтропией
+        double entropy = hubs[i]->computeEntropy();
+        double entropy_factor = 1.0 + (entropy - 2.0) * 0.1;
+        hubInputs[i] *= entropy_factor;
     }
     
     // Обмен между хабами

@@ -4,7 +4,7 @@
 #include <numeric>
 #include <algorithm>
 
-// ========== КОНСТРУКТОР ==========
+// ========== КОНСТРУКТОР ========== //
 ImmutableCore::ImmutableCore() {
     std::cout << "ImmutableCore initialized - core functions sealed" << std::endl;
     
@@ -313,28 +313,40 @@ double ImmutableCore::computeEnergyConservation(const NeuralFieldSystem& system)
 }
 
 double ImmutableCore::computeEntropy(const NeuralFieldSystem& system) const {
-    const auto& groups = system.getGroups();
-    double total_entropy = 0.0;
-    int group_count = 0;
+    // Используем новый метод системы, если он доступен
+    // В новой версии NeuralFieldSystem есть computeSystemEntropy()
     
-    for (const auto& group : groups) {
-        const auto& phi = group.getPhi();
-        double sum = std::accumulate(phi.begin(), phi.end(), 0.0);
+    // Пробуем вызвать метод системы через рефлексию или дублируем логику
+    try {
+        // Вариант 1: Если система предоставляет метод computeSystemEntropy
+        // (раскомментируйте, если метод добавлен в NeuralFieldSystem)
+        // return system.computeSystemEntropy();
         
-        if (sum > 0) {
-            double group_entropy = 0.0;
-            for (double v : phi) {
-                double p = v / sum;
-                if (p > 0) {
-                    group_entropy -= p * std::log2(p);
-                }
+        // Вариант 2: Используем новый метод групп computeEntropy()
+        const auto& groups = system.getGroups();
+        if (groups.empty()) return 0.0;
+        
+        double total_entropy = 0.0;
+        int valid_groups = 0;
+        
+        for (const auto& group : groups) {
+            // Используем новый метод computeEntropy() из NeuralGroup
+            double group_entropy = group.computeEntropy();
+            
+            // Фильтруем некорректные значения
+            if (std::isfinite(group_entropy) && group_entropy >= 0.0) {
+                total_entropy += group_entropy;
+                valid_groups++;
             }
-            total_entropy += group_entropy;
-            group_count++;
         }
+        
+        return valid_groups > 0 ? total_entropy / valid_groups : 0.0;
+        
+    } catch (const std::exception& e) {
+        // Логируем ошибку и возвращаем значение по умолчанию
+        std::cerr << "Error computing entropy: " << e.what() << std::endl;
+        return 0.0;
     }
-    
-    return group_count > 0 ? total_entropy / group_count : 0.0;
 }
 
 double ImmutableCore::getMaxWeight(const NeuralFieldSystem& system) const {

@@ -142,6 +142,15 @@ private:
 public:
     MemoryManager();
 
+    // Новые методы для работы с энтропийными данными
+    void storeWithEntropy(const std::string& component, 
+                        const std::vector<float>& data,
+                        double entropy,
+                        float importance = 1.0f);
+
+    std::vector<MemoryRecord> findHighEntropyRecords(const std::string& component, 
+                                                    double minEntropy) const;
+
     std::vector<MemoryRecord> getRecordsByIndices(
     const std::string& component,
     const std::vector<size_t>& indices) const;

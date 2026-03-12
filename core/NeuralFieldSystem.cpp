@@ -25,14 +25,18 @@ void NeuralFieldSystem::initializeRandom(std::mt19937& rng) {
         groups.emplace_back(GROUP_SIZE, dt, rng);
     }
 
-    // Инициализация межгрупповых связей случайно
+    // Инициализация межгрупповых связей с геометрической структурой
+    // Используем синусоидальную зависимость от расстояния между группами
     std::uniform_real_distribution<double> dist(-0.01, 0.01);
     for (int i = 0; i < NUM_GROUPS; ++i) {
         for (int j = 0; j < NUM_GROUPS; ++j) {
             if (i != j) {
-                interWeights[i][j] = dist(rng);
+                // Геометрический фактор: связь сильнее между близкими группами
+                double angle = 2.0 * M_PI * std::abs(i - j) / NUM_GROUPS;
+                double geometric_factor = std::cos(angle) * 0.5 + 0.5; // от 0 до 1
+                interWeights[i][j] = dist(rng) * geometric_factor;
             } else {
-                interWeights[i][j] = 0.0; // нет самосвязи
+                interWeights[i][j] = 0.0;
             }
         }
     }
@@ -55,46 +59,76 @@ void NeuralFieldSystem::rebuildFlatVectors() const {
 }
 
 void NeuralFieldSystem::consolidateInterWeights() {
-    // Консолидация межгрупповых связей
-    // Аналогично внутригрупповой, но для матрицы interWeights
+    // Консолидация межгрупповых связей с учетом энтропии
+    double entropy = computeSystemEntropy();
+    double entropy_factor = 1.0 / (1.0 + std::exp(-(entropy - 2.0))); // сигмоида
     
-    // Пока просто затухание (можно расширить позже)
     for (auto& row : interWeights) {
         for (auto& w : row) {
-            w *= 0.999f;  // медленное забывание
+            // Если энтропия высокая (хаос), забывание замедляется
+            // Если энтропия низкая (порядок), забывание ускоряется
+            w *= (0.999f + 0.001f * entropy_factor);
         }
     }
 }
 
+double NeuralFieldSystem::computeSystemEntropy() const {
+    rebuildFlatVectors();
+    
+    // Исправление 1: Используем тот же метод, что и в NeuralGroup
+    const int BINS = 20;
+    std::vector<int> hist(BINS, 0);
+    
+    for (double v : flatPhi) {
+        // Значения phi уже в [0,1] после sigmoid
+        int bin = static_cast<int>(v * BINS);
+        bin = std::clamp(bin, 0, BINS - 1);
+        hist[bin]++;
+    }
+    
+    double entropy = 0.0;
+    double total = static_cast<double>(TOTAL_NEURONS);
+    const double LOG_BASE = std::log(2.0);  // для конвертации в log2
+    
+    for (int count : hist) {
+        if (count > 0) {
+            double p = static_cast<double>(count) / total;
+            // Исправление 2: Используем ту же формулу, что в NeuralGroup
+            // Но там используется std::log (натуральный), что математически верно
+            // Главное - везде использовать одинаково
+            entropy -= p * std::log(p);
+        }
+    }
+    
+    // Исправление 3: Нормализуем, как в NeuralGroup (там нет нормировки)
+    // Но для системы в целом имеем диапазон [0, log(BINS)]
+    // Максимальная энтропия при равномерном распределении: log(BINS)
+    
+    return entropy;  // возвращаем в нат
+}
+
 void NeuralFieldSystem::applyReentry(int iterations) {
-    // Временные векторы для новых активностей групп
     std::vector<double> newGroupAvg(NUM_GROUPS, 0.0);
     std::vector<double> currAvg = getGroupAverages();
-    // attention.computeAttention(currAvg);
 
-for (int iter = 0; iter < iterations; ++iter) {
-
-    attention.computeAttention(currAvg);  // ← СНАЧАЛА внимание
-    // Очистка
-    std::fill(newGroupAvg.begin(), newGroupAvg.end(), 0.0);
-    // Вычисление вход групп
-    for (int g = 0; g < NUM_GROUPS; ++g) {
-        double input = 0.0;
-        for (int h = 0; h < NUM_GROUPS; ++h) {
-            float att = attention.attention_weights[h];
-            input += interWeights[g][h] * currAvg[h] * att;
-        }
-            // Лишнее получение phiGrp
-            // Ты его не используешь в этом месте.
-            // auto& phiGrp = groups[g].getPhiNonConst();
-            /*
-            Было так:
-            // Преобразуем вход в изменение активности групп (простая модель)
-            newGroupAvg[g] = currAvg[g] + dt * input;
-            // Ограничение
-            if (newGroupAvg[g] > 1.0) newGroupAvg[g] = 1.0;
-            if (newGroupAvg[g] < 0.0) newGroupAvg[g] = 0.0;
-            */
+    for (int iter = 0; iter < iterations; ++iter) {
+        attention.computeAttention(currAvg);
+        
+        // Используем и обычное softmax внимание, и сферическое для сравнения
+        std::vector<double> spherical_attention = attention.computeSphericalAttention(currAvg);
+        
+        std::fill(newGroupAvg.begin(), newGroupAvg.end(), 0.0);
+        
+        for (int g = 0; g < NUM_GROUPS; ++g) {
+            double input = 0.0;
+            for (int h = 0; h < NUM_GROUPS; ++h) {
+                // Комбинируем два типа внимания
+                float att_soft = attention.attention_weights[h];
+                double att_sphere = spherical_attention[h];
+                double combined_att = 0.7 * att_soft + 0.3 * att_sphere;
+                
+                input += interWeights[g][h] * currAvg[h] * combined_att;
+            }
 
             newGroupAvg[g] = currAvg[g] + dt * input;
             newGroupAvg[g] = std::clamp(newGroupAvg[g], 0.0, 1.0);
@@ -102,14 +136,14 @@ for (int iter = 0; iter < iterations; ++iter) {
         currAvg.swap(newGroupAvg);
     }
 
-    // Применяем итоговые активности к группам (влияем на phi)
+    // Применяем итоговые активности к группам
     for (int g = 0; g < NUM_GROUPS; ++g) {
         double targetAvg = currAvg[g];
         double currentAvg = groups[g].getAverageActivity();
         double diff = targetAvg - currentAvg;
         auto& phiGrp = groups[g].getPhiNonConst();
         for (int n = 0; n < GROUP_SIZE; ++n) {
-            phiGrp[n] += dt * diff * 0.1; // коэффициент влияния
+            phiGrp[n] += dt * diff * 0.1;
             phiGrp[n] = std::clamp(phiGrp[n], 0.0, 1.0);
         }
     }
@@ -121,8 +155,15 @@ void NeuralFieldSystem::step(float globalReward, int stepNumber) {
     applyReentry(3);
     
     for (auto& group : groups) {
-        group.learnSTDP(globalReward, stepNumber);      // eligibility
+        group.learnSTDP(globalReward, stepNumber);
         group.updateElevationFast(globalReward, group.getAverageActivity());
+    }
+    
+    // Сохраняем историю энтропии
+    double current_entropy = computeSystemEntropy();
+    entropy_history.push_back(current_entropy);
+    if (entropy_history.size() > HISTORY_SIZE) {
+        entropy_history.pop_front();
     }
     
     // УРОВЕНЬ 2: редко (раз в 100 шагов)
@@ -138,37 +179,42 @@ void NeuralFieldSystem::step(float globalReward, int stepNumber) {
     
     // УРОВЕНЬ 3: очень редко (раз в 5000 шагов)
     if (stepNumber % EVOLUTION_INTERVAL == 0) {
-        pendingEvolutionRequest_ = true;  // сигнал для EvolutionModule
+        pendingEvolutionRequest_ = true;
     }
     
     flatDirty = true;
 }
 
-// НОВЫЙ МЕТОД: Прореживание связей на основе высоты
 void NeuralFieldSystem::applyPruningByElevation() {
-    const float PRUNING_THRESHOLD = -0.3f; // Нейроны с высотой ниже этого
+    const float PRUNING_THRESHOLD = -0.3f;
     
     for (auto& group : groups) {
         if (group.getElevation() < PRUNING_THRESHOLD) {
-            // Этот нейрон в режиме "забывания"
-            // Ослабляем его входящие и исходящие связи
-            // (можно реализовать по-разному)
-            group.decayAllWeights(0.9f); // пример
+            group.decayAllWeights(0.9f);
         }
     }
 }
 
-// Вспомогательный метод для вычисления важности
 float NeuralFieldSystem::computeGlobalImportance() {
-    // Например, на основе энергии системы или внешней награды
-    return std::abs(computeTotalEnergy() - 0.5f);
+    // Важность пропорциональна скорости изменения энтропии
+    if (entropy_history.size() < 10) return 0.5f;
+    
+    double current_entropy = entropy_history.back();
+    double old_entropy = entropy_history[entropy_history.size() - 10];
+    
+    // Положительное изменение = система становится более хаотичной
+    // Отрицательное изменение = система застывает (важно для консолидации)
+    double entropy_change = current_entropy - old_entropy;
+    
+    // Если энтропия падает (система застывает), увеличиваем важность консолидации
+    return std::max(0.0f, static_cast<float>(-entropy_change * 10.0f));
 }
 
 double NeuralFieldSystem::computeTotalEnergy() const {
     rebuildFlatVectors();
     double total = 0.0;
     for (double v : flatPhi) total += v * v;
-    return total / TOTAL_NEURONS; // упрощённо
+    return total / TOTAL_NEURONS;
 }
 
 std::vector<double> NeuralFieldSystem::getGroupAverages() const {
@@ -182,7 +228,6 @@ std::vector<double> NeuralFieldSystem::getGroupAverages() const {
 void NeuralFieldSystem::strengthenInterConnection(int from, int to, double delta) {
     if (from >= 0 && from < NUM_GROUPS && to >= 0 && to < NUM_GROUPS && from != to) {
         interWeights[from][to] += delta;
-        // ограничение
         const double maxW = 0.5;
         if (interWeights[from][to] > maxW) interWeights[from][to] = maxW;
         if (interWeights[from][to] < -maxW) interWeights[from][to] = -maxW;
@@ -194,7 +239,6 @@ void NeuralFieldSystem::weakenInterConnection(int from, int to, double delta) {
 }
 
 std::vector<float> NeuralFieldSystem::getFeatures() const {
-    // Формируем 64 признака из средних активностей групп и их дисперсий
     std::vector<float> features(64, 0.0f);
     auto avgs = getGroupAverages();
 
@@ -203,19 +247,34 @@ std::vector<float> NeuralFieldSystem::getFeatures() const {
         features[g] = static_cast<float>(avgs[g]);
     }
 
-    // Следующие 32 признака - среднеквадратичное отклонение внутри группы (или другая статистика)
+    // Следующие 32 признака - энтропия внутри группы
     for (int g = 0; g < NUM_GROUPS; ++g) {
         const auto& phi = groups[g].getPhi();
-        double sumSq = 0.0;
-        for (double v : phi) sumSq += v * v;
-        double rms = std::sqrt(sumSq / GROUP_SIZE);
-        features[NUM_GROUPS + g] = static_cast<float>(rms);
+        
+        // Вычисляем энтропию распределения активностей в группе
+        const int BINS = 10;
+        std::vector<int> hist(BINS, 0);
+        for (double v : phi) {
+            int bin = static_cast<int>(v * BINS);
+            bin = std::clamp(bin, 0, BINS - 1);
+            hist[bin]++;
+        }
+        
+        double entropy = 0.0;
+        for (int count : hist) {
+            if (count > 0) {
+                double p = static_cast<double>(count) / GROUP_SIZE;
+                entropy -= p * std::log(p);
+            }
+        }
+        
+        features[NUM_GROUPS + g] = static_cast<float>(entropy);
     }
 
     return features;
 }
 
-// ---------- Заглушки для рефлексии (можно будет развить позже) ----------
+// ---------- Заглушки для рефлексии ----------
 NeuralFieldSystem::ReflectionState NeuralFieldSystem::getReflectionState() const {
     ReflectionState s;
     s.confidence = 0.5;
@@ -226,30 +285,25 @@ NeuralFieldSystem::ReflectionState NeuralFieldSystem::getReflectionState() const
     return s;
 }
 
-void NeuralFieldSystem::reflect() {
-    // Здесь можно реализовать анализ состояний групп, но пока пусто
-}
+void NeuralFieldSystem::reflect() {}
 
 void NeuralFieldSystem::setGoal(const std::string& goal) {
     current_goal = goal;
 }
 
 bool NeuralFieldSystem::evaluateProgress() {
-    return false; // заглушка
+    return false;
 }
 
-void NeuralFieldSystem::learnFromReflection(float outcome) {
-    // заглушка
-}
+void NeuralFieldSystem::learnFromReflection(float outcome) {}
 
 void NeuralFieldSystem::applyTargetedMutation(double strength, int targetType) {
-    // Мутации на уровне групп
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> groupDist(0, NUM_GROUPS - 1);
     std::uniform_real_distribution<> paramDist(-strength, strength);
 
-    if (targetType == 0) { // мутация межгрупповых связей
+    if (targetType == 0) {
         for (int i = 0; i < NUM_GROUPS; ++i) {
             for (int j = 0; j < NUM_GROUPS; ++j) {
                 if (i != j) {
@@ -257,7 +311,7 @@ void NeuralFieldSystem::applyTargetedMutation(double strength, int targetType) {
                 }
             }
         }
-    } else if (targetType == 1) { // мутация параметров группы
+    } else if (targetType == 1) {
         int g = groupDist(gen);
         groups[g].setLearningRate(groups[g].getLearningRate() + paramDist(gen) * 0.01);
         groups[g].setThreshold(groups[g].getThreshold() + paramDist(gen) * 0.01);
@@ -268,7 +322,7 @@ void NeuralFieldSystem::enterLowPowerMode() {
     // Уменьшаем активность групп
     for (auto& group : groups) {
         for (int i = 0; i < GROUP_SIZE; ++i) {
-            // можно обнулить малые значения
+            // Можно обнулить малые значения
         }
     }
 }

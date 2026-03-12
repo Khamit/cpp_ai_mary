@@ -30,6 +30,19 @@ public:
     
     bool loadFromFile(const std::string& filename);
     bool saveToFile(const std::string& filename) const;
+
+    // Получить параметры энтропийной регуляризации
+    inline double getEntropyTarget() const {
+        return get<double>("entropy.target", 2.5);  // целевая энтропия
+    }
+
+    inline double getEntropyLearningRate() const {
+        return get<double>("entropy.learning_rate", 0.01);
+    }
+
+    inline double getMinEntropyThreshold() const {
+        return get<double>("entropy.min_threshold", 0.5);
+    }
     
     // Вспомогательные методы для JSON парсинга
     static Config fromJSON(const std::string& json);

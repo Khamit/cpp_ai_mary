@@ -2,6 +2,7 @@
 #include <cmath>
 #include <algorithm>
 #include <iostream>
+#include <numeric>
 
 NeuralGroup::NeuralGroup(int size, double dt, std::mt19937& rng)
     : size(size),
@@ -14,23 +15,30 @@ NeuralGroup::NeuralGroup(int size, double dt, std::mt19937& rng)
       specialization("unspecialized")
 {
     initializeRandom(rng);
-    buildSynapsesFromWeights(); // создаём синапсы из матрицы весов
+    buildSynapsesFromWeights();
     weight_gradients.resize(size, std::vector<double>(size, 0.0));
     velocity.resize(size, std::vector<double>(size, 0.0));
-
 }
 
 void NeuralGroup::initializeRandom(std::mt19937& rng) {
     std::uniform_real_distribution<double> dist(-0.1, 0.1);
+    
+    // Инициализация с геометрической структурой (циклические связи)
     for (int i = 0; i < size; ++i) {
         phi[i] = dist(rng);
         pi[i] = dist(rng) * 0.1;
+        
         for (int j = i + 1; j < size; ++j) {
-            double w = dist(rng) * 0.02;
+            // Геометрический фактор: синусоидальная зависимость от расстояния
+            double angle = 2.0 * M_PI * (j - i) / size;
+            double geometric_factor = std::sin(angle) * 0.5;
+            
+            double w = dist(rng) * 0.02 + geometric_factor * 0.01;
             W_intra[i][j] = w;
             W_intra[j][i] = w;
         }
     }
+    
     for (int i = 0; i < size; ++i) {
         W_intra[i][i] = 0.0;
     }
@@ -38,7 +46,6 @@ void NeuralGroup::initializeRandom(std::mt19937& rng) {
 
 void NeuralGroup::buildSynapsesFromWeights() {
     synapses.clear();
-    // Создаём синапс для каждой связи (только верхний треугольник)
     for (int i = 0; i < size; ++i) {
         for (int j = i + 1; j < size; ++j) {
             Synapse syn;
@@ -86,69 +93,74 @@ double NeuralGroup::activationFunction(double x) const {
     return 1.0 / (1.0 + std::exp(-(x - threshold) / temp));
 }
 
-void NeuralGroup::learnSTDP(float reward, int currentStep)
-{
-    int synIndex = 0;
+double NeuralGroup::computeEntropy() const {
+    const int BINS = 10;
+    std::vector<int> hist(BINS, 0);
+    
+    for (double v : phi) {
+        int bin = static_cast<int>(v * BINS);
+        bin = std::clamp(bin, 0, BINS - 1);
+        hist[bin]++;
+    }
+    
+    double entropy = 0.0;
+    for (int count : hist) {
+        if (count > 0) {
+            double p = static_cast<double>(count) / size;
+            entropy -= p * std::log(p);
+        }
+    }
+    
+    return entropy;
+}
 
-    for (int i = 0; i < size; ++i)
-    {
-        for (int j = i + 1; j < size; ++j)
-        {
-            if (synIndex >= synapses.size())
-                break;
+double NeuralGroup::computeEntropyTarget() const {
+    // Целевая энтропия - максимальна при равномерном распределении
+    return std::log(static_cast<double>(size));
+}
+
+void NeuralGroup::learnSTDP(float reward, int currentStep) {
+    int synIndex = 0;
+    double current_entropy = computeEntropy();
+    double target_entropy = computeEntropyTarget();
+    double entropy_error = target_entropy - current_entropy;
+
+    for (int i = 0; i < size; ++i) {
+        for (int j = i + 1; j < size; ++j) {
+            if (synIndex >= synapses.size()) break;
 
             auto& syn = synapses[synIndex++];
 
             const bool preSpike  = (phi[i] > threshold);
             const bool postSpike = (phi[j] > threshold);
 
-            // Обновляем времена спайков
-            if (preSpike)
-                syn.lastPreFire = static_cast<float>(currentStep);
+            if (preSpike) syn.lastPreFire = static_cast<float>(currentStep);
+            if (postSpike) syn.lastPostFire = static_cast<float>(currentStep);
 
-            if (postSpike)
-                syn.lastPostFire = static_cast<float>(currentStep);
-
-            // STDP работает только если есть новое событие
-            if (!(preSpike || postSpike))
-                continue;
+            if (!(preSpike || postSpike)) continue;
 
             float delta = 0.0f;
-
             float dt = syn.lastPostFire - syn.lastPreFire;
 
-            if (dt > 0.0f)
-            {
-                // LTP
-                delta = params.A_plus *
-                        std::exp(-dt / params.tau_plus);
-            }
-            else if (dt < 0.0f)
-            {
-                // LTD
-                delta = -params.A_minus *
-                        std::exp(dt / params.tau_minus);
+            if (dt > 0.0f) {
+                delta = params.A_plus * std::exp(-dt / params.tau_plus);
+            } else if (dt < 0.0f) {
+                delta = -params.A_minus * std::exp(dt / params.tau_minus);
             }
 
-    // Модифицируем обновление веса с учетом высоты нейрона
-    float elevation_factor = 1.0f + elevation_;  // от 0 до 2
-    
-    // Обновляем eligibility trace (не меняется)
-    syn.eligibility = syn.eligibility * params.eligibilityDecay + delta;
-    
-    // Reward-modulated update с фактором высоты
-    // Если высота отрицательная, вес меняется меньше (защита от шума)
-    // Если высота положительная, вес меняется больше (укрепление)
-    syn.weight += params.stdpRate * reward * syn.eligibility * elevation_factor;
+            float elevation_factor = 1.0f + elevation_;
+            
+            // Добавляем энтропийную компоненту в обновление
+            // Если энтропия太低, поощряем изменения
+            float entropy_factor = 1.0f + static_cast<float>(entropy_error * 0.1);
+            
+            syn.eligibility = syn.eligibility * params.eligibilityDecay + delta;
+            
+            syn.weight += params.stdpRate * reward * syn.eligibility * 
+                         elevation_factor * entropy_factor;
 
-            // Ограничение веса
-            syn.weight = std::clamp(
-                syn.weight,
-                -params.maxWeight,
-                 params.maxWeight
-            );
+            syn.weight = std::clamp(syn.weight, -params.maxWeight, params.maxWeight);
 
-            // Синхронизация с матрицей
             W_intra[i][j] = syn.weight;
             W_intra[j][i] = syn.weight;
         }
@@ -156,10 +168,14 @@ void NeuralGroup::learnSTDP(float reward, int currentStep)
 }
 
 void NeuralGroup::learnHebbian(double globalReward) {
+    double current_entropy = computeEntropy();
+    double target_entropy = computeEntropyTarget();
+    double entropy_factor = 1.0 + (target_entropy - current_entropy) * 0.1;
+
     for (int i = 0; i < size; ++i) {
         for (int j = i + 1; j < size; ++j) {
             double hebb = phi[i] * phi[j];
-            double update = params.hebbianRate * (hebb + globalReward * 0.1);
+            double update = params.hebbianRate * (hebb + globalReward * 0.1) * entropy_factor;
             W_intra[i][j] += update;
             W_intra[j][i] = W_intra[i][j];
             
@@ -171,7 +187,6 @@ void NeuralGroup::learnHebbian(double globalReward) {
 
 void NeuralGroup::consolidate() {
     for (auto& syn : synapses) {
-        // Усредняем eligibility в вес
         syn.weight += params.consolidationRate * syn.eligibility;
         syn.eligibility *= 0.9f;
         
@@ -188,9 +203,15 @@ double NeuralGroup::getAverageActivity() const {
 
 void NeuralGroup::computeGradients(const std::vector<double>& target) {
     if (target.size() != size) return;
+    
+    // Вместо target используем энтропийную цель
+    double current_entropy = computeEntropy();
+    double target_entropy = computeEntropyTarget();
+    double entropy_gradient = target_entropy - current_entropy;
 
     for (int i = 0; i < size; ++i) {
-        double error_i = phi[i] - target[i];
+        // Модифицируем ошибку с учетом энтропии
+        double error_i = (phi[i] - 0.5) * entropy_gradient * 0.1;
         for (int j = 0; j < size; ++j) {
             weight_gradients[i][j] = error_i * phi[j];
         }
@@ -206,7 +227,6 @@ void NeuralGroup::applyGradients() {
             W_intra[i][j] += velocity[i][j];
             W_intra[j][i] = W_intra[i][j];
 
-            // Ограничение
             W_intra[i][j] = std::clamp(
                 W_intra[i][j],
                 -static_cast<double>(params.maxWeight),
@@ -215,29 +235,26 @@ void NeuralGroup::applyGradients() {
             W_intra[j][i] = W_intra[i][j];
         }
     }
+    
     int idx = 0;
-        for (int i = 0; i < size; ++i)
-            for (int j = i + 1; j < size; ++j)
-                synapses[idx++].weight = static_cast<float>(W_intra[i][j]);
+    for (int i = 0; i < size; ++i) {
+        for (int j = i + 1; j < size; ++j) {
+            synapses[idx++].weight = static_cast<float>(W_intra[i][j]);
+        }
+    }
 }
 
-// Вызывается на КАЖДОМ шаге (Уровень 1)
 void NeuralGroup::updateElevationFast(float reward, float activity) {
-    // Быстрое изменение высоты под влиянием текущего опыта
-    // Например: если нейрон активен и получил награду, высота растет
-    if (activity > getEffectiveThreshold() && reward > 0) {
-        elevation_ += elevation_learning_rate_ * reward * activity;
+    double entropy = computeEntropy();
+    double target_entropy = computeEntropyTarget();
+    double entropy_contribution = -entropy * std::log(entropy + 1e-12);
+    
+    if (activity > getEffectiveThreshold()) {
+        // Высота растет, если нейрон вносит вклад в энтропию
+        elevation_ += elevation_learning_rate_ * reward * entropy_contribution;
     }
     
-    // Если нейрон активен, но награда отрицательна, высота падает
-    if (activity > getEffectiveThreshold() && reward < 0) {
-        elevation_ += elevation_learning_rate_ * reward * activity; // reward отрицательный
-    }
-    
-    // Медленное возвращение к базовому уровню (гомеостаз)
     elevation_ *= elevation_decay_;
-    
-    // Ограничение
     elevation_ = std::clamp(elevation_, -1.0f, 1.0f);
 }
 
@@ -245,7 +262,7 @@ void NeuralGroup::decayAllWeights(float factor) {
     for (auto& syn : synapses) {
         syn.weight *= factor;
     }
-    // Синхронизация с W_intra
+    
     int idx = 0;
     for (int i = 0; i < size; ++i) {
         for (int j = i + 1; j < size; ++j) {
@@ -256,16 +273,16 @@ void NeuralGroup::decayAllWeights(float factor) {
     }
 }
 
-// Вызывается при консолидации (Уровень 2)
 void NeuralGroup::consolidateElevation(float globalImportance, float hallucinationPenalty) {
-    // Старая логика...
     if (activity_counter_ > 0) {
         float avg_importance = cumulative_importance_ / activity_counter_;
-        elevation_ += (avg_importance - 0.5f) * 0.1f;
         
-        // НОВОЕ: если нейрон связан с галлюцинациями, понижаем его влияние
+        // Учитываем энтропийный вклад
+        double entropy = computeEntropy();
+        double entropy_factor = 1.0 + (entropy - 2.0) * 0.1;
+        
+        elevation_ += (avg_importance - 0.5f) * 0.1f * entropy_factor;
         elevation_ -= hallucinationPenalty * 0.2f;
-        
         elevation_ = std::clamp(elevation_, -1.0f, 1.0f);
     }
     
@@ -274,26 +291,20 @@ void NeuralGroup::consolidateElevation(float globalImportance, float hallucinati
 }
 
 void NeuralGroup::consolidateEligibility(float globalImportance) {
+    double entropy = computeEntropy();
+    double entropy_factor = 1.0 / (1.0 + std::exp(-(entropy - 2.0)));
+
     for (auto& syn : synapses) {
-        // Перенос eligibility trace в вес с учетом глобальной важности
-        // и высоты нейрона (elevation)
         float consolidation_factor = params.consolidationRate * globalImportance;
-        
-        // Высота влияет на консолидацию:
-        // - положительная высота -> укрепляем связи
-        // - отрицательная высота -> ослабляем/игнорируем
-        consolidation_factor *= (1.0f + elevation_);
+        consolidation_factor *= (1.0f + elevation_) * static_cast<float>(entropy_factor);
         
         syn.weight += consolidation_factor * syn.eligibility;
-        
-        // Уменьшаем eligibility после консолидации
         syn.eligibility *= 0.5f;
         
-        // Ограничение веса
         syn.weight = std::clamp(syn.weight, -params.maxWeight, params.maxWeight);
     }
-    
-    // Синхронизация с W_intra для обратной совместимости
+    // для обратной совместимости? - ДА, ЭТО НУЖНО!
+    // W_intra используется в computeDerivatives() и evolve()
     int idx = 0;
     for (int i = 0; i < size; ++i) {
         for (int j = i + 1; j < size; ++j) {

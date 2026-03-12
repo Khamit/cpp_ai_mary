@@ -58,9 +58,10 @@ void MemoryManager::store(const std::string& component, const std::string& type,
                          float importance,
                          const std::map<std::string, std::string>& metadata) {
     // Кажется здесь он не уместен и не правильно 
-    if (++writeCooldown < WRITE_INTERVAL) return;
+    if (++writeCooldown >= WRITE_INTERVAL) {
         writeCooldown = 0;
         saveAll();
+    }
     
     // Проверяем размер данных (не больше 1KB на запись)
     if (data.size() > 256) {  // 256 floats = 1KB
@@ -525,6 +526,37 @@ std::vector<MemoryRecord> MemoryManager::getRecordsByIndices(
     for (size_t idx : indices) {
         if (idx < records.size()) {
             result.push_back(records[idx]);
+        }
+    }
+    
+    return result;
+}
+// реализация энтропии 
+void MemoryManager::storeWithEntropy(const std::string& component,
+                                     const std::vector<float>& data,
+                                     double entropy,
+                                     float importance) {
+    std::map<std::string, std::string> metadata;
+    metadata["entropy"] = std::to_string(entropy);
+    metadata["type"] = "entropy_pattern";
+    
+    store(component, "pattern", data, importance, metadata);
+}
+
+std::vector<MemoryRecord> MemoryManager::findHighEntropyRecords(const std::string& component,
+                                                                double minEntropy) const {
+    std::vector<MemoryRecord> result;
+    
+    auto it = longTermMemory.find(component);
+    if (it == longTermMemory.end()) return result;
+    
+    for (const auto& record : it->second) {
+        auto metaIt = record.metadata.find("entropy");
+        if (metaIt != record.metadata.end()) {
+            double entropy = std::stod(metaIt->second);
+            if (entropy >= minEntropy) {
+                result.push_back(record);
+            }
         }
     }
     

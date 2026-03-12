@@ -5,6 +5,15 @@
 // --------------------
 // Синапс (STDP + eligibility trace)
 // --------------------
+/**
+ * @struct Synapse
+ * @brief Синапс с STDP и eligibility trace
+ * 
+ * Логика:
+ * - weight - сила связи
+ * - eligibility - след элигибилити для reward-modulated STDP
+ * - lastPreFire/lastPostFire - времена последних спайков
+ */
 struct Synapse
 {
     float weight;           // вес синапса
@@ -27,6 +36,10 @@ struct Synapse
 // --------------------
 // Параметры пластичности
 // --------------------
+/**
+ * @struct PlasticityParams
+ * @brief Параметры пластичности для STDP и энтропийной регуляризации
+ */
 struct PlasticityParams
 {
     // --- Скорости обучения ---

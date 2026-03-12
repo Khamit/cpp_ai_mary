@@ -4,12 +4,19 @@
 #include <string>
 #include "Synapse.hpp"
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 /**
  * @class NeuralGroup
- * @brief Функциональная группа нейронов (аналог колонки в core).
- *
- * Каждая группа содержит 32 нейрона
- * Группа может быть специализирована (язык, внимание и т.д.).
+ * @brief Функциональная группа нейронов с энтропийной регуляризацией
+ * 
+ * Логика:
+ * - 32 нейрона в группе с рекуррентными связями
+ * - STDP с элигибилити-трейсами и модуляцией высотой (elevation)
+ * - Энтропийная цель обучения вместо target=0.5
+ * - Геометрическая инициализация весов с использованием π
  */
 class NeuralGroup {
 public:
@@ -17,6 +24,8 @@ public:
 
     void computeGradients(const std::vector<double>& target);
     void applyGradients();
+
+    static constexpr int ENTROPY_BINS = 10;
     
     // Запрет копирования
     NeuralGroup(const NeuralGroup&) = delete;
@@ -30,7 +39,7 @@ public:
     void evolve();
     void learnSTDP(float reward, int currentStep);
     void learnHebbian(double globalReward);
-    void consolidate(); // долговременная консолидация
+    void consolidate();
     
     // Геттеры/сеттеры
     double getAverageActivity() const;
@@ -46,81 +55,74 @@ public:
     
     std::string specialization;
     
-    // Доступ к синапсам (для консолидации)
+    // Доступ к синапсам
     std::vector<Synapse>& getSynapses() { return synapses; }
 
-    // Новые методы для работы с высотой
+    // Методы для работы с высотой
     void setElevation(float elev) { elevation_ = elev; }
     float getElevation() const { return elevation_; }
     
-    // НОВЫЕ МЕТОДЫ ДЛЯ ТРЕХУРОВНЕВОЙ АРХИТЕКТУРЫ
-    // Уровень 1: быстрое обновление высоты (каждый шаг)
+    // Уровень 1: быстрое обновление высоты
     void updateElevationFast(float reward, float activity);
     
-    // Уровень 2: консолидация высоты (редко)
+    // Уровень 2: консолидация высоты
     void consolidateElevation(float globalImportance, float hallucinationPenalty = 0.0f);
     
-    // NeuralGroup.hpp - добавить в public раздел после других методов
-
-    // УРОВЕНЬ 2: Консолидация (редко)
-    void consolidateEligibility(float globalImportance);  // перенос eligibility в веса
+    // Уровень 2: консолидация элигибилити
+    void consolidateEligibility(float globalImportance);
     
-    // Для совместимости с STDP (переименовать позже)
+    // Для совместимости
     void updateEligibilityTraces(float reward, int currentStep) {
-        // Это просто обертка для learnSTDP, пока не переименуете
         learnSTDP(reward, currentStep);
     }
     
-    // Получить модифицированный порог активации с учетом высоты
+    // Получить модифицированный порог с учетом высоты
     double getEffectiveThreshold() const {
-        // Высота может как понижать порог (облегчая активацию),
-        // так и повышать (затрудняя). Например:
         return threshold - elevation_ * 0.05; 
     }
 
-        // Вспомогательный метод для прореживания
-    void decayAllWeights(float factor); // НУЖНО ДОБАВИТЬ!
+    // Вспомогательный метод для прореживания
+    void decayAllWeights(float factor);
+    
+    // Вычисление энтропии распределения активностей в группе
+    double computeEntropy() const;
 
 private:
-
-    // --- Gradient Descent learning ---
+    // Gradient Descent learning
     std::vector<std::vector<double>> weight_gradients;
     std::vector<std::vector<double>> velocity;
     double gd_learning_rate = 0.001;
     double gd_momentum = 0.9;
 
-    int size;                           // количество нейронов
-    double dt;                          // шаг интегрирования
-    double threshold;                    // порог активации
+    int size;
+    double dt;
+    double threshold;
     
-    std::vector<double> phi;             // активности нейронов
-    std::vector<double> pi;              // импульсы
-    std::vector<std::vector<double>> W_intra; // временно оставляем для совместимости
+    std::vector<double> phi;
+    std::vector<double> pi;
+    std::vector<std::vector<double>> W_intra;
     
-    std::vector<double> dH;               // производные
+    std::vector<double> dH;
     
-    // НОВОЕ: синапсы и параметры пластичности
-    std::vector<Synapse> synapses;        // список всех синапсов в группе
-    PlasticityParams params;               // параметры пластичности
+    // Синапсы и параметры пластичности
+    std::vector<Synapse> synapses;
+    PlasticityParams params;
     
     // Вспомогательные методы
     void computeDerivatives();
     double activationFunction(double x) const;
     void initializeRandom(std::mt19937& rng);
-    
-    // Построение синапсов из W_intra (для миграции)
     void buildSynapsesFromWeights();
+    
+    // Целевая функция на основе энтропии
+    double computeEntropyTarget() const;
 
-    // НОВОЕ: Высота нейрона (или группы)
-    // Положительная -> консервация, укрепление
-    // Отрицательная -> пластичность, забывание
+    // Высота нейрона (положительная - консервация, отрицательная - пластичность)
     float elevation_ = 0.0f;  
     
-    // Параметры для обновления высоты
     float elevation_learning_rate_ = 0.001f;
-    float elevation_decay_ = 0.999f;  // медленное возвращение к нулю
+    float elevation_decay_ = 0.999f;
     
-    // Для подсчета важности нейрона (используется в консолидации)
     float cumulative_importance_ = 0.0f;
     int activity_counter_ = 0;
 };

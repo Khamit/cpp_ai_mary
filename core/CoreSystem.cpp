@@ -28,8 +28,22 @@ void CoreSystem::shutdown() {
 }
 
 void CoreSystem::update(float dt) {
-    // Обновляем нейросистему
-    neuralSystem->step(0.0f, true);
+    // Обновляем нейросистему с передачей номера шага
+    static int stepCounter = 0;
+    neuralSystem->step(0.0f, stepCounter++);
+    
+    // НОВОЕ: мониторинг энтропии
+    static int entropyCheckCounter = 0;
+    if (++entropyCheckCounter % 100 == 0) {
+        double entropy = neuralSystem->computeSystemEntropy();
+        std::cout << "System entropy: " << entropy << std::endl;
+        
+        // Сохраняем высокоэнтропийные состояния в память
+        if (entropy > 3.0) {  // порог можно настроить
+            auto features = neuralSystem->getFeatures();
+            memory.storeWithEntropy("system", features, entropy, 0.8f);
+        }
+    }
     
     // Обновляем все компоненты
     for (auto& component : components) {

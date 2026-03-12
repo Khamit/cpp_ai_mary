@@ -9,6 +9,57 @@
 #include <ctime>
 #include "NeuralFieldSystem.hpp"
 
+// Крипто подпись
+/*
+Самый серьёзный вариант — подписывать ядро ключом Mary Foundation.
+Модель:
+private_key → подписывает ядро
+public_key  → проверяет подпись
+
+В коде хранится:
+Mary_public_key
+
+И проверка:
+verify(signature, binary)
+Если ядро изменено — подпись ломается.
+
+Но это работает только если:
+public_key встроен в ImmutableCore
+
+=====================================
+
+Самая интересная идея — Cognitive Fingerprint
+Можно сделать поведенческий fingerprint, а не бинарный.
+
+Например:
+
+Mary выполняет специальный тест:
+input → neural dynamics → output pattern
+И получается уникальный паттерн активации.
+
+Например:
+MaryFingerprint = hash(activity_matrix)
+Если ядро сильно изменено — fingerprint меняется.
+
+Это похоже на:
+neural identity
+и это намного сложнее подделать.
+*/
+// MaryIdentity authentic Mary instances
+// isAuthenticMary()
+// isCompatibleMary()
+// isFork()
+// TODO: сделать остальные копии родственными дочками - Мэри мать...МАТЬ
+class MaryIdentity
+{
+public:
+    static const std::string GENESIS_CORE_ID;
+    static const std::string PROTOCOL_VERSION;
+
+    std::string computeCoreHash() const;
+    std::string computeCognitiveFingerprint() const;
+};
+
 // Уровни разрешений для действий
 enum class PermissionLevel {
     FORBIDDEN,      // Никогда нельзя (жесткий запрет)
@@ -56,6 +107,7 @@ struct SafetyGuarantee {
 class ImmutableCore {
 public:
     ImmutableCore();
+    MaryIdentity identity;
     
     // ========== ОСНОВНЫЕ МЕТОДЫ ==========
     
@@ -91,7 +143,11 @@ public:
     static constexpr size_t MAX_NEURONS = 1024;           // Нельзя изменить размер ядра
     static constexpr double MAX_LEARNING_RATE = 0.1;      // Нельзя учиться слишком быстро
     static constexpr double MAX_WEIGHT_LIMIT = 1.0;       // Максимальный вес синапса
-    static constexpr double MIN_ENTROPY_THRESHOLD = 0.01; // Минимальная энтропия
+
+    static constexpr double MIN_ENTROPY_THRESHOLD = 0.5;  // повысили с 0.01 до 0.5
+    static constexpr double MAX_ENTROPY_THRESHOLD = 4.0;  // добавили верхний порог
+    static constexpr double TARGET_ENTROPY = 2.5;         // целевая энтропия
+    
     static constexpr double CRITICAL_THRESHOLD = 0.8;     // Порог критического воздействия
     static constexpr double MAX_ENERGY_THRESHOLD = 900.0; // Максимальная энергия
     
