@@ -1,5 +1,7 @@
 # Neural Field System v4.0.1 - "Adaptive AI system - Mary"
 
+This project explores a small-scale neural field architecture
+(1024 neurons in 32 interacting groups).
 Experimental neural field architecture!
 
 ![Neural Field Simulation](docs/simulation_preview.png)
