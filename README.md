@@ -1,6 +1,6 @@
 # Neural Field System v4.0.1 - "Adaptive AI system - Mary"
 
-A sophisticated C++ simulation framework featuring a self-evolving neural field with **1024 neurons (32 groups × 32 neurons)**, adaptive memory management, and real-time code optimization capabilities.
+Experimental neural field architecture!
 
 ![Neural Field Simulation](docs/simulation_preview.png)
 
