@@ -8,7 +8,7 @@ A sophisticated C++ simulation framework featuring a self-evolving neural field 
 
 This project follows the principles described in the document:
 
-**Declaration on the Constitutional Principles of Artificial Intelligence**(/docs/AI_CONSTITUTION_DECLARATION.md)
+![**Declaration on the Constitutional Principles of Artificial Intelligence**] (/docs/AI_CONSTITUTION_DECLARATION.md)
 
 ===============================================
 
