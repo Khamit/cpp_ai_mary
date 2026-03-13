@@ -95,7 +95,7 @@ double NeuralFieldSystem::computeSystemEntropy() const {
             double p = static_cast<double>(count) / total;
             // Исправление 2: Используем ту же формулу, что в NeuralGroup
             // Но там используется std::log (натуральный), что математически верно
-            // Главное - везде использовать одинаково
+            // Главное - везде использовать одинаково - но почему не наследуем? 
             entropy -= p * std::log(p);
         }
     }
