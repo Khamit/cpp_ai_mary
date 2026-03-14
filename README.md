@@ -136,11 +136,12 @@ make run
 ## ⚠️ Important Notice
 
 Mary AI Core is a local AI system designed for complete privacy:
-100% Local - No internet, no data transmission
-User Controlled - All data stays on your device
-Open Source (see [LICENSE](LICENSE) for terms)
-No Tracking - No analytics, no telemetry
-Full responsibility details in [NOTICE](/docs/NOTICE.md) section.
+
+- 100% Local - No internet, no data transmission
+- User Controlled - All data stays on your device
+- Open Source (see [LICENSE](LICENSE) for terms)
+- No Tracking - No analytics, no telemetry
+- Full responsibility details in [NOTICE](/docs/NOTICE.md) section.
 
 
 ### 📜 License
