@@ -166,4 +166,5 @@ Email: gercules789@gmail.com, khamit@combi.kz
 Telegram: [@lordekz](https:/t.me/lordekz)
 
 Built with ❤️ for the M1 Mac | 1024 neurons | Self-evolving code | Priority memory
+Idea and architecture by Khamit. Implementation assisted by AI tools (DeepSeek/GPT) - free versions.
 
