@@ -1,22 +1,49 @@
 Copyright (c) 2026 Khamit
 
-This software is licensed under the Non-Commercial License.
+## LICENSE FOR EXPERIMENTAL AI MODEL
 
-1. Non-Commercial Use
-   You may use, copy, modify, and distribute this software **only for non-commercial purposes**.
-   Non-commercial purposes include educational, research, personal, or non-profit use.
+This license governs the use, modification, and distribution of this artificial intelligence model (the "Software"), including its weights, code, and associated files.
 
-2. Commercial Use
-   Any use of this software in a commercial product, for profit, or for any form of revenue generation
-   is **strictly prohibited** without obtaining a separate commercial license from the copyright holder.
-   To request a commercial license, please contact: <your email>.
+### 1. GRANT OF RIGHTS
+Subject to the terms and conditions of this license, you are granted the right to use, copy, modify, and distribute the Software **for Non-Commercial and Responsible Research Purposes only**, provided you comply with all sections below.
 
-3. Redistribution
-   Redistribution of the software must include this LICENSE file and attribution to the original author.
+### 2. DEFINITIONS
+- **"Non-Commercial"**: Use not primarily intended for or directed towards commercial advantage or monetary compensation. This includes academic research, personal experimentation, and non-profit educational activities.
+- **"Harmful Use"**: Any application that reasonably poses a risk of:
+  - Physical or mental injury to humans or animals
+  - Violation of human rights or privacy (including mass surveillance, facial recognition without consent)
+  - Generation or dissemination of disinformation, hate speech, or harassment
+  - Autonomous weapons systems, military command-and-control systems
+  - Manipulation of democratic processes (e.g., deepfakes of politicians without disclosure)
+- **"Derivative Model"**: Any fine-tuned version, distilled version, or any AI model significantly based on this Software.
 
-4. Disclaimer
-   THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
-   INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE
-   AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-   DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+### 3. PERMITTED USE
+You may use the Software for:
+   a) Academic and scientific research
+   b) Personal, non-commercial projects
+   c) Non-profit organization activities
+   d) Testing and evaluation
+
+### 4. PROHIBITED USE
+You are **strictly prohibited** from:
+   a) **Commercial Use**: Any revenue-generating activity without a separate commercial license. To obtain one, contact: <your-email@example.com>
+   b) **Harmful Use**: Any Harmful Use as defined in Section 2.
+   c) **Deceptive AI**: Deploying the Software to interact with humans without disclosing its artificial nature (e.g., chatbots impersonating humans).
+   d) **Circumvention**: Using the Software to create Derivative Models that are then used for any purpose prohibited in this section.
+
+### 5. ETHICAL RESPONSIBILITY AND INDEMNIFICATION
+By using this Software, you agree that you are solely responsible for compliance with all applicable laws and ethical standards in your jurisdiction. You agree to indemnify and hold harmless the Copyright Holder from any claims, damages, or liabilities arising from your use of the Software, particularly Harmful Use.
+
+### 6. REDISTRIBUTION AND ATTRIBUTION
+   a) Any redistribution of the Software must include this complete LICENSE file.
+   b) You must provide clear attribution to the original author ("Khamit").
+   c) If you publish research results based on this model, you must cite the original source.
+
+### 7. EXPORT CONTROL
+The Software may be subject to export control laws. You represent and warrant that you are not located in any country subject to comprehensive sanctions or embargoes.
+
+### 8. NO WARRANTY (DISCLAIMER)
+THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, ETHICAL PERFORMANCE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+### 9. TERMINATION
+Any use of the Software in violation of this license automatically terminates your rights under this license.
