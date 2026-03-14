@@ -139,13 +139,13 @@ Mary AI Core is a local AI system designed for complete privacy:
 
 - 100% Local - No internet, no data transmission
 - User Controlled - All data stays on your device
-- Open Source (see [LICENSE](LICENSE) for terms)
+- Open Source (see [LICENSE](LICENSE.md) for terms)
 - No Tracking - No analytics, no telemetry
 - Full responsibility details in [NOTICE](/docs/NOTICE.md) section.
 
 
 ### 📜 License
-This project is free for [non-commercial use](LICENSE).
+This project is free for [non-commercial use](LICENSE.md).
 For commercial use, please contact <gercules789@gmail.com> for licensing.
 
 For commercial licensing inquiries, please contact the maintainer.
