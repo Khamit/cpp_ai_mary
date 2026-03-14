@@ -160,7 +160,7 @@ For questions and collaborations:
 
 GitHub Issues: [Create a new issue](https://github.com/khamit/cpp_ai_mary/issues/new?title=Bug+report&body=Please+describe+the+bug+steps&labels=bug)
 
-Email: gercules@gmail.com, khamit@combi.kz
+Email: gercules789@gmail.com, khamit@combi.kz
 
 Telegram: [@lordekz](https:/t.me/lordekz)
 
