@@ -144,7 +144,7 @@ Full responsibility details in [NOTICE](/docs/NOTICE.md) section.
 
 
 ### 📜 License
-This project is free for [non-commercial use](LICENCE).
+This project is free for [non-commercial use](LICENSE).
 For commercial use, please contact <gercules789@gmail.com> for licensing.
 
 For commercial licensing inquiries, please contact the maintainer.
