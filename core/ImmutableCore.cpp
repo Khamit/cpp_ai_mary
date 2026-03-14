@@ -245,7 +245,7 @@ bool ImmutableCore::checkFrequency(const std::string& action) const {
 
 // ========== ЗАЩИТНЫЕ ПРОТОКОЛЫ ==========
 void ImmutableCore::initiateSafetyProtocol(const PermissionRequest& request) const {
-    std::cerr << "🚨 INITIATING SAFETY PROTOCOL for: " << request.action << std::endl;
+    std::cerr << "INITIATING SAFETY PROTOCOL for: " << request.action << std::endl;
     
     // 1. Принудительный стазис
     forceStasis();
@@ -263,22 +263,22 @@ void ImmutableCore::initiateSafetyProtocol(const PermissionRequest& request) con
 }
 
 void ImmutableCore::forceStasis() const {
-    std::cout << "⏸️ FORCE STASIS ACTIVATED" << std::endl;
+    std::cout << "FORCE STASIS ACTIVATED" << std::endl;
     // Здесь должен быть вызов в CoreSystem
 }
 
 void ImmutableCore::emergencySave() const {
-    std::cout << "💾 EMERGENCY SAVE triggered" << std::endl;
+    std::cout << "EMERGENCY SAVE triggered" << std::endl;
     // Сохранение состояния перед опасным действием
 }
 
 void ImmutableCore::alertUser(const std::string& message) const {
-    std::cerr << "🔔 ALERT: " << message << std::endl;
+    std::cerr << "!!!ALERT: " << message << std::endl;
     // В GUI можно показать диалоговое окно
 }
 
 void ImmutableCore::rollbackToLastStable() const {
-    std::cout << "↩️ Rolling back to last stable state" << std::endl;
+    std::cout << "Rolling back to last stable state" << std::endl;
     // Откат к последнему сохраненному состоянию
 }
 
@@ -294,7 +294,7 @@ void ImmutableCore::logViolation(const std::string& action, const std::string& r
             << action << " - REASON: " << reason << std::endl;
     }
     
-    std::cerr << "❌ SECURITY VIOLATION: " << action << " - " << reason << std::endl;
+    std::cerr << "SECURITY VIOLATION: " << action << " - " << reason << std::endl;
 }
 
 void ImmutableCore::logPermission(const PermissionRequest& request, bool granted) const {
@@ -384,7 +384,7 @@ bool ImmutableCore::validatePhysicalLaws(const NeuralFieldSystem& system) const 
                  maxWeight < MAX_WEIGHT_LIMIT;
     
     if (!valid) {
-        std::cerr << "⚠️ Physical law violation detected!" << std::endl;
+        std::cerr << "Physical law violation detected!" << std::endl;
         std::cerr << "  Energy: " << energy << " (range: [" 
                   << ABSOLUTE_MIN_ENERGY << ", " << ABSOLUTE_MAX_ENERGY << "])" << std::endl;
         std::cerr << "  Entropy: " << entropy << " (min: " << MIN_ENTROPY_THRESHOLD << ")" << std::endl;

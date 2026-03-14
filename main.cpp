@@ -171,12 +171,16 @@ int main() {
     
     // ===== СОЗДАЕМ И ИНИЦИАЛИЗИРУЕМ CORESYSTEM =====
     CoreSystem core;
-
+    // Инициализация автоматически определит устройство
     // Инициализируем с конфигурационным файлом
     if (!core.initialize("config/system_config.json")) {
         std::cerr << "Failed to initialize CoreSystem" << std::endl;
         return 1;
     }
+
+    // Получаем информацию об устройстве
+    const auto& deviceInfo = core.getDeviceInfo();
+    std::cout << "Running on: " << deviceInfo.device_type << std::endl;
     
     // Получаем доступ к компонентам ядра
     NeuralFieldSystem& neuralSystem = core.getNeuralSystem();
@@ -208,6 +212,24 @@ int main() {
         memoryManager, 
         const_cast<LanguageKnowledgeBase&>(LanguageKnowledgeBase::getInstance())
     );
+
+    // После создания neuralSystem:
+    std::mt19937 rng(std::random_device{}());
+    neuralSystem.initializePredictor(64, 16, rng);  // 64 входа -> 16 латентных
+    /*
+    Вход: 64 признака (getFeatures())
+    ↓
+    [PredictorGroup]
+        ├── Предсказатель (16 нейронов) → следующее состояние
+        ├── Кодер ошибок (8 нейронов) → сжатое представление ошибки
+        └── Детектор аномалий → тревога при отклонении
+        ↓
+    Выход: 
+        - предсказанное состояние
+        - ошибка предсказания (surprise)
+        - сжатый латентный код (16 чисел вместо 64)
+        - флаг аномалии
+    */
     
     // Создаем остальные модули
     ResourceMonitor resources(resConfig);
@@ -249,8 +271,21 @@ int main() {
         memoryManager.loadAll();
         std::cout << "! Loaded memory from dump/" << std::endl;
     }
+
+    // Предсказание и аномалия!
+    core.getEventSystem().subscribe(EventType::PREDICTION_HIGH_ERROR, 
+    [&memoryManager](const Event& event) {
+        // Здесь можно сохранять в память
+        memoryManager.storeWithEntropy("predictor", event.data, event.value, 0.8f);
+        std::cout << "⚠️ Высокая ошибка предсказания: " << event.value << std::endl;
+    });
+
+    core.getEventSystem().subscribe(EventType::ANOMALY_DETECTED,
+        [](const Event& event) {
+            std::cout << "🚨 Аномалия обнаружена!" << std::endl;
+        });
     
-    // Основной цикл
+    // *ОСНОВНОЙ ЦИКЛ*
     while (window.isOpen()) {
         // ОБРАБОТКА СОБЫТИЙ
         while (auto eventOpt = window.pollEvent()) {

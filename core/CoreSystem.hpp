@@ -4,9 +4,11 @@
 #include <string>
 #include "Component.hpp"
 #include "Config.hpp"
+#include "DeviceProbe.hpp"
 #include "MemoryManager.hpp"
 #include "NeuralFieldSystem.hpp"
 #include "ImmutableCore.hpp"
+#include "MaryLineage.hpp"
 
 class CoreSystem {
 private:
@@ -14,12 +16,20 @@ private:
     Config config;
     MemoryManager memory;
     ImmutableCore immutableCore;
+    EventSystem eventSystem;
+    DeviceDescriptor deviceInfo;
     
     // Ядро нейросети
     std::unique_ptr<NeuralFieldSystem> neuralSystem;
     
     // Реестр компонентов по имени
     std::map<std::string, Component*> componentRegistry;
+    
+    //  IdentityManager
+    std::unique_ptr<MaryLineage> lineage;
+
+    // Интеграция
+    std::vector<Capability> capabilities;
     
 public:
     CoreSystem();
@@ -70,4 +80,16 @@ public:
     // Сохранение состояния всей системы
     void saveState();
     void loadState();
+
+    // id
+    MaryLineage& getLineage() { return *lineage; }
+    // Отчеты об аномалиях? хахаха))
+    EventSystem& getEventSystem() { return eventSystem; }
+
+    // Новые методы
+    const DeviceDescriptor& getDeviceInfo() const { return deviceInfo; }
+    const std::vector<Capability>& getCapabilities() const { return capabilities; }
+    
+    // Загрузить модули на основе устройства
+    void loadModulesForDevice();
 };

@@ -55,6 +55,10 @@ private:
     std::string dumpPath = "dump/";
     std::vector<MemoryRecord> shortTermMemory;  // кратковременная память
     std::map<std::string, std::vector<MemoryRecord>> longTermMemory; // по компонентам
+
+    // Восстановить приближённое состояние по латентному коду
+    std::vector<float> reconstructFromLatent(const std::string& component,
+                                         const std::vector<double>& latent_code);
     
     // Новые поля для контроля памяти
     size_t maxShortTermMemory = 1000;        // максимум записей в кратковременной
@@ -163,6 +167,12 @@ public:
         }
         return {};
     }
+
+    // Сохранить сжатое состояние (только латентный код + ошибка)
+    void storeCompressed(const std::string& component,
+                        const std::vector<double>& latent_code,
+                        double prediction_error,
+                        float importance = 0.7f);
     
     // Получить размер кратковременной памяти
     size_t getShortTermSize() const { return shortTermMemory.size(); }

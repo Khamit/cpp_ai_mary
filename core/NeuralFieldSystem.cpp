@@ -7,8 +7,8 @@
 constexpr int CONSOLIDATION_INTERVAL = 100;   // Уровень 2: редко
 constexpr int EVOLUTION_INTERVAL = 5000;      // Уровень 3: очень редко
 
-NeuralFieldSystem::NeuralFieldSystem(double dt)
-    : dt(dt),
+NeuralFieldSystem::NeuralFieldSystem(double dt, EventSystem& events)
+    : dt(dt), events(events),
       groups(),
       interWeights(NUM_GROUPS, std::vector<double>(NUM_GROUPS, 0.0)),
       flatPhi(TOTAL_NEURONS, 0.0),
@@ -150,6 +150,11 @@ void NeuralFieldSystem::applyReentry(int iterations) {
 }
 
 void NeuralFieldSystem::step(float globalReward, int stepNumber) {
+    // Сохраняем состояние ДО обновления для предсказания
+    std::vector<double> state_before;
+    if (stepNumber > 0 && predictor) {
+        state_before = getFeaturesDouble();  // нужен метод, возвращающий double
+    }
     // УРОВЕНЬ 1: каждый шаг
     for (auto& group : groups) group.evolve();
     applyReentry(3);
@@ -157,6 +162,30 @@ void NeuralFieldSystem::step(float globalReward, int stepNumber) {
     for (auto& group : groups) {
         group.learnSTDP(globalReward, stepNumber);
         group.updateElevationFast(globalReward, group.getAverageActivity());
+    }
+
+    // Получаем состояние ПОСЛЕ обновления
+    std::vector<double> state_after = getFeaturesDouble();
+    
+    // генерации события ANOMALY_DETECTED
+    if (detectAnomaly(state_after)) {
+    Event anomaly_event;
+    anomaly_event.type = EventType::ANOMALY_DETECTED;
+    anomaly_event.source = "predictor";
+    anomaly_event.value = getPredictionEntropy();
+    anomaly_event.step = stepNumber;
+    events.emit(anomaly_event);
+    }
+
+    // ОБУЧЕНИЕ ПРЕДСКАЗАТЕЛЯ
+    if (stepNumber > 0 && predictor) {
+        double pred_error = updatePredictor(state_before, state_after, stepNumber);
+        
+        // Модулируем глобальную награду ошибкой предсказания
+        // Чем меньше ошибка, тем больше награда всей системе
+        float modulated_reward = globalReward * (1.0f - static_cast<float>(std::tanh(pred_error)));
+        
+        // Можно добавить дополнительное обучение с этой модулированной наградой
     }
     
     // Сохраняем историю энтропии
@@ -169,6 +198,12 @@ void NeuralFieldSystem::step(float globalReward, int stepNumber) {
     // УРОВЕНЬ 2: редко (раз в 100 шагов)
     if (stepNumber % CONSOLIDATION_INTERVAL == 0) {
         float globalImportance = computeGlobalImportance();
+        
+        // Добавляем важность на основе ошибки предсказания
+        if (predictor) {
+            globalImportance += static_cast<float>(predictor->getLastError() * 2.0);
+        }
+        
         for (auto& group : groups) {
             group.consolidateEligibility(globalImportance);
             group.consolidateElevation(globalImportance);
@@ -176,7 +211,7 @@ void NeuralFieldSystem::step(float globalReward, int stepNumber) {
         consolidateInterWeights();
         applyPruningByElevation();
     }
-    
+
     // УРОВЕНЬ 3: очень редко (раз в 5000 шагов)
     if (stepNumber % EVOLUTION_INTERVAL == 0) {
         pendingEvolutionRequest_ = true;
@@ -325,4 +360,58 @@ void NeuralFieldSystem::enterLowPowerMode() {
             // Можно обнулить малые значения
         }
     }
+}
+
+// Prediction
+void NeuralFieldSystem::initializePredictor(size_t input_dim, size_t latent_dim, std::mt19937& rng) {
+    predictor = std::make_unique<PredictorGroup>(input_dim, latent_dim, rng);
+    std::cout << "🔮 PredictorGroup инициализирован: вход " << input_dim 
+              << " → латентное " << latent_dim << std::endl;
+}
+
+std::vector<double> NeuralFieldSystem::predictNextState(const std::vector<double>& current_features) {
+    if (!predictor) return {};
+    return predictor->predict(current_features);
+}
+
+// В updatePredictor:
+double NeuralFieldSystem::updatePredictor(const std::vector<double>& current_features,
+                                          const std::vector<double>& next_features,
+                                          int step_number) {
+    if (!predictor) return 0.0;
+    
+    auto predicted = predictor->predict(current_features);
+    double error = predictor->update(predicted, next_features, step_number);
+    
+    // Если ошибка высокая, генерируем событие
+    if (error > 0.3) {
+        auto compressed = predictor->encode(current_features);
+        std::vector<float> compressed_float(compressed.begin(), compressed.end());
+        
+        Event event;
+        event.type = EventType::PREDICTION_HIGH_ERROR;
+        event.source = "predictor";
+        event.data = compressed_float;
+        event.value = error;
+        event.step = step_number;
+        
+        events.emit(event);
+    }
+    
+    return error;
+}
+
+bool NeuralFieldSystem::detectAnomaly(const std::vector<double>& features) {
+    if (!predictor) return false;
+    return predictor->isAnomaly(features);
+}
+
+std::vector<double> NeuralFieldSystem::getCompressedState(const std::vector<double>& features) {
+    if (!predictor) return features;
+    return predictor->encode(features);
+}
+
+double NeuralFieldSystem::getPredictionEntropy() const {
+    if (!predictor) return 0.0;
+    return predictor->getPredictionEntropy();
 }

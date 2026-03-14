@@ -6,10 +6,12 @@
 #include <deque>
 #include <algorithm>
 #include <cmath>
+#include "EventSystem.hpp"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+#include "modules/PredictorGroup.hpp"
 
 /**
  * @class AttentionMechanism
@@ -113,7 +115,7 @@ public:
     /**
      * @param dt Глобальный шаг интегрирования
      */
-    NeuralFieldSystem(double dt);
+    NeuralFieldSystem(double dt, EventSystem& events);
    
     // Запрет копирования
     NeuralFieldSystem(const NeuralFieldSystem&) = delete;
@@ -180,10 +182,33 @@ public:
     // Доступ к группам
     std::vector<NeuralGroup>& getGroups() { return groups; }
     const std::vector<NeuralGroup>& getGroups() const { return groups; }
+    //-----------------------------------------
+
+    // НОВЫЕ МЕТОДЫ
+    void initializePredictor(size_t input_dim, size_t latent_dim, std::mt19937& rng);
+    
+    // Предсказать следующее состояние системы
+    std::vector<double> predictNextState(const std::vector<double>& current_features);
+    
+    // Обновить предсказатель на основе реального следующего состояния
+    double updatePredictor(const std::vector<double>& current_features,
+                          const std::vector<double>& next_features,
+                          int step_number);
+    
+    // Проверить, является ли текущее состояние аномальным
+    bool detectAnomaly(const std::vector<double>& features);
+    
+    // Получить сжатое представление текущего состояния
+    std::vector<double> getCompressedState(const std::vector<double>& features);
+    
+    // Получить энтропию ошибок предсказания
+    double getPredictionEntropy() const;
 
 private:
     AttentionMechanism attention;
-
+    
+    EventSystem& events;
+    
     double dt;
     std::vector<NeuralGroup> groups;                 // 32 группы
     std::vector<std::vector<double>> interWeights;   // межгрупповые связи 32x32
@@ -212,4 +237,13 @@ private:
     void consolidateInterWeights();
     
     bool pendingEvolutionRequest_ = false;
+
+    // НОВОЕ: группа предсказательного кодирования
+    std::unique_ptr<PredictorGroup> predictor;
+
+    // Вспомогательный метод для получения признаков в double
+    std::vector<double> NeuralFieldSystem::getFeaturesDouble() const {
+        auto float_features = getFeatures();
+        return std::vector<double>(float_features.begin(), float_features.end());
+    }
 };

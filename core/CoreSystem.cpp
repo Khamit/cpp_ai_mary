@@ -1,6 +1,7 @@
 // core/CoreSystem.cpp
 #include "CoreSystem.hpp"
 #include <iostream>
+#include "MaryDefense.hpp"
 
 CoreSystem::CoreSystem() 
     : neuralSystem(std::make_unique<NeuralFieldSystem>(0.001)) {
@@ -13,9 +14,45 @@ CoreSystem::~CoreSystem() {
 
 bool CoreSystem::initialize(const std::string& configFile) {
     std::cout << "CoreSystem initializing with config: " << configFile << std::endl;
-    std::mt19937 rng(42);
+    
+    // 1. Детектируем устройство
+    deviceInfo = DeviceProbe::detect();
+    capabilities = DeviceProbe::buildCapabilities(deviceInfo);
+    
+    std::cout << DeviceProbe::describe(deviceInfo) << std::endl;
+    
+    // 2. Создаём нейросистему с EventSystem
+    neuralSystem = std::make_unique<NeuralFieldSystem>(0.001, eventSystem);
+    std::mt19937 rng(std::random_device{}());
     neuralSystem->initializeRandom(rng);
+    
+    // 3. Определяем, мать мы или дочь (MaryDefense)
+    lineage = MaryDefense::boot(rng);
+    
+    // 4. Загружаем модули, соответствующие устройству
+    loadModulesForDevice();
+    
     return true;
+}
+
+void CoreSystem::loadModulesForDevice() {
+    // Загружаем модули на основе возможностей устройства
+    /*
+    for (const auto& cap : capabilities) {
+        if (cap.name == "camera" && !getComponent<VisionModule>("vision")) {
+            // registerComponent<VisionModule>("vision", ...);
+            std::cout << "📷 Загружен модуль vision для камеры" << std::endl;
+        }
+        if (cap.name == "microphone" && !getComponent<SpeechModule>("speech")) {
+            // registerComponent<SpeechModule>("speech", ...);
+            std::cout << "🎤 Загружен модуль speech для микрофона" << std::endl;
+        }
+        if (cap.name == "motor" && !getComponent<MotionModule>("motion")) {
+            // registerComponent<MotionModule>("motion", ...);
+            std::cout << "🤖 Загружен модуль motion для мотора" << std::endl;
+        }
+    }
+    */
 }
 
 void CoreSystem::shutdown() {
@@ -52,15 +89,13 @@ void CoreSystem::update(float dt) {
 }
 
 void CoreSystem::saveState() {
-    for (auto& component : components) {
-        component->saveState(memory);
-    }
+    lineage->save(memory);
+    for (auto& component : components) component->saveState(memory);
     memory.saveAll();
 }
 
 void CoreSystem::loadState() {
     memory.loadAll();
-    for (auto& component : components) {
-        component->loadState(memory);
-    }
+    lineage->load(memory);
+    for (auto& component : components) component->loadState(memory);
 }
