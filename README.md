@@ -144,7 +144,8 @@ Full responsibility details in [NOTICE](/docs/NOTICE.md) section.
 
 
 ### 📜 License
-This project is licensed under the GPL v3 License - see the [GPL v3 License](LICENSE). file for details.
+This project is free for [non-commercial use](LICENCE).
+For commercial use, please contact <gercules789@gmail.com> for licensing.
 
 For commercial licensing inquiries, please contact the maintainer.
 
