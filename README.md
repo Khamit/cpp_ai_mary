@@ -151,10 +151,12 @@ For commercial use, please contact <gercules789@gmail.com> for licensing.
 For commercial licensing inquiries, please contact the maintainer.
 
 ###  Scientific Foundations
-Wilson, H. R., & Cowan, J. D. (1972). Neural field dynamics
-Ermentrout, G. B., & Cowan, J. D. (1979). Pattern formation
-Coombes, S. (2005). Waves in neural fields
-Shannon, C. E. (1948) - Information theory (entropy foundation)
+- Wilson, H. R., & Cowan, J. D. (1972). Neural field dynamics
+- Ermentrout, G. B., & Cowan, J. D. (1979). Pattern formation
+- Coombes, S. (2005). Waves in neural fields
+- Shannon, C. E. (1948) - Information theory (entropy foundation)
+- graphic visualization (Judith Fan) и affective signals (Natasha Jaques)
+- and others
 
 ### Contact
 For questions and collaborations:
