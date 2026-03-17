@@ -13,6 +13,7 @@ enum class AnomalyLevel {
 enum class EventType {
     ANOMALY_DETECTED,
     PREDICTION_HIGH_ERROR,
+    SURGERY_PERFORMED,  // НОВОЕ
     STATE_CHANGED,
     MEMORY_CONSOLIDATION_NEEDED
 };

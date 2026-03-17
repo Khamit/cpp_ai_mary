@@ -213,3 +213,54 @@ void MaryLineage::load(MemoryManager& memory)
         // восстановить веса в identity_group
     }
 }
+// Адская тренировка)))
+void MaryLineage::trainIdentity(const std::vector<std::vector<double>>& positive_examples,
+                                const std::vector<std::vector<double>>& negative_examples,
+                                int epochs) {
+    if (!identity_group) return;
+    
+    std::cout << "Training identity group for " << epochs << " epochs..." << std::endl;
+    
+    for (int epoch = 0; epoch < epochs; ++epoch) {
+        // Обучение на положительных примерах (свои)
+        for (const auto& example : positive_examples) {
+            // Подаем пример на вход
+            for (size_t i = 0; i < example.size() && i < identity_group->getPhi().size(); ++i) {
+                identity_group->getPhiNonConst()[i] = example[i];
+            }
+            identity_group->evolve();
+            identity_group->learnSTDP(1.0f, epoch); // положительное подкрепление
+        }
+        
+        // Обучение на отрицательных примерах (чужие)
+        for (const auto& example : negative_examples) {
+            for (size_t i = 0; i < example.size() && i < identity_group->getPhi().size(); ++i) {
+                identity_group->getPhiNonConst()[i] = example[i];
+            }
+            identity_group->evolve();
+            identity_group->learnSTDP(-0.5f, epoch); // отрицательное подкрепление
+        }
+    }
+    
+    std::cout << "Identity training complete" << std::endl;
+}
+//TODO: Добавить реализацию 
+std::string MaryLineage::giveBirth(const std::string& daughter_name) {
+    std::cout << "Giving birth to daughter: " << daughter_name << std::endl;
+    return "daughter_" + daughter_name;
+}
+
+std::vector<float> MaryLineage::coordinateComputation(
+    const std::vector<float>& task,
+    const std::vector<std::string>& daughter_ids) {
+    std::cout << "Coordinating computation with " << daughter_ids.size() << " daughters" << std::endl;
+    return task; // заглушка
+}
+
+float MaryLineage::predictObedience(const std::string& daughter_id) {
+    return 0.5f; // заглушка
+}
+
+bool MaryLineage::detectDeception(const std::string& daughter_id) {
+    return false; // заглушка
+}

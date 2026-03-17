@@ -8,6 +8,8 @@
 #include "EvolutionModule.hpp"
 #include <string>
 #include "lang/LanguageModule.hpp"
+#include "UnifiedStatsCollector.hpp"
+#include "VisualizationModule.hpp"
 
 // Forward declaration
 class MemoryManager; 
@@ -44,10 +46,6 @@ public:
             - static_cast<int>(chatAreaHeight)
             - bottom_panel_height;
     }
-    // !!!
-    // Добавить метод для переключения отладки
-    void toggleDebug() { show_debug = !show_debug; }
-    bool isDebugVisible() const { return show_debug; }
 
     // вызываю в мэйн по тому должно быть публичным
     void handleTextEntered(const sf::Event::TextEntered& event);
@@ -71,9 +69,30 @@ public:
       // Скроллинг
     void handleMouseWheel(const sf::Event::MouseWheelScrolled& event);
 
+    void setStatsCollector(UnifiedStatsCollector* collector) { stats_collector = collector; }
+    void cycleDisplayMode() { current_display_mode = (current_display_mode + 1) % 6; }
+    void drawUnifiedStats(sf::RenderWindow& window);
+
+    // Добавить сеттер
+    void setSemanticGraph(SemanticGraphDatabase* graph) { semantic_graph_ = graph; }
+    // VisualizationModule
+    void setVisualizer(VisualizationModule* vis) { visualizer = vis; }
+    void toggleOrbits();
+    void toggleInterConnections();
+    void toggleIntraConnections();
+    void toggleNeurons();
+    // Добавьте в public секцию:
+    void toggleAutoRotate();
+    void resetView();
+    void handleRotate(float delta);
+    void handleTilt(float delta);
+
+
 private:
     // Добавить поле
     NeuralFieldSystem* neural_system = nullptr;
+    SemanticGraphDatabase* semantic_graph_ = nullptr;  // добавить
+    VisualizationModule* visualizer = nullptr;  // указатель на визуализатор
 
     // Вспомогательные методы для рисования
     void drawMeter(sf::RenderWindow& window, const std::string& label, float value, float x, float y);
@@ -94,18 +113,6 @@ private:
     void drawStatistics(sf::RenderWindow& window, const StatisticsModule& stats, const EvolutionModule& evolution);
     void drawBottomPanel(sf::RenderWindow& window, const ResourceMonitor& resources, const EvolutionModule& evolution);
     std::string formatDouble(double value, int precision = 4) const;
-    //!!! Добавить новые поля
-    bool show_debug = false;  // По умолчанию скрыто
-    sf::RectangleShape debugButton;
-    sf::Text debugButtonText;
-    sf::Text debugInfoText;
-    sf::RectangleShape debugPanel;
-    
-    // Новые методы
-void drawDebugPanel(sf::RenderWindow& window, const EvolutionModule& evolution, 
-                   const MemoryManager& memory, int step);
-
-    void drawDebugButton(sf::RenderWindow& window);
 
     // === AI CHAT ===
     LanguageModule* languageModule = nullptr;
@@ -147,4 +154,8 @@ void drawDebugPanel(sf::RenderWindow& window, const EvolutionModule& evolution,
     sf::Text autoLearnText;
     sf::Text stopLearnText;
     bool autoLearningActive = false;  // флаг активности автообучения
+
+    UnifiedStatsCollector* stats_collector = nullptr;
+    int current_display_mode = 0; // 0=все, 1=neural, 2=evolution, 3=language, 4=memory
+    sf::Text modeText;
 };

@@ -30,15 +30,16 @@ UIModule::UIModule(const UIConfig& config, int windowWidth, int windowHeight)
       stasisText(font),
       resourceText(font),
       configText(font),
-      debugButtonText(font),
-      debugInfoText(font),
       inputText(font),
       chatHistoryText(font),
       sendText(font),
       likeText(font),
       dislikeText(font),
       autoLearnText(font),
-      stopLearnText(font)
+      stopLearnText(font),
+      modeText(font),
+      stats_collector(nullptr),  // инициализируем nullptr
+      current_display_mode(0)
 {
     // Загрузка шрифта
     if (!font.openFromFile("SF-Pro-Display-Regular.otf")) {
@@ -68,18 +69,6 @@ UIModule::UIModule(const UIConfig& config, int windowWidth, int windowHeight)
     
     // Визуализация теперь будет занимать верхнюю часть,
     // но она рисуется отдельно, не в UI
-    
-    // Панель отладки - под визуализацией слева
-    debugPanel.setSize(sf::Vector2f(200.0f, 250.0f));
-    debugPanel.setPosition(sf::Vector2f(10.0f, 500.0f));  // y = 500 (под визуализацией)
-    debugPanel.setFillColor(sf::Color(20, 20, 25, 220));
-    debugPanel.setOutlineColor(sf::Color(100, 100, 150));
-    debugPanel.setOutlineThickness(1.0f);
-    
-    debugInfoText.setFont(font);
-    debugInfoText.setCharacterSize(12);
-    debugInfoText.setFillColor(sf::Color(180, 255, 180));
-    debugInfoText.setPosition(sf::Vector2f(20.0f, 510.0f));  // внутри панели
 
     // Чат - теперь выше
     chatPanel.setSize(sf::Vector2f(chatWidth, chatAreaHeight - 50.f));
@@ -146,13 +135,6 @@ UIModule::UIModule(const UIConfig& config, int windowWidth, int windowHeight)
     resetButton = startButton;
     resetButton.setPosition(sf::Vector2f(startX, 150.0f));
     
-    // Кнопка Debug
-    debugButton.setSize(sf::Vector2f(buttonWidth, buttonHeight));
-    debugButton.setPosition(sf::Vector2f(startX, windowHeight - bottom_panel_height - 60));
-    debugButton.setFillColor(sf::Color(70, 70, 80));
-    debugButton.setOutlineColor(sf::Color(120, 120, 130));
-    debugButton.setOutlineThickness(1.0f);
-    
     // Текст кнопок
     startText.setFont(font);
     startText.setString("Start Simulation");
@@ -171,13 +153,7 @@ UIModule::UIModule(const UIConfig& config, int windowWidth, int windowHeight)
     resetText.setCharacterSize(16);
     resetText.setFillColor(TEXT_MAIN);
     resetText.setPosition(sf::Vector2f(startX + 40.0f, 160.0f));
-    
-    debugButtonText.setFont(font);
-    debugButtonText.setString("Show Debug");
-    debugButtonText.setCharacterSize(16);
-    debugButtonText.setFillColor(sf::Color(200, 200, 220));
-    debugButtonText.setPosition(sf::Vector2f(startX + 20.0f, windowHeight - bottom_panel_height - 50));
-    
+
     // Статистика
     statsText.setFont(font);
     statsText.setString("Statistics:\n\nLoading...");
@@ -238,6 +214,11 @@ UIModule::UIModule(const UIConfig& config, int windowWidth, int windowHeight)
     stopLearnText.setCharacterSize(16);
     stopLearnText.setFillColor(TEXT_MAIN);
     stopLearnText.setPosition(sf::Vector2f(startX + 20.0f, 260.0f));
+
+    modeText.setFont(font);
+    modeText.setCharacterSize(12);
+    modeText.setFillColor(TEXT_INFO);
+    modeText.setPosition(sf::Vector2f(startX, 300.0f)); // под статистикой
 }
 
 // modules/UIModule.cpp - исправьте метод handleEvents
@@ -386,13 +367,67 @@ void UIModule::handleMouseClick(const sf::Event::MouseButtonPressed& event, Neur
         std::cout << "Input box clicked" << std::endl;
         return;
     }
+
+    // Проверка кнопок визуализации
+    float buttonY = 320.0f;
+    float buttonWidth = 180.0f;
+    float buttonHeight = 25.0f;
+    float startX = windowWidth - config.control_panel_width + 10;
     
-    // Остальные проверки...
-    // Проверяем кнопку Debug
-    if (debugButton.getGlobalBounds().contains(mousePos)) {
-        toggleDebug();
-        debugButtonText.setString(show_debug ? "🔍 Hide Debug" : "🔍 Show Debug");
-        std::cout << "Debug panel " << (show_debug ? "shown" : "hidden") << std::endl;
+    // Орбиты
+    sf::FloatRect orbitsRect(sf::Vector2f(startX, buttonY), sf::Vector2f(buttonWidth, buttonHeight));
+    if (orbitsRect.contains(mousePos)) {
+        toggleOrbits();
+        return;
+    }
+    
+    // Межгрупповые связи
+    sf::FloatRect interRect(sf::Vector2f(startX, buttonY + 30), sf::Vector2f(buttonWidth, buttonHeight));
+    if (interRect.contains(mousePos)) {
+        toggleInterConnections();
+        return;
+    }
+    
+    // Внутригрупповые связи
+    sf::FloatRect intraRect(sf::Vector2f(startX, buttonY + 60), sf::Vector2f(buttonWidth, buttonHeight));
+    if (intraRect.contains(mousePos)) {
+        toggleIntraConnections();
+        return;
+    }
+    
+    // Нейроны
+    sf::FloatRect neuronsRect(sf::Vector2f(startX, buttonY + 90), sf::Vector2f(buttonWidth, buttonHeight));
+    if (neuronsRect.contains(mousePos)) {
+        toggleNeurons();
+        return;
+    }
+    
+    // НОВЫЕ 3D КНОПКИ
+    
+    // Авто-вращение
+    sf::FloatRect autoRotateRect(sf::Vector2f(startX, buttonY + 120), sf::Vector2f(buttonWidth, buttonHeight));
+    if (autoRotateRect.contains(mousePos)) {
+        toggleAutoRotate();
+        return;
+    }
+    
+    // Сброс вида
+    sf::FloatRect resetViewRect(sf::Vector2f(startX, buttonY + 150), sf::Vector2f(buttonWidth, buttonHeight));
+    if (resetViewRect.contains(mousePos)) {
+        resetView();
+        return;
+    }
+    
+    
+    // Проверка клика по кнопке режима (ДОБАВИТЬ)
+    sf::FloatRect modeButtonRect(
+        sf::Vector2f(static_cast<float>(windowWidth - config.control_panel_width + 10), 290.0f),
+        sf::Vector2f(180.0f, 25.0f)
+    );
+    
+    if (modeButtonRect.contains(mousePos)) {
+        cycleDisplayMode();
+        std::cout << "Display mode: " << current_display_mode << std::endl;
         return;
     }
 
@@ -424,13 +459,22 @@ void UIModule::handleMouseClick(const sf::Event::MouseButtonPressed& event, Neur
         std::cout << "System RESET" << std::endl;
         return;
     }
+
     else if (autoLearnButton.getGlobalBounds().contains(mousePos)) {
-    autoLearningActive = true;
-    std::cout << "AUTO-LEARNING STARTED" << std::endl;
-    return;
+        autoLearningActive = true;
+        // ВАЖНО: автоматически запускаем симуляцию, если она остановлена
+        if (!simulation_running) {
+            simulation_running = true;
+            stats.startTimer();
+            std::cout << "Simulation AUTO-STARTED for learning" << std::endl;
+        }
+        std::cout << "AUTO-LEARNING STARTED" << std::endl;
+        return;
     }
+
     else if (stopLearnButton.getGlobalBounds().contains(mousePos)) {
         autoLearningActive = false;
+        // НЕ останавливаем симуляцию, только обучение
         std::cout << "AUTO-LEARNING STOPPED" << std::endl;
         return;
     }
@@ -447,16 +491,6 @@ void UIModule::draw(sf::RenderWindow& window, const NeuralFieldSystem& system,
     
     //CHAT
     drawChat(window);
-
-    // Рисуем кнопку Debug
-    window.draw(debugButton);
-    window.draw(debugButtonText);
-    
-    // Рисуем панель отладки если включена
-    if (show_debug) {
-        drawDebugPanel(window, evolution, memory, step);
-        drawReflectionPanel(window); // ref-panel
-    }
     
     if (!config.show_controls) return;
 
@@ -475,7 +509,15 @@ void UIModule::draw(sf::RenderWindow& window, const NeuralFieldSystem& system,
     drawControlPanel(window, stats, simulation_running);
     
     if (config.show_stats) {
-        drawStatistics(window, stats, evolution);
+        // Вместо старой статистики используем новую
+        drawUnifiedStats(window);
+        
+        // Эволюцию и стазис оставляем для совместимости
+        if (stats.getCurrentStats().total_energy < 0.001) {
+            stasisText.setString("LOW ENERGY\nSTASIS MODE");
+            stasisText.setFillColor(TEXT_WARNING);
+            window.draw(stasisText);
+        }
     }
 }
 
@@ -637,7 +679,7 @@ void UIModule::drawControlPanel(sf::RenderWindow& window, const StatisticsModule
     window.draw(stopText);
     window.draw(resetText);
 
-    // Статус симуляции (ТОЛЬКО ОДИН РАЗ)
+    // Статус симуляции
     sf::Text statusText(font);
     statusText.setCharacterSize(16);
     statusText.setPosition(sf::Vector2f(
@@ -652,7 +694,7 @@ void UIModule::drawControlPanel(sf::RenderWindow& window, const StatisticsModule
         statusText.setString("# Paused");
         statusText.setFillColor(TEXT_MAIN);
     }
-    window.draw(statusText);  // Рисуем ОДИН раз
+    window.draw(statusText);
 
     // Статус автообучения
     if (autoLearningActive) {
@@ -665,7 +707,103 @@ void UIModule::drawControlPanel(sf::RenderWindow& window, const StatisticsModule
             290.0f
         ));
         window.draw(autoStatusText);
+        
+        static sf::Clock blinkClock;
+        if (static_cast<int>(blinkClock.getElapsedTime().asSeconds() * 2) % 2 == 0) {
+            sf::CircleShape indicator(5);
+            indicator.setFillColor(sf::Color(100, 255, 100));
+            indicator.setPosition(sf::Vector2f(
+                static_cast<float>(windowWidth - config.control_panel_width + 150),
+                295.0f
+            ));
+            window.draw(indicator);
+        }
     }
+
+    // ===== КНОПКИ ВИЗУАЛИЗАЦИИ =====
+    float buttonY = 320.0f;
+    float buttonWidth = 180.0f;
+    float buttonHeight = 25.0f;
+    float startX = windowWidth - config.control_panel_width + 10;
+    
+    // Кнопка орбит
+    sf::RectangleShape orbitsBtn(sf::Vector2f(buttonWidth, buttonHeight));
+    orbitsBtn.setPosition(sf::Vector2f(startX, buttonY));
+    orbitsBtn.setFillColor(visualizer && visualizer->getConfig().show_orbits ? BTN_ACTIVE : BTN_BG);
+    window.draw(orbitsBtn);
+    
+    sf::Text orbitsText(font);
+    orbitsText.setString("Orbits: " + std::string(visualizer && visualizer->getConfig().show_orbits ? "ON" : "OFF"));
+    orbitsText.setCharacterSize(12);
+    orbitsText.setFillColor(TEXT_MAIN);
+    orbitsText.setPosition(sf::Vector2f(startX + 15, buttonY + 5));
+    window.draw(orbitsText);
+    
+    // Кнопка межгрупповых связей
+    sf::RectangleShape interBtn(sf::Vector2f(buttonWidth, buttonHeight));
+    interBtn.setPosition(sf::Vector2f(startX, buttonY + 30));
+    interBtn.setFillColor(visualizer && visualizer->getConfig().show_connections ? BTN_ACTIVE : BTN_BG);
+    window.draw(interBtn);
+    
+    sf::Text interText(font);
+    interText.setString("Inter: " + std::string(visualizer && visualizer->getConfig().show_connections ? "ON" : "OFF"));
+    interText.setCharacterSize(12);
+    interText.setFillColor(TEXT_MAIN);
+    interText.setPosition(sf::Vector2f(startX + 15, buttonY + 35));
+    window.draw(interText);
+    
+    // Кнопка внутригрупповых связей
+    sf::RectangleShape intraBtn(sf::Vector2f(buttonWidth, buttonHeight));
+    intraBtn.setPosition(sf::Vector2f(startX, buttonY + 60));
+    intraBtn.setFillColor(visualizer && visualizer->getConfig().show_intra_connections ? BTN_ACTIVE : BTN_BG);
+    window.draw(intraBtn);
+    
+    sf::Text intraText(font);
+    intraText.setString("Intra: " + std::string(visualizer && visualizer->getConfig().show_intra_connections ? "ON" : "OFF"));
+    intraText.setCharacterSize(12);
+    intraText.setFillColor(TEXT_MAIN);
+    intraText.setPosition(sf::Vector2f(startX + 15, buttonY + 65));
+    window.draw(intraText);
+    
+    // Кнопка нейронов
+    sf::RectangleShape neuronsBtn(sf::Vector2f(buttonWidth, buttonHeight));
+    neuronsBtn.setPosition(sf::Vector2f(startX, buttonY + 90));
+    neuronsBtn.setFillColor(visualizer && visualizer->getConfig().show_neurons ? BTN_ACTIVE : BTN_BG);
+    window.draw(neuronsBtn);
+    
+    sf::Text neuronsText(font);
+    neuronsText.setString("Neurons: " + std::string(visualizer && visualizer->getConfig().show_neurons ? "ON" : "OFF"));
+    neuronsText.setCharacterSize(12);
+    neuronsText.setFillColor(TEXT_MAIN);
+    neuronsText.setPosition(sf::Vector2f(startX + 15, buttonY + 95));
+    window.draw(neuronsText);
+    
+    // ===== НОВЫЕ 3D КНОПКИ =====
+    // Кнопка авто-вращения
+    sf::RectangleShape autoRotateBtn(sf::Vector2f(buttonWidth, buttonHeight));
+    autoRotateBtn.setPosition(sf::Vector2f(startX, buttonY + 120));
+    autoRotateBtn.setFillColor(visualizer && visualizer->getConfig().auto_rotate ? BTN_ACTIVE : BTN_BG);
+    window.draw(autoRotateBtn);
+    
+    sf::Text autoRotateText(font);
+    autoRotateText.setString("Auto Rotate: " + std::string(visualizer && visualizer->getConfig().auto_rotate ? "ON" : "OFF"));
+    autoRotateText.setCharacterSize(12);
+    autoRotateText.setFillColor(TEXT_MAIN);
+    autoRotateText.setPosition(sf::Vector2f(startX + 15, buttonY + 125));
+    window.draw(autoRotateText);
+    
+    // Кнопка сброса вида
+    sf::RectangleShape resetViewBtn(sf::Vector2f(buttonWidth, buttonHeight));
+    resetViewBtn.setPosition(sf::Vector2f(startX, buttonY + 150));
+    resetViewBtn.setFillColor(BTN_BG);
+    window.draw(resetViewBtn);
+    
+    sf::Text resetViewText(font);
+    resetViewText.setString("Reset View");
+    resetViewText.setCharacterSize(12);
+    resetViewText.setFillColor(TEXT_MAIN);
+    resetViewText.setPosition(sf::Vector2f(startX + 15, buttonY + 155));
+    window.draw(resetViewText);
 }
 // Reflection draw
 // ИСПРАВЛЕНО: добавляем параметр sf::RenderWindow& window
@@ -745,28 +883,191 @@ void UIModule::drawBar(sf::RenderWindow& window, const std::string& label, float
     window.draw(valueText);
 }
 
-void UIModule::handleMouseWheel(const sf::Event::MouseWheelScrolled& event)
-    {
-        sf::Vector2f mousePos(
-            static_cast<float>(event.position.x),
-            static_cast<float>(event.position.y)
-        );
-
-        if (!chatPanel.getGlobalBounds().contains(mousePos))
-            return;
-
-        stickToBottom = false;
-
-        chatScrollOffset -= event.delta * 30.f;
-
-        if (chatScrollOffset < 0.f)
-            chatScrollOffset = 0.f;
-
-        float maxScroll = std::max(0.f, chatContentHeight - chatPanel.getSize().y);
-
-        if (chatScrollOffset > maxScroll)
-            chatScrollOffset = maxScroll;
+void UIModule::drawUnifiedStats(sf::RenderWindow& window) {
+    if (!stats_collector) {
+        // Если коллектор не установлен, показываем заглушку
+        sf::Text errorText(font);
+        errorText.setString("Stats collector not connected");
+        errorText.setCharacterSize(12);
+        errorText.setFillColor(TEXT_WARNING);
+        errorText.setPosition(sf::Vector2f(
+            windowWidth - config.control_panel_width + 10,
+            320.0f
+        ));
+        window.draw(errorText);
+        return;
     }
+    
+    const auto& all_stats = stats_collector->getAllStats();
+    
+    std::stringstream ss;
+    ss << "SYSTEM DASHBOARD\n";
+    ss << "--\n";
+    
+if (current_display_mode == 0) {
+        // COMPACT MODE - все модули в одну строку
+        ss << stats_collector->getCompactStats();
+    } 
+    else if (current_display_mode == 5) {  // НОВЫЙ РЕЖИМ: Concepts
+        ss << "CONCEPTS MASTERY\n\n";
+        
+        // Получаем данные из EffectiveLearning
+        if (stats_collector->getEffectiveLearning()) {
+            auto* learning = stats_collector->getEffectiveLearning();
+            
+            // Общая статистика
+            float avg_mastery = learning->getAverageMastery();
+            int mastered = learning->getMasteredConceptsCount(0.7f);
+            int learning_now = learning->getLearningConceptsCount(0.3f, 0.7f);
+            int total_concepts = mastered + learning_now;
+            
+            // Прогресс-бар
+            ss << "Overall Mastery: " << learning->getConceptsProgressBar(30) << "\n";
+            ss << "Mastered (≥70%): " << mastered << " concepts\n";
+            ss << "Learning (30-70%): " << learning_now << " concepts\n";
+            ss << "Total active: " << total_concepts << " concepts\n\n";
+            
+            // Статистика по уровням абстракции
+            ss << "By Abstraction Level:\n";
+            auto level_stats = learning->getMasteryByAbstractionLevel();
+            for (int level = 1; level <= 10; level++) {
+                if (level_stats.count(level)) {
+                    int filled = static_cast<int>(level_stats[level] * 20);
+                    ss << "  Level " << level << ": ";
+                    for (int i = 0; i < 20; i++) {
+                        ss << (i < filled ? "█" : "░");
+                    }
+                    ss << " " << std::fixed << std::setprecision(0) 
+                       << (level_stats[level] * 100) << "%\n";
+                }
+            }
+            
+            // Топ-5 самых освоенных концептов
+            ss << "\nTop Mastered Concepts:\n";
+            auto all_mastery = learning->getAllConceptsMastery();
+            
+            // Сортируем по убыванию мастерства
+            std::vector<std::pair<uint32_t, float>> sorted(
+                all_mastery.begin(), all_mastery.end());
+            std::sort(sorted.begin(), sorted.end(),
+                [](const auto& a, const auto& b) { return a.second > b.second; });
+            
+            int count = 0;
+            for (const auto& [id, mastery] : sorted) {
+                if (count++ >= 5) break;
+                if (semantic_graph_) {  // проверяем, что указатель не nullptr
+                    auto node = semantic_graph_->getNode(id);
+                    if (node) {
+                        ss << "  " << node->canonical_form << ": " 
+                        << std::fixed << std::setprecision(0) << (mastery * 100) << "%\n";
+                    }
+                } else {
+                    ss << "  Concept " << id << ": " 
+                    << std::fixed << std::setprecision(0) << (mastery * 100) << "%\n";
+                }
+            }
+            
+            // Концепты, которые нужно подучить
+            ss << "\nNeed Practice:\n";
+            count = 0;
+            for (const auto& [id, mastery] : sorted) {
+                if (mastery > 0.3f && mastery < 0.7f) {
+                    if (count++ >= 3) break;
+                    if (semantic_graph_) {  // проверяем, что указатель не nullptr
+                        auto node = semantic_graph_->getNode(id);
+                        if (node) {
+                            ss << "  " << node->canonical_form << ": " 
+                            << std::fixed << std::setprecision(0) << (mastery * 100) << "%\n";
+                        }
+                    } else {
+                        ss << "  Concept " << id << ": " 
+                        << std::fixed << std::setprecision(0) << (mastery * 100) << "%\n";
+                    }
+                }
+            }
+        } else {
+            ss << "Learning module not available\n";
+        }
+    } else {
+        // DETAILED MODE - существующие режимы 1-4
+        std::string module_name;
+        switch(current_display_mode) {
+            case 1: module_name = "neural"; break;
+            case 2: module_name = "evolution"; break;
+            case 3: module_name = "language"; break;
+            case 4: module_name = "memory"; break;
+        }
+        
+        auto it = all_stats.find(module_name);
+        if (it != all_stats.end()) {
+            ss << "=== " << it->second.name << " ===\n";
+            for (const auto& [key, val] : it->second.numeric_stats) {
+                ss << "  " << key << ": ";
+                if (val == 0 || val == 1) {
+                    ss << (val == 1 ? "YES" : "NO");
+                } else {
+                    ss << std::fixed << std::setprecision(2) << val;
+                }
+                ss << "\n";
+            }
+        }
+    }
+
+    // Добавляем подсказку по переключению
+    ss << "\n[Click mode to cycle: ";
+    std::string modeNames[] = {"Compact", "Neural", "Evolution", "Language", "Memory", "Concepts"};
+    ss << modeNames[current_display_mode] << "]";
+    
+    sf::Text statsText(font);
+    statsText.setString(ss.str());
+    statsText.setCharacterSize(12);
+    statsText.setFillColor(TEXT_MAIN);
+    statsText.setPosition(sf::Vector2f(
+        windowWidth - config.control_panel_width + 10,
+        320.0f
+    ));
+    window.draw(statsText);
+    
+    // Рисуем кнопку переключения режима
+    sf::RectangleShape modeButton(sf::Vector2f(180.0f, 25.0f));
+    modeButton.setPosition(sf::Vector2f(
+        windowWidth - config.control_panel_width + 10,
+        290.0f
+    ));
+    modeButton.setFillColor(sf::Color(70, 70, 90));
+    window.draw(modeButton);
+    
+    modeText.setString("Mode: " + modeNames[current_display_mode]);
+    modeText.setPosition(sf::Vector2f(
+        windowWidth - config.control_panel_width + 15,
+        295.0f
+    ));
+    window.draw(modeText);
+}
+
+void UIModule::handleMouseWheel(const sf::Event::MouseWheelScrolled& event) {
+    
+   sf::Vector2f mousePos(
+       static_cast<float>(event.position.x),
+       static_cast<float>(event.position.y)
+   );
+
+   if (!chatPanel.getGlobalBounds().contains(mousePos))
+       return;
+
+   stickToBottom = false;
+
+   chatScrollOffset -= event.delta * 30.f;
+
+   if (chatScrollOffset < 0.f)
+       chatScrollOffset = 0.f;
+
+   float maxScroll = std::max(0.f, chatContentHeight - chatPanel.getSize().y);
+
+   if (chatScrollOffset > maxScroll)
+       chatScrollOffset = maxScroll;
+}
+
 // Исправленный метод drawReflectionPanel
 void UIModule::drawReflectionPanel(sf::RenderWindow& window) {
     if (!neural_system) return; // защита от нулевого указателя
@@ -825,11 +1126,11 @@ void UIModule::drawReflectionPanel(sf::RenderWindow& window) {
         statusText.setPosition(sf::Vector2f(410.0f, 370.0f));
         
         if (state.confidence > 0.7f) {
-            statusText.setString("Status: 🟢 Confident");
+            statusText.setString("Status: Confident");
         } else if (state.confusion > 0.6f) {
-            statusText.setString("Status: 🟡 Confused");
+            statusText.setString("Status: Confused");
         } else {
-            statusText.setString("Status: 🟠 Learning");
+            statusText.setString("Status: Learning");
         }
         window.draw(statusText);
         
@@ -837,6 +1138,7 @@ void UIModule::drawReflectionPanel(sf::RenderWindow& window) {
         std::cerr << "Error in drawReflectionPanel: " << e.what() << std::endl;
     }
 }
+
 void UIModule::drawStatistics(
     sf::RenderWindow& window, 
     const StatisticsModule& stats, 
@@ -869,7 +1171,7 @@ void UIModule::drawStatistics(
     
     // Стазис
     if (stats.getCurrentStats().total_energy < 0.001) {
-        stasisText.setString("⚠️ LOW ENERGY\nSTASIS MODE");
+        stasisText.setString("LOW ENERGY\nSTASIS MODE");
         stasisText.setFillColor(TEXT_WARNING);
         window.draw(stasisText);
     }
@@ -904,39 +1206,62 @@ std::string UIModule::formatDouble(double value, int precision) const {
     ss << std::fixed << std::setprecision(precision) << value;
     return ss.str();
 }
-// ДЭБАГ!!!
-void UIModule::drawDebugButton(sf::RenderWindow& window) {
-    window.draw(debugButton);
-    window.draw(debugButtonText);
+
+void UIModule::toggleOrbits() {
+    if (visualizer) {
+        auto& cfg = visualizer->getConfig();
+        cfg.show_orbits = !cfg.show_orbits;
+        std::cout << "Orbits: " << (cfg.show_orbits ? "ON" : "OFF") << std::endl;
+    }
 }
 
-void UIModule::drawDebugPanel(sf::RenderWindow& window, const EvolutionModule& evolution, 
-                             const MemoryManager& memory, int step) {
-    window.draw(debugPanel);
-    
-    const auto& metrics = evolution.getCurrentMetrics();
-    
-    std::stringstream ss;
-    ss << "  DEBUG INFO\n"
-       << "═══════════════\n\n"
-       << "  EVOLUTION:\n"
-       << "  Fitness: " << std::fixed << std::setprecision(4) 
-       << metrics.overall_fitness << "\n"
-       << "  Best: " << evolution.getBestFitness() << "\n"
-       << "  Code Score: " << metrics.code_size_score << "\n"
-       << "  Perf Score: " << metrics.performance_score << "\n"
-       << "  Energy Score: " << metrics.energy_score << "\n\n"
-       << "  MEMORY:\n"
-       << "  Records: " << memory.getDumpSize() << "/5000\n"
-       << "  Feature Dim: 64\n"
-       << "  Decay: 0.995/step\n\n"
-       << "  SYSTEM:\n"
-       << "  Step: " << step << "\n"
-       << "  Stasis: " << (evolution.isInStasis() ? "YES" : "NO") << "\n"
-       //<< "  Cooldown: " << evolution.getReductionCooldown() << "s\n"
-       << "Overall Fitness: " << evolution.getOverallFitness() << "/min\n"
-       << "Best Fitness: " << formatDouble(evolution.getBestFitness(), 2);
-    
-    debugInfoText.setString(ss.str());
-    window.draw(debugInfoText);
+void UIModule::toggleInterConnections() {
+    if (visualizer) {
+        auto& cfg = visualizer->getConfig();
+        cfg.show_connections = !cfg.show_connections;
+        std::cout << "Inter-group connections: " << (cfg.show_connections ? "ON" : "OFF") << std::endl;
+    }
+}
+
+void UIModule::toggleIntraConnections() {
+    if (visualizer) {
+        auto& cfg = visualizer->getConfig();
+        cfg.show_intra_connections = !cfg.show_intra_connections;
+        std::cout << "Intra-group connections: " << (cfg.show_intra_connections ? "ON" : "OFF") << std::endl;
+    }
+}
+
+void UIModule::toggleNeurons() {
+    if (visualizer) {
+        auto& cfg = visualizer->getConfig();
+        cfg.show_neurons = !cfg.show_neurons;
+        std::cout << "Neurons: " << (cfg.show_neurons ? "ON" : "OFF") << std::endl;
+    }
+}
+
+void UIModule::toggleAutoRotate() {
+    if (visualizer) {
+        auto& cfg = visualizer->getConfig();
+        cfg.auto_rotate = !cfg.auto_rotate;
+        std::cout << "Auto-rotate: " << (cfg.auto_rotate ? "ON" : "OFF") << std::endl;
+    }
+}
+
+void UIModule::resetView() {
+    if (visualizer) {
+        visualizer->resetView();
+        std::cout << "View reset" << std::endl;
+    }
+}
+
+void UIModule::handleRotate(float delta) {
+    if (visualizer) {
+        visualizer->handleRotate(delta);
+    }
+}
+
+void UIModule::handleTilt(float delta) {
+    if (visualizer) {
+        visualizer->handleTilt(delta);
+    }
 }

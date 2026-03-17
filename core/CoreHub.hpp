@@ -1,14 +1,19 @@
-#include <iostream>
-#include "NeuralGroup.hpp"
+// CoreHub.hpp - ИСПРАВЛЕННЫЙ
+#pragma once
+#include <vector>
+#include "core/INeuralGroupAccess.hpp"
 
 class CoreHub {
 public:
     CoreHub(int numHubs);
-    void connectToGroups(const std::vector<NeuralGroup>& groups, const std::vector<int>& hubIndices);
-    void integrate(std::vector<NeuralGroup>& groups);
-    void learnSTDP(float reward,int currentStep);
+    
+    // Теперь принимает интерфейс, а не константные группы
+    void connectToGroups(INeuralGroupAccess& system);
+    void integrate(INeuralGroupAccess& system);
+    void learnSTDP(float reward, int currentStep);
+    
 private:
-    std::vector<NeuralGroup*> hubs; // указатели на группы-хабы
-    std::vector<std::vector<float>> hubWeights; // веса между хабами
-    std::vector<float> hubInputs; // временные входы
+    std::vector<NeuralGroup*> hubs;  // неконстантные указатели
+    std::vector<std::vector<float>> hubWeights;
+    std::vector<float> hubInputs;
 };

@@ -1,30 +1,38 @@
+// CoreHub.cpp - ИСПРАВЛЕННЫЙ
 #include "CoreHub.hpp"
+#include "NeuralGroup.hpp"
 #include <algorithm>
 
-CoreHub::CoreHub(int numHubs) : hubs(numHubs, nullptr), 
-                                 hubWeights(numHubs, std::vector<float>(numHubs, 0.01f)),
-                                 hubInputs(numHubs, 0.0f) {}
+CoreHub::CoreHub(int numHubs) : 
+    hubs(),
+    hubWeights(numHubs, std::vector<float>(numHubs, 0.01f)),
+    hubInputs(numHubs, 0.0f) {}
 
-void CoreHub::connectToGroups(const std::vector<NeuralGroup>& groups, const std::vector<int>& hubIndices) {
-    hubs.clear();
-    for (int idx : hubIndices) {
-        if (idx >= 0 && idx < groups.size()) {
-            hubs.push_back(const_cast<NeuralGroup*>(&groups[idx]));
-        }
+void CoreHub::connectToGroups(INeuralGroupAccess& system) {
+    // Получаем указатели на группы-хабы через интерфейс
+    hubs = system.getHubGroups();  // теперь это неконстантные указатели
+    
+    // Инициализируем веса если нужно
+    if (hubs.size() != hubWeights.size()) {
+        hubWeights.resize(hubs.size(), std::vector<float>(hubs.size(), 0.01f));
+        hubInputs.resize(hubs.size(), 0.0f);
     }
 }
 
-void CoreHub::integrate(std::vector<NeuralGroup>& groups) {
+void CoreHub::integrate(INeuralGroupAccess& system) {
     if (hubs.empty()) return;
+    
+    // Обновляем указатели на случай, если группы изменились
+    hubs = system.getHubGroups();
     
     // Собираем входы от хабов с учетом их энтропии
     for (size_t i = 0; i < hubs.size(); ++i) {
+        if (!hubs[i]) continue;
         hubInputs[i] = hubs[i]->getAverageActivity();
         
-        // НОВОЕ: модуляция энтропией
         double entropy = hubs[i]->computeEntropy();
         double entropy_factor = 1.0 + (entropy - 2.0) * 0.1;
-        hubInputs[i] *= entropy_factor;
+        hubInputs[i] *= static_cast<float>(entropy_factor);
     }
     
     // Обмен между хабами
@@ -37,6 +45,7 @@ void CoreHub::integrate(std::vector<NeuralGroup>& groups) {
     
     // Применяем к хабам
     for (size_t i = 0; i < hubs.size(); ++i) {
+        if (!hubs[i]) continue;
         auto& phi = hubs[i]->getPhiNonConst();
         float avg = newInputs[i];
         for (size_t n = 0; n < phi.size(); ++n) {
@@ -45,7 +54,7 @@ void CoreHub::integrate(std::vector<NeuralGroup>& groups) {
     }
 }
 
-void CoreHub::learnSTDP(float reward,int currentStep) {
+void CoreHub::learnSTDP(float reward, int currentStep) {
     for (auto* hub : hubs) {
         if (hub) hub->learnSTDP(reward, currentStep);
     }

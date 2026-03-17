@@ -7,11 +7,12 @@
 #include <algorithm>
 #include <cmath>
 #include "EventSystem.hpp"
+#include "core/INeuralGroupAccess.hpp"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
-#include "modules/PredictorGroup.hpp"
+#include "PredictiveCoder.hpp"
 
 /**
  * @class AttentionMechanism
@@ -105,7 +106,7 @@ struct AttentionMechanism {
  * - Энтропийная регуляризация для предотвращения коллапса режимов
  * - Геометрические ограничения связей через π-функции
  */
-class NeuralFieldSystem {
+class NeuralFieldSystem : public INeuralGroupAccess { 
 public:
     static constexpr int NUM_GROUPS = 32;       ///< 32 группы
     static constexpr int GROUP_SIZE = 32;       ///< 32 нейрона в группе
@@ -179,35 +180,82 @@ public:
     void applyTargetedMutation(double strength, int targetType);
     void enterLowPowerMode();
 
+    // удержания системы на границе хаоса
+    void maintainCriticality();
+
+    void applyRicciFlow();
+
     // Доступ к группам
     std::vector<NeuralGroup>& getGroups() { return groups; }
     const std::vector<NeuralGroup>& getGroups() const { return groups; }
-    //-----------------------------------------
 
-    // НОВЫЕ МЕТОДЫ
-    void initializePredictor(size_t input_dim, size_t latent_dim, std::mt19937& rng);
+    // УДАЛЕНО: старые методы предсказателя
+    // void initializePredictor(size_t input_dim, size_t latent_dim, std::mt19937& rng);
+    // std::vector<double> predictNextState(const std::vector<double>& current_features);
+    // double updatePredictor(...);
+    // bool detectAnomaly(const std::vector<double>& features);
+    // std::vector<double> getCompressedState(const std::vector<double>& features);
+    // double getPredictionEntropy() const;
+
+        // РЕАЛИЗАЦИЯ ИНТЕРФЕЙСА
+    std::vector<NeuralGroup*>& getHubGroups() override {
+        // Ленивое заполнение вектора указателей
+        static std::vector<NeuralGroup*> hubPointers;
+        hubPointers.clear();
+        for (int idx : hubIndices) {
+            if (idx >= 0 && idx < static_cast<int>(groups.size())) {
+                hubPointers.push_back(&groups[idx]);
+            }
+        }
+        return hubPointers;
+    }
     
-    // Предсказать следующее состояние системы
-    std::vector<double> predictNextState(const std::vector<double>& current_features);
+    const std::vector<NeuralGroup*>& getHubGroups() const override {
+        static std::vector<NeuralGroup*> hubPointers;
+        hubPointers.clear();
+        for (int idx : hubIndices) {
+            if (idx >= 0 && idx < static_cast<int>(groups.size())) {
+                hubPointers.push_back(const_cast<NeuralGroup*>(&groups[idx]));  // const_cast здесь ОК, т.к. возвращаем const версию
+            }
+        }
+        return hubPointers;
+    }
     
-    // Обновить предсказатель на основе реального следующего состояния
-    double updatePredictor(const std::vector<double>& current_features,
-                          const std::vector<double>& next_features,
-                          int step_number);
-    
-    // Проверить, является ли текущее состояние аномальным
-    bool detectAnomaly(const std::vector<double>& features);
-    
-    // Получить сжатое представление текущего состояния
-    std::vector<double> getCompressedState(const std::vector<double>& features);
-    
-    // Получить энтропию ошибок предсказания
-    double getPredictionEntropy() const;
+    void registerHub(int groupIndex) override {
+        if (groupIndex >= 0 && groupIndex < static_cast<int>(groups.size())) {
+            hubIndices.push_back(groupIndex);
+        }
+    }
+
+    // НОВЫЙ МЕТОД: инициализация предсказательного кодера
+    void initializePredictiveCoder(MemoryManager& memory) {
+        predictive_coder = std::make_unique<PredictiveCoder>(*this, memory);
+    }
+
+    void detectAndHandleSingularities();
+    void performSurgery(NeuralGroup& group, double curvature, double entropy);
+    // Временное решение для прямой активации семантических групп
+    void setInputText(const std::vector<float>& input_signal) {
+        // Группа 0 - входной буфер
+        auto& group0 = groups[0].getPhiNonConst();
+        for (int i = 0; i < 32; i++) {
+            group0[i] = input_signal[i];
+        }
+        
+        // Дополнительно: усиливаем связи от группы 0 к семантическим группам
+        for (int g = 16; g <= 21; g++) {
+            strengthenInterConnection(0, g, 0.1);  // временно усиливаем
+        }
+    }
 
 private:
     AttentionMechanism attention;
-    
     EventSystem& events;
+
+    // НОВОЕ: вектор индексов групп-хабов
+    std::vector<int> hubIndices;
+    // НОВОЕ: добавить счетчик шагов
+    int stepCounter = 0;  // или в конструкторе инициализировать
     
     double dt;
     std::vector<NeuralGroup> groups;                 // 32 группы
@@ -238,11 +286,11 @@ private:
     
     bool pendingEvolutionRequest_ = false;
 
-    // НОВОЕ: группа предсказательного кодирования
-    std::unique_ptr<PredictorGroup> predictor;
+     // НОВОЕ: предсказательный кодер (вместо старого predictor)
+    std::unique_ptr<PredictiveCoder> predictive_coder;
 
-    // Вспомогательный метод для получения признаков в double
-    std::vector<double> NeuralFieldSystem::getFeaturesDouble() const {
+    // ИСПРАВЛЕНО: убран квалификатор NeuralFieldSystem::
+    std::vector<double> getFeaturesDouble() const {
         auto float_features = getFeatures();
         return std::vector<double>(float_features.begin(), float_features.end());
     }

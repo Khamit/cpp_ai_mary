@@ -8,6 +8,12 @@
 #include <sys/utsname.h>
 #include <mach/mach.h>
 
+/*
+Для кроссплатформенности нужно использовать условную компиляцию
+#ifdef __APPLE__, #ifdef _WIN32, #ifdef __linux__
+так же для любых других чипов которые могут вместить в себы maryAi
+*/
+
 // ===== ОСНОВНАЯ ФУНКЦИЯ ДЕТЕКЦИИ =====
 DeviceDescriptor DeviceProbe::detect()
 {

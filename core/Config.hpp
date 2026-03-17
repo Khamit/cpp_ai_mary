@@ -4,11 +4,12 @@
 #include <any>
 #include <fstream>
 #include <iostream>
+#include <nlohmann/json.hpp>
 
 class Config {
 private:
     std::map<std::string, std::any> values;
-    
+
 public:
     template<typename T>
     T get(const std::string& key, T defaultValue = T()) const {
@@ -22,29 +23,20 @@ public:
         }
         return defaultValue;
     }
-    
+
     template<typename T>
     void set(const std::string& key, T value) {
         values[key] = value;
     }
-    
+
     bool loadFromFile(const std::string& filename);
     bool saveToFile(const std::string& filename) const;
 
-    // Получить параметры энтропийной регуляризации
-    inline double getEntropyTarget() const {
-        return get<double>("entropy.target", 2.5);  // целевая энтропия
-    }
+    double getEntropyTarget() const { return get<double>("entropy.target", 2.5); }
+    double getEntropyLearningRate() const { return get<double>("entropy.learning_rate", 0.01); }
+    double getMinEntropyThreshold() const { return get<double>("entropy.min_threshold", 0.5); }
 
-    inline double getEntropyLearningRate() const {
-        return get<double>("entropy.learning_rate", 0.01);
-    }
-
-    inline double getMinEntropyThreshold() const {
-        return get<double>("entropy.min_threshold", 0.5);
-    }
-    
-    // Вспомогательные методы для JSON парсинга
-    static Config fromJSON(const std::string& json);
+    // JSON сериализация
+    static Config fromJSON(const std::string& json_str);
     std::string toJSON() const;
 };

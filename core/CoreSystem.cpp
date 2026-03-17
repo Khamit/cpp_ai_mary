@@ -4,7 +4,8 @@
 #include "MaryDefense.hpp"
 
 CoreSystem::CoreSystem() 
-    : neuralSystem(std::make_unique<NeuralFieldSystem>(0.001)) {
+    : neuralSystem(std::make_unique<NeuralFieldSystem>(0.001, eventSystem)) {  
+        // ВАЖНО: передаем eventSystem
     std::cout << "CoreSystem created" << std::endl;
 }
 
@@ -14,6 +15,32 @@ CoreSystem::~CoreSystem() {
 
 bool CoreSystem::initialize(const std::string& configFile) {
     std::cout << "CoreSystem initializing with config: " << configFile << std::endl;
+
+        // Загружаем конфиг (уже есть через ConfigLoader)
+    Config config;
+    if (config.loadFromFile(configFile)) {
+        system_mode = config.get<std::string>("system.mode", "personal");
+        default_user = config.get<std::string>("system.user_name", "user");
+    }
+
+        // Загружаем режим
+    system_mode = config.get<std::string>("system.mode", "personal");
+    default_user = config.get<std::string>("system.user_name", "user");
+    
+    // Создаем нужную реализацию авторизации
+    if (isEnterpriseMode()) {
+        // Для enterprise используем полную логику
+        personnel_db = PersonnelDatabase();  // если нужно создать
+        // ... загружаем данные
+        auth = std::make_unique<EnterpriseAuth>(personnel_db, master_key_mgr);
+        std::cout << "Enterprise mode: full access control enabled" << std::endl;
+    } else {
+        // Для personal - упрощенная версия
+        auth = std::make_unique<PersonalAuth>(default_user);
+        std::cout << "Personal mode: simplified access (user: " << default_user << ")" << std::endl;
+    }
+    
+    std::cout << "(!) System mode: " << system_mode << std::endl;
     
     // 1. Детектируем устройство
     deviceInfo = DeviceProbe::detect();
@@ -21,18 +48,59 @@ bool CoreSystem::initialize(const std::string& configFile) {
     
     std::cout << DeviceProbe::describe(deviceInfo) << std::endl;
     
-    // 2. Создаём нейросистему с EventSystem
-    neuralSystem = std::make_unique<NeuralFieldSystem>(0.001, eventSystem);
+    // 2. Инициализируем нейросистему (уже создана в конструкторе)
     std::mt19937 rng(std::random_device{}());
     neuralSystem->initializeRandom(rng);
     
     // 3. Определяем, мать мы или дочь (MaryDefense)
     lineage = MaryDefense::boot(rng);
     
-    // 4. Загружаем модули, соответствующие устройству
+    // 4. Регистрируем языковой модуль (теперь только для ввода/вывода)
+    // ВАЖНО: LanguageModule теперь принимает только neuralSystem
+    auto* language = registerComponent<LanguageModule>(
+        "language", 
+        *neuralSystem, 
+        immutableCore, 
+        *auth,
+        nullptr  // SemanticGraphDatabase* graph = nullptr
+    );
+    if (language) {
+        language->setSystemMode(system_mode, default_user);
+        
+        // Настраиваем поведение в зависимости от режима
+        if (system_mode == "personal") {
+            language->setCommandEnforcement(false);   // не блокируем команды
+            language->setEmotionalResponses(true);    // добавляем эмоции
+        } else {
+            language->setCommandEnforcement(true);    // строгая проверка
+            language->setEmotionalResponses(false);   // формальные ответы
+        }
+        
+        std::cout << "LanguageModule configured for " << system_mode << " mode" << std::endl;
+    }
+    // 5. Загружаем остальные модули, соответствующие устройству
     loadModulesForDevice();
     
     return true;
+}
+
+void CoreSystem::activePerception() {
+    /*
+    // 1. Система решает, что исследовать
+    auto curiosity = neuralSystem->getCuriositySignal();
+    
+    // 2. Активирует соответствующие сенсоры
+    if (curiosity > 0.7) {
+        activateCamera();
+        activateMicrophone();
+    }
+    
+    // 3. Получает новые данные
+    auto new_data = sense();
+    
+    // 4. Обучается на них
+    neuralSystem->learn(new_data);
+    */
 }
 
 void CoreSystem::loadModulesForDevice() {
@@ -89,13 +157,19 @@ void CoreSystem::update(float dt) {
 }
 
 void CoreSystem::saveState() {
+    // Сохраняем состояние ядра
+    memory.saveAll(); 
+    // Передаем менеджер компонентам, чтобы они могли его использовать
+    for (auto& component : components) {
+        component->saveState(memory); // Единая точка входа
+    }
     lineage->save(memory);
-    for (auto& component : components) component->saveState(memory);
-    memory.saveAll();
 }
 
 void CoreSystem::loadState() {
     memory.loadAll();
     lineage->load(memory);
-    for (auto& component : components) component->loadState(memory);
+    for (auto& component : components) {
+        component->loadState(memory);
+    }
 }

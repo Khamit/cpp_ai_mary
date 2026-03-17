@@ -12,6 +12,8 @@
 #include <chrono>
 #include <string>
 #include <random>
+#include <memory>
+#include <iostream>
 
 // Forward declaration
 class LanguageModule;
@@ -31,12 +33,16 @@ private:
     EvolutionMetrics current_metrics;
     HNeuronDetector detector_;
     std::vector<EvolutionMetrics> history;
+    
     double total_energy_consumed;
     size_t total_steps;
     bool in_stasis;
     std::chrono::steady_clock::time_point last_evaluation;
     double best_fitness;
     std::string backup_dir;
+
+    // УДАЛЯЕМ ЭТУ СТРОКУ - она здесь не нужна
+    // std::vector<NeuralGroup>& getGroups() { return groups; }
 
     // Защита от частых мутаций
     std::chrono::seconds REDUCTION_COOLDOWN;
@@ -51,10 +57,9 @@ private:
     bool canReduceComplexity();
     void recordReduction();
 
-    mutable std::mt19937 rng_{std::random_device{}()}; // если нет
+    mutable std::mt19937 rng_{std::random_device{}()};
 
 public:
-
     void connectToSystem(NeuralFieldSystem& system) {
         detector_.setSystem(&system);
     }
@@ -83,11 +88,10 @@ public:
     
     void update(float dt) override {
         // Эволюция не требует постоянного обновления на каждом шаге
-        // Вызывается по таймеру через proposeMutation
     }
     
     void saveState(MemoryManager& memory) override {
-        saveEvolutionState();  // используем существующий метод
+        saveEvolutionState();
     }
     
     void loadState(MemoryManager& memory) override {
@@ -110,9 +114,8 @@ public:
     double getBestFitness() const { return best_fitness; }
     void saveEvolutionState();
 
-        // НОВЫЕ МЕТОДЫ ДЛЯ ТРЕХУРОВНЕВОЙ АРХИТЕКТУРЫ
+    // НОВЫЕ МЕТОДЫ ДЛЯ ТРЕХУРОВНЕВОЙ АРХИТЕКТУРЫ
     bool shouldMutate() const {
-        // Проверка, нужно ли мутировать на этом шаге
         return std::uniform_real_distribution<>(0, 1)(rng_) < mutation_rate;
     }
     
@@ -121,20 +124,8 @@ public:
         return dist(rng_);
     }
     
-    void setBaseElevation(float elev);  // если нужно
-    float getBaseElevation() const;
-    
 private: 
-    // == ЗАКОММЕНТИРОВАНЫ ЛИШНИЕ МЕТОДЫ
-    /*
-    // Оценка приспособленности
-    double calculateCodeSizeScore() const;
-    double calculatePerformanceScore(double step_time) const;
-    double calculateEnergyScore(const NeuralFieldSystem& system) const;
-    */
-
     std::vector<std::vector<float>> projectionMatrix;
-
     std::vector<std::string> knownFacts_;
     std::map<std::string, float> factConfidence_;
     

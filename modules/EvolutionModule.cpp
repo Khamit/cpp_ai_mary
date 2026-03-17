@@ -100,17 +100,38 @@ void EvolutionModule::evaluateFitness(
     double step_time,
     LanguageModule& lang)
 {
-    // ===== 1. Языковая метрика =====
+    // ===== 1. Языковая метрика с защитой =====
     double langFitness = std::clamp(lang.getLanguageFitness(), 0.0, 1.0);
+    
+    // Защита от аномалий в языковой метрике
+    if (langFitness > 0.95 && total_steps < 10000) {
+        langFitness = 0.6;  // слишком рано для такого высокого значения
+        std::cout << "Warning: Language fitness suspiciously high, capping to 0.6" << std::endl;
+    }
+    
+    // Если язык не учился, но fitness высокий - это аномалия
+    static double last_lang_fitness = 0.0;
+    if (langFitness > 0.8 && last_lang_fitness < 0.3 && total_steps > 1000) {
+        std::cout << "Anomaly: Language fitness jumped from " 
+                  << last_lang_fitness << " to " << langFitness << std::endl;
+        langFitness = last_lang_fitness * 1.2; // плавный рост
+    }
+    last_lang_fitness = langFitness;
 
-    // ===== 2. Энергия (нормализованная) =====
+    // ===== 2. Энергия (нормализованная) с защитой =====
     double energy = system.computeTotalEnergy();
-
-    // Предполагаем нормальный диапазон энергии ~ [0, 2]
     double normalizedEnergy = std::clamp(energy / 2.0, 0.0, 1.0);
-
-    // Чем меньше энергия — тем лучше
     double energyFitness = 1.0 - normalizedEnergy;
+    
+    // Энергия не может быть идеальной постоянно
+    static double last_energy_fitness = 0.0;
+    if (energyFitness > 0.95 && total_steps > 1000) {
+        if (last_energy_fitness < 0.8) {
+            std::cout << "Anomaly: Energy fitness spike detected" << std::endl;
+            energyFitness = 0.7;  // сбрасываем аномалию
+        }
+    }
+    last_energy_fitness = energyFitness;
 
     // ===== 3. Стабильность (дисперсия групп) =====
     auto avgs = system.getGroupAverages();
@@ -127,11 +148,10 @@ void EvolutionModule::evaluateFitness(
     double stabilityFitness = 1.0 - std::clamp(variance * 5.0, 0.0, 1.0);
 
     // ===== 4. Временная эффективность =====
-    // нормируем относительно 5 мс
     double timePenalty = std::clamp(step_time / 0.005, 0.0, 1.0);
     double timeFitness = 1.0 - timePenalty;
 
-    // ===== 5. Комбинирование (веса можно вынести в config) =====
+    // ===== 5. Комбинирование с защитой =====
     double rawFitness =
         0.55 * langFitness +
         0.20 * energyFitness +
@@ -139,6 +159,57 @@ void EvolutionModule::evaluateFitness(
         0.10 * timeFitness;
 
     rawFitness = std::clamp(rawFitness, 0.0, 1.0);
+
+    // Многоуровневая защита от аномалий
+    bool anomaly_detected = false;
+
+    // убрать ложные детекции
+    // Жестко ограничиваем аномальные значения
+    /*
+    if (stabilityFitness > 0.95) {
+        // Если стабильность подозрительно высока, проверяем активность
+        auto avgs = system.getGroupAverages();
+        double activity_variance = 0;
+        for (double v : avgs) activity_variance += (v - 0.5) * (v - 0.5);
+        activity_variance /= avgs.size();
+        
+        if (activity_variance < 0.01) {  // все группы около 0.5
+            stabilityFitness = 0.5;  // это не стабильность, это смерть
+            std::cout << "False stability detected!" << std::endl;
+        }
+    }
+    */
+    // Аномалия 1: Высокий фитнес при нулевом языке
+    if (rawFitness > 0.8 && langFitness < 0.2) {
+        rawFitness = 0.5;
+        anomaly_detected = true;
+    }
+    
+    // Аномалия 2: Слишком быстрый рост
+    static double last_raw_fitness = 0.0;
+    if (total_steps > 1000) {
+        double growth = rawFitness - last_raw_fitness;
+        if (growth > 0.3) {  // рост больше 30% за один шаг
+            std::cout << "Anomaly: Too rapid fitness growth (" << growth << ")" << std::endl;
+            rawFitness = last_raw_fitness + 0.1;  // ограничиваем рост
+            anomaly_detected = true;
+        }
+    }
+    last_raw_fitness = rawFitness;
+    
+    // Аномалия 3: Все компоненты равны 1 (явный баг)
+    if (langFitness > 0.99 && energyFitness > 0.99 && 
+        stabilityFitness > 0.99 && timeFitness > 0.99) {
+        std::cout << "CRITICAL: All fitness components are 1.0 - resetting to reasonable values" << std::endl;
+        rawFitness = 0.5;
+        langFitness = 0.5;
+        energyFitness = 0.5;
+        anomaly_detected = true;
+    }
+
+    if (anomaly_detected) {
+        std::cout << "Anomaly detected in fitness calculation, corrected to " << rawFitness << std::endl;
+    }
 
     // ===== 6. EMA-сглаживание =====
     const double alpha = 0.1;
@@ -153,20 +224,32 @@ void EvolutionModule::evaluateFitness(
     current_metrics.performance_score = timeFitness;
     current_metrics.code_size_score = stabilityFitness;
 
-    // ===== 7. Лучшее значение =====
+    // ===== 7. Лучшее значение с защитой =====
     if (current_metrics.overall_fitness > best_fitness)
     {
-        best_fitness = current_metrics.overall_fitness;
-
-        std::cout << "\nNew best fitness: "
-                  << best_fitness
-                  << " | Lang: " << langFitness
-                  << " | Energy: " << energyFitness
-                  << " | Stability: " << stabilityFitness
-                  << " | Time: " << timeFitness
-                  << std::endl;
-
-        //createBackup();
+        // Защита от аномальных рекордов
+        bool is_valid_record = true;
+        
+        if (current_metrics.overall_fitness > 0.9 && langFitness < 0.3) {
+            is_valid_record = false;
+        }
+        if (current_metrics.overall_fitness > 0.8 && total_steps < 5000) {
+            is_valid_record = false;  // слишком рано для такого рекорда
+        }
+        
+        if (is_valid_record) {
+            best_fitness = current_metrics.overall_fitness;
+            std::cout << "\nNew best fitness: "
+                      << std::fixed << std::setprecision(2) << best_fitness
+                      << " | Lang: " << std::setprecision(2) << langFitness
+                      << " | Energy: " << std::setprecision(2) << energyFitness
+                      << " | Stability: " << std::setprecision(2) << stabilityFitness
+                      << " | Time: " << std::setprecision(2) << timeFitness
+                      << std::endl;
+        } else {
+            std::cout << "Ignoring anomalous fitness spike: " 
+                      << current_metrics.overall_fitness << std::endl;
+        }
     }
 
     history.push_back(current_metrics);
@@ -186,7 +269,7 @@ void EvolutionModule::evaluateFitness(
     }
 
     // ===== 9. Мутации =====
-    if (total_steps % 1000 == 0 && !in_stasis)
+    if (total_steps % 10000 == 0 && !in_stasis)
     {
         if (current_metrics.overall_fitness < min_fitness_for_optimization)
         {
@@ -198,12 +281,11 @@ void EvolutionModule::evaluateFitness(
     if (total_steps % 500 == 0)
     {
         std::cout << "Fitness Report | "
-                  << "Lang: " << langFitness
-                  << " | Energy: " << energyFitness
-                  << " | Stability: " << stabilityFitness
-                  << " | Time: " << timeFitness
-                  << " | Overall: "
-                  << current_metrics.overall_fitness
+                  << "Lang: " << std::setprecision(2) << langFitness
+                  << " | Energy: " << std::setprecision(2) << energyFitness
+                  << " | Stability: " << std::setprecision(2) << stabilityFitness
+                  << " | Time: " << std::setprecision(2) << timeFitness
+                  << " | Overall: " << std::setprecision(2) << current_metrics.overall_fitness
                   << std::endl;
     }
 }
@@ -319,18 +401,21 @@ FactCheckResult EvolutionModule::checkFactualConsistency(const std::string& stat
     return result;
 }
 
-// НОВЫЙ МЕТОД: мутация параметров групп
+// мутация параметров групп
 void EvolutionModule::mutateParameters(NeuralFieldSystem& system) {
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::normal_distribution<> normalDist(0.0, 0.1); // нормальное распределение для мутаций
+    std::normal_distribution<> normalDist(0.0, 0.1);
     
     std::cout << "  Mutating group parameters..." << std::endl;
     
-    for (auto& group : system.getGroups()) {
-        // 10% шанс мутации для каждой группы
+    // ИСПРАВЛЕНИЕ: получаем неконстантные группы через const_cast
+    // (временное решение, пока не добавим неконстантный геттер)
+    auto& groups = const_cast<std::vector<NeuralGroup>&>(system.getGroups());
+    
+    for (auto& group : groups) {
         if (std::uniform_real_distribution<>(0, 1)(gen) < mutation_rate) {
-            // Мутация learning rate (до 20% изменения)
+            // Мутация learning rate
             double lr = group.getLearningRate();
             lr *= (1.0 + normalDist(gen) * 0.2);
             lr = std::clamp(lr, 0.0001, 0.1);
@@ -361,16 +446,6 @@ void EvolutionModule::testEvolutionMethods() {
     std::cout << " - Mutation rate: " << mutation_rate << std::endl;
     std::cout << " - Best fitness: " << best_fitness << std::endl;
 }
-
-// ===== УДАЛЕНЫ ВСЕ МЕТОДЫ ОПТИМИЗАЦИИ КОДА =====
-// evolveCodeOptimization, optimizeConfigFiles, createOptimalConfig,
-// generateOptimizedCode, generateOptimizedDynamics, generateOptimizedLearning,
-// analyzeCodeEfficiency - все удалены
-/*
-void EvolutionModule::optimizeSystemParameters() {
-    // Заглушка - параметры мутируются в mutateParameters
-}
-*/
 
 void EvolutionModule::applyMinimalMutation(NeuralFieldSystem& system) {
     std::cout << " Minimal mutation in stasis mode" << std::endl;
@@ -480,7 +555,7 @@ bool EvolutionModule::validateImprovement() const {
 
 void EvolutionModule::saveEvolutionState() {
     EvolutionDumpData data;
-    data.generation = total_steps / 1000;
+    data.generation = total_steps / 10000;
     data.metrics = current_metrics;
     data.energy_state = 0; // или вычислить
     data.code_hash = getCurrentCodeHash();

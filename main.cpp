@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
-
+#include <iomanip>
 // Подключаем новую архитектуру
 // nen
 #include "core/CoreSystem.hpp"
@@ -22,9 +22,45 @@
 #include "modules/ConfigStructs.hpp"
 #include "modules/MetaCognitiveModule.hpp"
 #include "modules/lang/LanguageModule.hpp"  // Добавлено!
-#include "modules/learning/EffectiveLearning.hpp"
+#include "modules/lang/EffectiveLearning.hpp"
+#include "core/CoreHub.hpp"
 //#include "core/MemoryManager.hpp"
 //#include "core/Component.hpp"
+#include <signal.h>
+#include <execinfo.h>
+#include <unistd.h>  // Добавьте этот заголовок для STDERR_FILENO
+#include <cstring>
+#include <atomic>
+
+std::atomic<bool> handling_signal(false);
+
+void handler(int sig) {
+    // Защита от рекурсивных вызовов
+    if (handling_signal.exchange(true)) {
+        return;
+    }
+    
+    void *array[20];
+    size_t size;
+    
+    // Получить void* указатели для всех записей в стеке
+    size = backtrace(array, 20);
+    
+    // Распечатать все фреймы в stderr
+    fprintf(stderr, "\n\n=== CRASH DETECTED: signal %d (%s) ===\n", 
+            sig, strsignal(sig));
+    fprintf(stderr, "Stack trace:\n");
+    backtrace_symbols_fd(array, size, STDERR_FILENO);
+    fprintf(stderr, "=====================================\n\n");
+    
+    // Попытаться сохранить состояние перед выходом
+    // (но будьте осторожны - многое может быть небезопасно в обработчике сигнала)
+    
+    handling_signal = false;
+    exit(1);
+}
+
+
 
 class ConfigLoader {
 public:
@@ -87,7 +123,7 @@ bool ConfigLoader::loadFromFile(const std::string& filename,
     evolConfig.reduction_cooldown_seconds = getIntValue(content, "\"reduction_cooldown_seconds\"", 30);
     evolConfig.max_reductions_per_minute = getIntValue(content, "\"max_reductions_per_minute\"", 2);
     evolConfig.min_fitness_for_optimization = getDoubleValue(content, "\"min_fitness_for_optimization\"", 0.8);
-    evolConfig.evolution_interval_steps = getIntValue(content, "\"evolution_interval_steps\"", 1000);
+    evolConfig.evolution_interval_steps = getIntValue(content, "\"evolution_interval_steps\"", 10000);
     evolConfig.backup_on_improvement = getBoolValue(content, "\"backup_on_improvement\"", true);
     evolConfig.enable_adaptive_mutations = getBoolValue(content, "\"enable_adaptive_mutations\"", true);
     
@@ -144,6 +180,9 @@ std::string ConfigLoader::getStringValue(const std::string& content, const std::
 }
 
 int main() {
+    // Установить обработчик сигналов В САМОМ НАЧАЛЕ
+    signal(SIGSEGV, handler);
+
     // Создаем папки если их нет
     std::filesystem::create_directories("dump");
     std::filesystem::create_directories("data");
@@ -181,11 +220,37 @@ int main() {
     // Получаем информацию об устройстве
     const auto& deviceInfo = core.getDeviceInfo();
     std::cout << "Running on: " << deviceInfo.device_type << std::endl;
+
+    // Запускаем предобучение (только при первом запуске)
+    // core.runInitialTraining();
     
     // Получаем доступ к компонентам ядра
     NeuralFieldSystem& neuralSystem = core.getNeuralSystem();
     MemoryManager& memoryManager = core.getMemory();
     ImmutableCore& immutable_core = core.getImmutableCore();
+    // Вместо конкретного AccessManager используем интерфейс
+    IAuthorization& auth = core.getAuth();  // теперь интерфейс
+    // PersonnelDatabase может не существовать в personal режиме
+    // Поэтому будем использовать её только если нужно
+    // ИСПРАВЛЕНИЕ: создаем персонал только для enterprise режима
+    PersonnelDatabase* personnel_db = nullptr;
+    if (core.isEnterpriseMode()) {
+        static PersonnelDatabase enterprise_db;
+        personnel_db = &enterprise_db;
+    }
+    // ИСПРАВЛЕНИЕ: создаем семантический граф один раз
+    SemanticGraphDatabase semantic_graph;
+    // Создаем менеджеры
+    MasterKeyManager master_key_mgr;
+
+    // Регистрируем хабы в нейросистеме
+    neuralSystem.registerHub(0);   // группа 0 как хаб
+    neuralSystem.registerHub(15);  // группа 15 как хаб
+    neuralSystem.registerHub(31);  // группа 31 как хаб
+    
+    // Создаем CoreHub и подключаем через интерфейс
+    CoreHub coreHub(3);
+    coreHub.connectToGroups(neuralSystem);
 
     // Регистрируем модули в CoreSystem
     auto* evolution = core.registerComponent<EvolutionModule>(
@@ -197,39 +262,48 @@ int main() {
     auto* language = core.registerComponent<LanguageModule>(
         "language", 
         neuralSystem, 
-        *evolution,
-        memoryManager
+        immutable_core,
+        auth,
+        &semantic_graph  // SemanticGraphDatabase* graph = nullptr
     );
 
     auto* metacog = core.registerComponent<MetaCognitiveModule>(
         "metacognition", neuralSystem
     );
-    
-    // Используем unique_ptr для EffectiveLearning
-    auto effectiveLearning = std::make_unique<EffectiveLearning>(
-        neuralSystem, 
-        *language, 
-        memoryManager, 
-        const_cast<LanguageKnowledgeBase&>(LanguageKnowledgeBase::getInstance())
-    );
 
-    // После создания neuralSystem:
+    // ИСПРАВЛЕНИЕ: создаем EffectiveLearning с правильным порядком параметров
+    auto semantic_learning = std::make_unique<EffectiveLearning>(
+        neuralSystem,
+        *language,
+        language->getSemanticManager(),
+        memoryManager,
+        personnel_db,  // указатель (может быть nullptr)
+        auth,
+        deviceInfo,
+        semantic_graph
+    );
+    // Связываем MetaCognitiveModule с EvolutionModule
+    metacog->setEvolutionModule(evolution);
+
+    // Инициализируем любопытство
+    auto curiosity = std::make_shared<CuriosityDriver>(
+        neuralSystem,
+        *language, 
+        semantic_graph
+    );
+    language->setCuriosityDriver(curiosity);
+    semantic_learning->initializeCuriosity();
+
+    // При первом запуске показываем мастер-ключ
+    if (!std::filesystem::exists("dump/semantic_trained.bin")) {
+        std::cout << "\n🔑 FIRST RUN - MASTER KEY GENERATED:\n";
+        std::cout << "=====================================\n";
+        // Мастер-ключ уже сгенерирован в MasterKeyManager
+        std::cout << "=====================================\n\n";
+    }
+    
     std::mt19937 rng(std::random_device{}());
-    neuralSystem.initializePredictor(64, 16, rng);  // 64 входа -> 16 латентных
-    /*
-    Вход: 64 признака (getFeatures())
-    ↓
-    [PredictorGroup]
-        ├── Предсказатель (16 нейронов) → следующее состояние
-        ├── Кодер ошибок (8 нейронов) → сжатое представление ошибки
-        └── Детектор аномалий → тревога при отклонении
-        ↓
-    Выход: 
-        - предсказанное состояние
-        - ошибка предсказания (surprise)
-        - сжатый латентный код (16 чисел вместо 64)
-        - флаг аномалии
-    */
+    neuralSystem.initializePredictiveCoder(memoryManager);
     
     // Создаем остальные модули
     ResourceMonitor resources(resConfig);
@@ -249,10 +323,13 @@ int main() {
     ui.setLanguageModule(language);
     int visWidth = ui.getVisualizationWidth();
     int visHeight = ui.getVisualizationHeight();
-    ui.setNeuralSystem(&neuralSystem);
     
     VisualizationModule visualization(visConfig, NeuralFieldSystem::NUM_GROUPS, 
-                                      NeuralFieldSystem::GROUP_SIZE, visWidth, visHeight);
+                                    NeuralFieldSystem::GROUP_SIZE, visWidth, visHeight);
+    ui.setVisualizer(&visualization);
+    ui.setNeuralSystem(&neuralSystem);
+    ui.setSemanticGraph(&semantic_graph);
+    
     InteractionModule interaction(interConfig, NeuralFieldSystem::NUM_GROUPS, 
                                   visWidth / float(NeuralFieldSystem::NUM_GROUPS));
     StatisticsModule statistics;
@@ -260,6 +337,21 @@ int main() {
     // Создание окна
     sf::RenderWindow window(sf::VideoMode({windowWidth, windowHeight}), 
                            "Advanced Neural Field System - MaryAI");
+
+    // Создаем UnifiedStatsCollector
+    UnifiedStatsCollector stats_collector;
+    stats_collector.setNeuralSystem(&neuralSystem);
+    stats_collector.setMemoryManager(&memoryManager);
+    stats_collector.setEvolution(evolution);
+    stats_collector.setLanguage(language);
+    stats_collector.setMetaCognitive(metacog);
+    stats_collector.setEffectiveLearning(semantic_learning.get());
+
+    // Подключаем к StatisticsModule
+    statistics.setStatsCollector(&stats_collector);
+
+    // Подключаем к UIModule
+    ui.setStatsCollector(&stats_collector);
 
     // Переменные симуляции
     int step = 0;
@@ -272,19 +364,14 @@ int main() {
         std::cout << "! Loaded memory from dump/" << std::endl;
     }
 
-    // Предсказание и аномалия!
+
     core.getEventSystem().subscribe(EventType::PREDICTION_HIGH_ERROR, 
     [&memoryManager](const Event& event) {
-        // Здесь можно сохранять в память
+        // Сохраняем в память, но без вывода
         memoryManager.storeWithEntropy("predictor", event.data, event.value, 0.8f);
-        std::cout << "⚠️ Высокая ошибка предсказания: " << event.value << std::endl;
+        // Убрали std::cout
     });
 
-    core.getEventSystem().subscribe(EventType::ANOMALY_DETECTED,
-        [](const Event& event) {
-            std::cout << "🚨 Аномалия обнаружена!" << std::endl;
-        });
-    
     // *ОСНОВНОЙ ЦИКЛ*
     while (window.isOpen()) {
         // ОБРАБОТКА СОБЫТИЙ
@@ -293,6 +380,39 @@ int main() {
             
             if (event.is<sf::Event::Closed>()) {
                 window.close();
+            }
+            // Обработка событий клавиатуры:
+            else if (const auto* keyPressed = event.getIf<sf::Event::KeyPressed>()) {
+                if (keyPressed->code == sf::Keyboard::Key::Equal) {
+                    visualization.handleZoom(0.1f);
+                }
+                else if (keyPressed->code == sf::Keyboard::Key::Hyphen) {
+                    visualization.handleZoom(-0.1f);
+                }
+                else if (keyPressed->code == sf::Keyboard::Key::R) {
+                    visualization.resetView();
+                }
+                else if (keyPressed->code == sf::Keyboard::Key::Left) {
+                    visualization.handleRotate(-5.0f);  // вращение влево
+                }
+                else if (keyPressed->code == sf::Keyboard::Key::Right) {
+                    visualization.handleRotate(5.0f);   // вращение вправо
+                }
+                else if (keyPressed->code == sf::Keyboard::Key::Up) {
+                    visualization.handleTilt(5.0f);     // наклон вверх
+                }
+                else if (keyPressed->code == sf::Keyboard::Key::Down) {
+                    visualization.handleTilt(-5.0f);    // наклон вниз
+                }
+            }
+            // В обработке движения мыши (если зажата кнопка)
+            else if (const auto* mouseMoved = event.getIf<sf::Event::MouseMoved>()) {
+                static sf::Vector2i lastMousePos;
+                if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Middle)) {
+                    sf::Vector2i delta = sf::Mouse::getPosition(window) - lastMousePos;
+                    visualization.handlePan(delta.x, delta.y);
+                }
+                lastMousePos = sf::Mouse::getPosition(window);
             }
             else if (const auto* mouseWheel = event.getIf<sf::Event::MouseWheelScrolled>()) {
                 ui.handleMouseWheel(*mouseWheel);
@@ -309,35 +429,46 @@ int main() {
                     cumulativeReward += 0.1f;
                 }
             }
+            
             else if (const auto* textEntered = event.getIf<sf::Event::TextEntered>()) {
                 ui.handleTextEntered(*textEntered);
                 std::cout << "Text entered: " << static_cast<char>(textEntered->unicode) 
                           << " (current input: '" << ui.getCurrentInput() << "')" << std::endl;
             }
         }
-
         resources.update();
-        
+        /*
         if (!system_in_stasis && resources.checkAndTriggerOverload()) {
             std::cout << "⚠️ System overload detected! Reducing memory activity..." << std::endl;
         }
-
+        */
         // Проверяем состояние автообучения
         static bool lastAutoLearningState = false;
         if (ui.isAutoLearningActive() != lastAutoLearningState) {
             if (ui.isAutoLearningActive()) {
-                language->runAutoLearning(10000, effectiveLearning.get()); // .get() для raw pointer
+                language->runAutoLearning(10000, semantic_learning.get());
+                std::cout << "Auto-learning started" << std::endl;
             } else {
                 language->stopAutoLearning();
+                semantic_learning->stopTraining();  // останавливаем обучение
+                std::cout << "Auto-learning stopped" << std::endl;
             }
             lastAutoLearningState = ui.isAutoLearningActive();
         }
 
         if (simulation_running) {
+
+            // Интеграция хабов перед шагом нейросистемы
+            coreHub.integrate(neuralSystem);
+
             auto start_time = std::chrono::high_resolution_clock::now();
 
             // ===== ЕДИНСТВЕННЫЙ ВЫЗОВ НЕЙРОСИСТЕМЫ =====
             neuralSystem.step(lastReward, step);
+            // Передаем текущий шаг в обучение (если нужно)
+            // semantic_learning->setCurrentStep(step);  // если добавите такой метод
+            // Обучение хабов
+            coreHub.learnSTDP(lastReward, step);
             
             // Рефлексия (редко)
             if (step % 100 == 0) {
@@ -348,6 +479,10 @@ int main() {
                     std::cout << "Goal achieved!" << std::endl;
                 }
             }
+
+            // Обновляем unified статистику
+            stats_collector.update(step);
+            statistics.updateFromCollector();
             
             auto end_time = std::chrono::high_resolution_clock::now();
             double step_time = std::chrono::duration<double>(end_time - start_time).count();
@@ -423,12 +558,18 @@ int main() {
                 if (step % 10000 == 0 && step > 0) {
                     memoryManager.saveAll();
                     statistics.saveToFile("dump/simulation_statistics.csv");
+                    std::cout << semantic_learning->getStats() << std::endl;
                     std::cout << "\nCheckpoint saved at step " << step << std::endl;
                 }
                 
                 actionsTaken++;
                 if (actionsTaken % 100 == 0) {
                     cumulativeReward *= 0.9f;
+                }
+
+                // Сохраняем память периодически (УБРАНО из store)
+                if (step % 1000 == 0) {
+                    memoryManager.saveAll();
                 }
             }
 
@@ -451,19 +592,19 @@ int main() {
             }
             
             // Вывод статистики
-            if (step % 100 == 0) {
-                const auto& stats = statistics.getCurrentStats();
-                const auto& metrics = evolution->getCurrentMetrics();
-                double entropy = neuralSystem.computeSystemEntropy();  // для отладки
-                std::cout << "\rStep " << step 
-                          << " | Energy: " << stats.total_energy
-                          << " | Entropy: " << entropy
-                          << " | Fitness: " << metrics.overall_fitness
-                          << " | Best: " << bestFitness
-                          << " | Memory: " << memoryManager.getLongTermMemory().size() 
-                          << " | CPU: " << resources.getCurrentLoad() << "%   ";
-                std::cout.flush();
-            }
+                if (step % 200 == 0) {  // каждые 200 шагов вместо 100
+                    const auto& stats = statistics.getCurrentStats();
+                    const auto& metrics = evolution->getCurrentMetrics();
+                    double entropy = neuralSystem.computeSystemEntropy();
+                    std::cout << "\rStep " << step 
+                            << " | Energy: " << std::fixed << std::setprecision(3) << stats.total_energy
+                            << " | Entropy: " << std::setprecision(2) << entropy
+                            << " | Fitness: " << std::setprecision(3) << metrics.overall_fitness
+                            << " | Best: " << bestFitness
+                            << " | Memory: " << memoryManager.getLongTermMemory().size() 
+                            << " | CPU: " << std::setprecision(0) << resources.getCurrentLoad() << "%   ";
+                    std::cout.flush();
+                }
             step++;
         }
 
@@ -480,7 +621,6 @@ int main() {
         
         window.display();
     }
-
     // ФИНАЛЬНОЕ СОХРАНЕНИЕ
     std::cout << "\n\nSaving all data to dump/ folder..." << std::endl;
     

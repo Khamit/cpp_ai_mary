@@ -9,7 +9,13 @@
 #include "NeuralFieldSystem.hpp"
 #include "ImmutableCore.hpp"
 #include "MaryLineage.hpp"
-
+#include "modules/lang/LanguageModule.hpp"
+#include "data/PersonnelData.hpp"    
+#include "data/MasterKeyManager.hpp" 
+#include "data/AccessManager.hpp"    
+#include "IAuthorization.hpp"
+#include "EnterpriseAuth.hpp"
+#include "PersonalAuth.hpp"
 /*
 График загрузки нейронов
 text
@@ -29,13 +35,21 @@ MaryLineage        ████░░░░░░░░░░░░░░ 96
 */
 
 class CoreSystem {
+
 private:
     std::vector<std::unique_ptr<Component>> components;
     Config config;
     MemoryManager memory;
-    ImmutableCore immutableCore;
+    ImmutableCore immutableCore; // ЗАЩИТА ЯДРА (техническая)
     EventSystem eventSystem;
     DeviceDescriptor deviceInfo;
+
+    // система управления доступом (социальная)
+    PersonnelDatabase personnel_db;
+    MasterKeyManager master_key_mgr;
+    AccessManager access_manager{personnel_db, master_key_mgr};
+
+    std::unique_ptr<LanguageModule> language;
     
     // Ядро нейросети
     std::unique_ptr<NeuralFieldSystem> neuralSystem;
@@ -46,12 +60,19 @@ private:
     //  IdentityManager
     std::unique_ptr<MaryLineage> lineage;
 
-    // Интеграция
+    // Интеграция Устройства 
     std::vector<Capability> capabilities;
     
+    // НОВОЕ: режим работы
+    std::string system_mode = "personal";  // по умолчанию personal
+    std::string default_user = "user";     // для personal режима
+
+    // ВМЕСТО конкретного AccessManager:
+    std::unique_ptr<IAuthorization> auth;
 public:
     CoreSystem();
     ~CoreSystem();
+    IAuthorization& getAuth() { return *auth; }
     
     // Инициализация
     bool initialize(const std::string& configFile);
@@ -59,6 +80,9 @@ public:
     
     // Основной цикл
     void update(float dt);
+
+    // активное восприятие
+    void activePerception();
     
     // Регистрация компонентов
     template<typename T, typename... Args>
@@ -90,10 +114,12 @@ public:
     }
     
     // Доступ к ядру
+    // Доступ к компонентам
     NeuralFieldSystem& getNeuralSystem() { return *neuralSystem; }
     MemoryManager& getMemory() { return memory; }
     ImmutableCore& getImmutableCore() { return immutableCore; }
-    const Config& getConfig() const { return config; }
+    AccessManager& getAccessManager() { return access_manager; }  // НОВОЕ
+    PersonnelDatabase& getPersonnelDB() { return personnel_db; }  // НОВОЕ
     
     // Сохранение состояния всей системы
     void saveState();
@@ -110,4 +136,43 @@ public:
     
     // Загрузить модули на основе устройства
     void loadModulesForDevice();
+
+        // НОВЫЙ МЕТОД: безопасное выполнение действия
+    template<typename Func>
+    bool executeSecurely(const std::string& user_name, 
+                        const std::string& action,
+                        AccessLevel required_level,
+                        Func&& func) {
+        
+        // 1. Проверяем социальный доступ (кто ты?)
+        if (!access_manager.canPerform(user_name, action, required_level)) {
+            std::cout << "(-)Access denied for " << user_name 
+                      << " to perform " << action << std::endl;
+            return false;
+        }
+        
+        // 2. Проверяем технический доступ (можно ли сейчас?)
+        PermissionRequest req;
+        req.action = action;
+        req.source_module = "user:" + user_name;
+        req.estimated_impact = 0.5; // можно вычислять динамически
+        
+        if (!immutableCore.requestPermission(req)) {
+            std::cout << "System prevents " << action << " at this moment" << std::endl;
+            return false;
+        }
+        
+        // 3. Выполняем действие
+        func();
+        
+        // 4. Логируем успешное действие
+        std::cout << "(+)" << user_name << " performed " << action << std::endl;
+        return true;
+    }
+
+    // НОВЫЕ МЕТОДЫ
+    const std::string& getMode() const { return system_mode; }
+    bool isEnterpriseMode() const { return system_mode == "enterprise"; }
+    bool isPersonalMode() const { return system_mode == "personal"; }
+    const std::string& getDefaultUser() const { return default_user; }
 };

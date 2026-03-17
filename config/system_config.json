@@ -1,5 +1,7 @@
 {
     "system": {
+        "mode": "personal",
+        "user_name": "Khamit",
         "Nside": 20,
         "dt": 0.001,
         "m": 1.0,
