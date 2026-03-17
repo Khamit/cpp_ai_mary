@@ -10,6 +10,7 @@ This project follows the principles described in the document:
 ===============================================
 
 ### Core Architecture
+The proposed architecture demonstrates a fundamentally new class of systems - dynamic neurocognitive architectures with online learning. Unlike static models like Transformers, which require months of training on supercomputers, our system masters new concepts in minutes on commodity hardware, while maintaining full interpretability and energy efficiency.
 A hybrid neuroevolutionary system with **1024 neurons (32 groups × 32 neurons)**, combining:
 
 |                 Component | Description                                         |
