@@ -15,13 +15,13 @@
 // Project includes
 #include "../../core/AccessLevel.hpp"
 #include "modules/learning/CuriosityDriver.hpp"
-#include "../../data/SemanticGraphDatabase.hpp"
 #include "../../core/IAuthorization.hpp"
 #include "../lang/LanguageModule.hpp"
 #include "../semantic/SemanticManager.hpp"  
 #include "../../core/DeviceProbe.hpp"
 #include "../../data/PersonnelData.hpp"
 #include "../../data/MeaningTrainingExample_fwd.hpp"
+#include "../../data/SemanticGraphDatabase.hpp"
 
 class NeuralFieldSystem;
 class MemoryManager;
@@ -88,6 +88,17 @@ private:
     static constexpr int MAX_RECENT_CONCEPTS = 20;  // сколько концептов помнить
     static constexpr float MASTERY_THRESHOLD = 0.7f;  // порог освоения
 
+    // НОВЫЕ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
+    float measureActivationForConcept(uint32_t concept_id);
+    float measureContextualUsage(uint32_t concept_id);
+    uint32_t findMostAbstractConceptForNeuron(int group_idx, int neuron_idx);
+    float getNeuronAffinityToConcept(int group_idx, int neuron_idx, uint32_t concept_id);
+    float getNeuronEnergy(int group_idx, int neuron_idx);
+    
+    // НОВЫЕ ПОЛЯ ДЛЯ СПЕЦИАЛИЗАЦИИ
+    std::map<std::pair<int, int>, uint32_t> neuron_specialization;  // (группа, нейрон) -> концепт
+    std::map<uint32_t, std::vector<std::pair<int, int>>> concept_neurons;  // концепт -> список нейронов
+
 public:
 
     EffectiveLearning(
@@ -127,6 +138,16 @@ public:
     void intelligentLearningPlan();
     
     void forceLearnAllConcepts();
+
+    void adaptLearningRateByOrbits(); // новое с учетом хаоса!
+
+    void logOrbitalDistribution(); /// LOG
+
+    float calculateOrbitalReward(uint32_t concept_id, float activation_score);
+    float evaluateConceptMastery(uint32_t concept_id);
+    void trainRelation(uint32_t from_id, uint32_t to_id, SemanticEdge::Type relation);
+    void analyzeWeaknesses();
+    void specializeNeuronsByAbstraction();
 
     void trainAbstractionLevel(
         int min_abs,

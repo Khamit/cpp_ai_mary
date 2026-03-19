@@ -6,6 +6,10 @@
 #include <cmath>
 #include <algorithm>
 #include <iostream>
+#include <map>
+#include <sstream>
+#include <iomanip> 
+#include <filesystem>  // для current_path
 
 struct VisualizationConfig {
     bool enabled = true;
@@ -15,17 +19,37 @@ struct VisualizationConfig {
     bool dynamic_normalization = true;
     std::string color_scheme = "blue_red";
     double min_range = 0.1;
-    float orbit_scale = 100.0f;
     float neuron_radius = 3.0f;
     float zoom_level = 1.0f;
     float pan_x = 0.0f;
     float pan_y = 0.0f;
     bool show_intra_connections = true;
     float connection_threshold = 0.1f;
+
+    // температура Джекичанов
+    bool show_mass = true;
+    bool show_energy = false;
+    bool show_temperature = false;
+    bool show_legend = true;
+    bool show_stats = true;
+
     // 3D параметры
-    float rotation_angle = 0.0f;      // угол поворота камеры
-    float tilt_angle = 30.0f;         // наклон камеры (в градусах)
-    bool auto_rotate = false;          // автоматическое вращение
+    float rotation_angle = 0.0f;
+    float tilt_angle = 30.0f;
+    bool auto_rotate = false;
+    
+    // НОВЫЕ ПАРАМЕТРЫ ДЛЯ ОРБИТ
+    bool show_orbit_spheres = true;           // показывать сферы орбит
+    bool color_by_orbit = true;                // раскрашивать по орбитам
+    float orbit_scale = 100.0f;                 // масштаб орбит
+    std::vector<float> orbit_radii = {0.2f, 0.5f, 1.0f, 1.5f, 2.0f};  // радиусы орбит
+    std::vector<sf::Color> orbit_colors = {
+        sf::Color(100, 100, 100, 50),   // сингулярность - серый
+        sf::Color(100, 150, 255, 50),   // внутренняя - голубой
+        sf::Color(100, 255, 100, 50),   // базовая - зеленый
+        sf::Color(255, 200, 100, 50),   // средняя - оранжевый
+        sf::Color(255, 100, 100, 50)    // внешняя - красный
+    };
 };
 
 class VisualizationModule {
@@ -36,10 +60,21 @@ public:
         centerX = width / 2.0f;
         centerY = height / 2.0f;
         
-        groupOrbitAngles.resize(numGroups);
-        groupOrbitRadii.resize(numGroups);
+        // Загружаем шрифт - ИСПРАВЛЕНО: loadFromFile -> openFromFile
+        fontLoaded = font.openFromFile("SF-Pro-Display-Regular.otf");
+        if (!fontLoaded) {
+            std::cerr << "Warning: Could not load font SF-Pro-Display-Regular.otf" << std::endl;
+            std::cerr << "Current working directory: " << std::filesystem::current_path() << std::endl;
+            
+            // Пробуем запасной вариант
+            fontLoaded = font.openFromFile("/System/Library/Fonts/Helvetica.ttc");
+            if (!fontLoaded) {
+                std::cerr << "Warning: Could not load fallback font Helvetica.ttc" << std::endl;
+            }
+        }
         
-        precomputeGroupPositions();
+        // Инициализация орбитальных сфер
+        initializeOrbitSpheres();
         
         // Создаем нейроны для каждой группы
         neurons.resize(numGroups);
@@ -51,41 +86,23 @@ public:
             }
         }
         
-        // Создаем орбиты (окружности)
-        orbits.resize(numGroups);
-        for (int g = 0; g < numGroups; ++g) {
-            if (g < groupOrbitRadii.size()) {
-                orbits[g].setRadius(groupOrbitRadii[g]);
-                orbits[g].setOrigin(sf::Vector2f(groupOrbitRadii[g], groupOrbitRadii[g]));
-                orbits[g].setPosition(sf::Vector2f(centerX + config.pan_x, centerY + config.pan_y));
-                orbits[g].setFillColor(sf::Color::Transparent);
-                orbits[g].setOutlineColor(sf::Color(100, 100, 150, 100));
-                orbits[g].setOutlineThickness(1.0f);
-            }
-        }
-        
         // Создаем центральную сингулярность
         singularity.setRadius(10.0f);
         singularity.setOrigin(sf::Vector2f(10.0f, 10.0f));
-        singularity.setPosition(sf::Vector2f(centerX + config.pan_x, centerY + config.pan_y));
         singularity.setFillColor(sf::Color(255, 100, 100, 200));
+    }
+    
+    void initializeOrbitSpheres() {
+        orbitSpheres.resize(5);  // 5 орбит
         
-        // Создаем орбитальные зоны
-        orbitalZones.resize(3);
-        
-        float zone_radii[] = {
-            (orbital_radius - orbital_width/2),
-            orbital_radius,
-            (orbital_radius + orbital_width/2)
-        };
-        
-        for (int i = 0; i < 3; ++i) {
-            orbitalZones[i].setRadius(zone_radii[i]);
-            orbitalZones[i].setOrigin(sf::Vector2f(zone_radii[i], zone_radii[i]));
-            orbitalZones[i].setPosition(sf::Vector2f(centerX + config.pan_x, centerY + config.pan_y));
-            orbitalZones[i].setFillColor(sf::Color::Transparent);
-            orbitalZones[i].setOutlineColor(sf::Color(100, 200, 255, 50 + i*50));
-            orbitalZones[i].setOutlineThickness(2.0f);
+        for (int level = 0; level < 5; ++level) {
+            float radius = config.orbit_radii[level] * config.orbit_scale * config.zoom_level;
+            
+            orbitSpheres[level].setRadius(radius);
+            orbitSpheres[level].setOrigin(sf::Vector2f(radius, radius));
+            orbitSpheres[level].setFillColor(sf::Color::Transparent);
+            orbitSpheres[level].setOutlineColor(config.orbit_colors[level]);
+            orbitSpheres[level].setOutlineThickness(2.0f);
         }
     }
     
@@ -95,13 +112,16 @@ public:
         const auto& groups = system.getGroups();
         if (groups.empty()) return;
         
-        double current_min = groups[0].getAverageActivity();
-        double current_max = current_min;
+        double current_min = 1e9;
+        double current_max = -1e9;
         
-        for (size_t i = 1; i < groups.size(); ++i) {
-            double avg = groups[i].getAverageActivity();
-            current_min = std::min(current_min, avg);
-            current_max = std::max(current_max, avg);
+        for (size_t g = 0; g < groups.size(); ++g) {
+            const auto& positions = groups[g].getPositions();
+            for (size_t i = 0; i < positions.size(); ++i) {
+                double r = positions[i].norm();
+                current_min = std::min(current_min, r);
+                current_max = std::max(current_max, r);
+            }
         }
         
         minActivity = 0.99 * minActivity + 0.01 * current_min;
@@ -117,13 +137,12 @@ public:
     void handleZoom(float delta) {
         config.zoom_level *= (1.0f + delta * 0.1f);
         config.zoom_level = std::clamp(config.zoom_level, 0.5f, 3.0f);
-        precomputeGroupPositions();
+        initializeOrbitSpheres();  // пересчитываем радиусы орбит
     }
     
     void handlePan(float dx, float dy) {
         config.pan_x += dx;
         config.pan_y += dy;
-        precomputeGroupPositions();
     }
     
     void handleRotate(float delta) {
@@ -147,7 +166,7 @@ public:
         config.pan_y = 0.0f;
         config.rotation_angle = 0.0f;
         config.tilt_angle = 30.0f;
-        precomputeGroupPositions();
+        initializeOrbitSpheres();
     }
     
     void draw(sf::RenderWindow& window, const NeuralFieldSystem& system) {
@@ -175,41 +194,45 @@ public:
         float cos_tilt = std::cos(tilt_rad);
         float sin_tilt = std::sin(tilt_rad);
         
-        // 1. Рисуем орбитальные зоны
-        if (config.show_orbits) {
-            for (const auto& zone : orbitalZones) {
-                window.draw(zone);
+        // 1. Рисуем орбитальные сферы (5 штук)
+        if (config.show_orbits && config.show_orbit_spheres) {
+            for (int level = 0; level < 5; ++level) {
+                sf::CircleShape& sphere = orbitSpheres[level];
+                
+                // Проецируем центр сферы (0,0,0) в 2D
+                sf::Vector2f centerPos = project3DTo2D(0, 0, 0, rot_rad, tilt_rad, cos_tilt, sin_tilt);
+                centerPos.x = centerX + config.pan_x + centerPos.x;
+                centerPos.y = centerY + config.pan_y + centerPos.y;
+                
+                sphere.setPosition(centerPos);
+                window.draw(sphere);
             }
         }
         
-        // 2. Рисуем орбиты групп
-        if (config.show_orbits) {
-            for (int g = 0; g < numGroups && g < orbits.size(); ++g) {
-                window.draw(orbits[g]);
-            }
-        }
-        
-        // 3. Рисуем центральную сингулярность
+        // 2. Рисуем центральную сингулярность
+        sf::Vector2f singularityPos = project3DTo2D(0, 0, 0, rot_rad, tilt_rad, cos_tilt, sin_tilt);
+        singularityPos.x = centerX + config.pan_x + singularityPos.x;
+        singularityPos.y = centerY + config.pan_y + singularityPos.y;
+        singularity.setPosition(singularityPos);
         window.draw(singularity);
         
-        // 4. Рисуем связи между группами
+        // 3. Рисуем связи между группами
         if (config.show_connections) {
             drawConnections3D(window, system, rot_rad, tilt_rad, cos_tilt, sin_tilt);
         }
         
-        // 5. Рисуем внутригрупповые связи
+        // 4. Рисуем внутригрупповые связи
         if (config.show_intra_connections) {
             drawIntraGroupConnections3D(window, system, rot_rad, tilt_rad, cos_tilt, sin_tilt);
         }
         
-        // 6. Рисуем нейроны в 3D
+        // 5. Рисуем нейроны на их орбитах
         if (config.show_neurons) {
             for (int g = 0; g < numGroups && g < groups.size(); ++g) {
                 const auto& group = groups[g];
-                
-                // Получаем 3D позиции нейронов
                 const auto& positions = group.getPositions();
                 
+                // Визуализируем нейроны задавая цвета по массе - красивые Джекичаны
                 for (int n = 0; n < groupSize && n < neurons[g].size() && n < positions.size(); ++n) {
                     // Проецируем 3D точку на 2D экран
                     sf::Vector2f screenPos = project3DTo2D(
@@ -217,42 +240,57 @@ public:
                         rot_rad, tilt_rad, cos_tilt, sin_tilt
                     );
                     
-                    // Масштабируем и добавляем смещение группы
+                    // Масштабируем и добавляем смещение
                     screenPos.x = centerX + config.pan_x + screenPos.x * config.orbit_scale;
                     screenPos.y = centerY + config.pan_y + screenPos.y * config.orbit_scale;
                     
                     neurons[g][n].setPosition(screenPos);
                     
-                    // Вычисляем активность (расстояние от центра)
-                    double activity = positions[n].norm();
-                    float norm = static_cast<float>((activity - minActivity) / (maxActivity - minActivity));
+                    // Получаем информацию о нейроне
+                    double r = positions[n].norm();
+                    int orbitLevel = group.getOrbitLevel(n);
+                    
+                    // Нормализуем активность для цвета
+                    float norm = static_cast<float>((r - minActivity) / (maxActivity - minActivity));
                     norm = std::clamp(norm, 0.0f, 1.0f);
                     
-                    // Проверяем, находится ли нейрон в орбитальной зоне
-                    bool inOrbit = (activity > 0.2 && activity < 0.8);
-                    
-                    // Цвет
-                    sf::Color color;
-                    if (inOrbit) {
-                        color = sf::Color(100, 255, 200, 255);
+                    // Базовый цвет: либо по орбите, либо по активности
+                    sf::Color baseColor;
+                    if (config.color_by_orbit) {
+                        baseColor = getOrbitColor(orbitLevel, norm);
                     } else {
                         if (config.color_scheme == "blue_red") {
                             std::uint8_t r_color = static_cast<std::uint8_t>(norm * 255);
                             std::uint8_t b = static_cast<std::uint8_t>((1.0f - norm) * 255);
-                            color = sf::Color(r_color, 0, b);
+                            baseColor = sf::Color(r_color, 0, b);
                         } else {
                             std::uint8_t val = static_cast<std::uint8_t>(norm * 255);
-                            color = sf::Color(val, val, val);
+                            baseColor = sf::Color(val, val, val);
                         }
                     }
                     
-                    // Размер зависит от близости к камере (z-координата)
+                    // Добавляем эффект температуры (теперь метод константный!)
+                    sf::Color finalColor = baseColor;
+                    if (config.show_temperature) {
+                        double temp = group.getNeuronTemperature(n);
+                        float glow = static_cast<float>(std::min(temp * 0.3, 1.0));
+                        finalColor = sf::Color(
+                            std::min(255, baseColor.r + static_cast<std::uint8_t>(glow * 80)),
+                            std::max(0, baseColor.g - static_cast<std::uint8_t>(glow * 40)),
+                            std::max(0, baseColor.b - static_cast<std::uint8_t>(glow * 40))
+                        );
+                    }
+                    
+                    // Размер зависит от орбиты и массы
+                    double mass = group.getMass(n);
+                    float sizeFactor = 0.5f + orbitLevel * 0.2f;
                     float depthFactor = 0.5f + 0.5f * (positions[n].z + 1.0f) / 2.0f;
-                    float size = config.neuron_radius * (0.5f + norm * 0.5f) * depthFactor;
+                    float massFactor = 0.5f + static_cast<float>(mass) * 0.2f;
+                    float size = config.neuron_radius * sizeFactor * depthFactor * massFactor;
                     
                     neurons[g][n].setRadius(size);
                     neurons[g][n].setOrigin(sf::Vector2f(size, size));
-                    neurons[g][n].setFillColor(color);
+                    neurons[g][n].setFillColor(finalColor);
                     
                     window.draw(neurons[g][n]);
                 }
@@ -260,16 +298,26 @@ public:
         }
         
         window.setView(window.getDefaultView());
+    // Рисуем легенду и статистику поверх всего (в screen coordinates)
+    if (config.show_legend) {
+        drawOrbitLegend(window);
     }
+    
+    if (config.show_stats) {
+        drawStats(window, system);
+    }
+}
     
     void setConfig(const VisualizationConfig& newConfig) { 
         config = newConfig; 
-        precomputeGroupPositions();
+        initializeOrbitSpheres();
     }
     
     VisualizationConfig& getConfig() { return config; }
     
 private:
+    sf::Font font;           // шрифт как член класса
+    bool fontLoaded = false; // флаг успешной загрузки
     // Проекция 3D точки на 2D экран
     sf::Vector2f project3DTo2D(float x, float y, float z, 
                                float rot_rad, float tilt_rad, 
@@ -289,44 +337,102 @@ private:
         
         return sf::Vector2f(x_tilt * perspective, y_tilt * perspective);
     }
-    
-    void precomputeGroupPositions() {
-        orbital_radius = 0.5f * config.orbit_scale * config.zoom_level;
-        orbital_width = 0.3f * config.orbit_scale * config.zoom_level;
+
+    void drawOrbitLegend(sf::RenderWindow& window) {
+        if (!config.show_legend || !fontLoaded) return;
         
-        for (int g = 0; g < numGroups; ++g) {
-            groupOrbitAngles[g] = 2.0f * static_cast<float>(M_PI) * g / numGroups;
+        int y = 10;
+        for (int level = 0; level < 5; ++level) {
+            std::string level_names[] = {
+                "Orbit 0: Singularity",
+                "Orbit 1: Inner (Candidates)",
+                "Orbit 2: Base (Workers)",
+                "Orbit 3: Middle (Managers)",
+                "Orbit 4: Outer (Elite)"
+            };
             
-            if (g >= 16 && g <= 21) {
-                groupOrbitRadii[g] = 0.4f * config.orbit_scale * config.zoom_level;
-            } else {
-                groupOrbitRadii[g] = 0.8f * config.orbit_scale * config.zoom_level;
+            sf::Text text(font);
+            text.setFont(font);
+            text.setString(level_names[level]);
+            text.setCharacterSize(14);
+            text.setFillColor(config.orbit_colors[level]);
+            text.setPosition(sf::Vector2f(10, y));
+            window.draw(text);
+            y += 20;
+        }
+    }
+
+
+    void drawStats(sf::RenderWindow& window, const NeuralFieldSystem& system) {
+        if (!config.show_stats || !fontLoaded) return;
+        
+        // Собираем статистику по орбитам
+        std::vector<int> orbit_counts(5, 0);
+        double total_mass = 0.0;
+        double total_energy = 0.0;
+        int neuron_count = 0;
+        
+        for (const auto& group : system.getGroups()) {
+            for (int i = 0; i < group.getSize(); ++i) {
+                int level = group.getOrbitLevel(i);
+                if (level >= 0 && level < 5) orbit_counts[level]++;
+                total_mass += group.getMass(i);
+                total_energy += group.getNeuronEnergy(i);
+                neuron_count++;
             }
         }
         
-        if (!orbits.empty()) {
-            for (int g = 0; g < numGroups && g < orbits.size(); ++g) {
-                orbits[g].setRadius(groupOrbitRadii[g]);
-                orbits[g].setOrigin(sf::Vector2f(groupOrbitRadii[g], groupOrbitRadii[g]));
-                orbits[g].setPosition(sf::Vector2f(centerX + config.pan_x, centerY + config.pan_y));
-            }
+        std::stringstream ss;
+        ss << "=== Neural Statistics ===\n";
+        ss << "Total neurons: " << neuron_count << "\n";
+        ss << "Avg mass: " << std::fixed << std::setprecision(2) << (total_mass / neuron_count) << "\n";
+        ss << "Avg energy: " << std::fixed << std::setprecision(2) << (total_energy / neuron_count) << "\n";
+        ss << "\nOrbit distribution:\n";
+        ss << "Orbit 4 (elite): " << orbit_counts[4] << "\n";
+        ss << "Orbit 3: " << orbit_counts[3] << "\n";
+        ss << "Orbit 2: " << orbit_counts[2] << "\n";
+        ss << "Orbit 1: " << orbit_counts[1] << "\n";
+        ss << "Orbit 0: " << orbit_counts[0] << "\n";
+        
+        // Добавляем проценты
+        if (neuron_count > 0) {
+            ss << "\nPercentages:\n";
+            ss << "Orbit 4: " << std::fixed << std::setprecision(1) << (orbit_counts[4] * 100.0 / neuron_count) << "%\n";
+            ss << "Orbit 3: " << (orbit_counts[3] * 100.0 / neuron_count) << "%\n";
+            ss << "Orbit 2: " << (orbit_counts[2] * 100.0 / neuron_count) << "%\n";
+            ss << "Orbit 1: " << (orbit_counts[1] * 100.0 / neuron_count) << "%\n";
+            ss << "Orbit 0: " << (orbit_counts[0] * 100.0 / neuron_count) << "%\n";
         }
         
-        float zone_radii[] = {
-            (orbital_radius - orbital_width/2),
-            orbital_radius,
-            (orbital_radius + orbital_width/2)
-        };
-        
-        if (!orbitalZones.empty()) {
-            for (int i = 0; i < 3 && i < orbitalZones.size(); ++i) {
-                orbitalZones[i].setRadius(zone_radii[i]);
-                orbitalZones[i].setOrigin(sf::Vector2f(zone_radii[i], zone_radii[i]));
-                orbitalZones[i].setPosition(sf::Vector2f(centerX + config.pan_x, centerY + config.pan_y));
-            }
+        sf::Text text(font);
+        text.setFont(font);
+        text.setString(ss.str());
+        text.setCharacterSize(14);
+        text.setFillColor(sf::Color::White);
+        text.setPosition(sf::Vector2f(width - 300, 10));
+        window.draw(text);
+    }
+    
+    
+    sf::Color getOrbitColor(int level, float intensity) {
+        switch(level) {
+            case 0: return sf::Color(100, 100, 100, 255);  // сингулярность - серый
+            case 1: return sf::Color(100, 150, 255, 255);  // внутренняя - голубой
+            case 2: return sf::Color(100, 255, 100, 255);  // базовая - зеленый
+            case 3: return sf::Color(255, 200, 100, 255);  // средняя - оранжевый
+            case 4: return sf::Color(255, 100, 100, 255);  // внешняя - красный
+            default: return sf::Color(255, 255, 255, 255);
         }
-        
-        singularity.setPosition(sf::Vector2f(centerX + config.pan_x, centerY + config.pan_y));
+    }
+
+    sf::Color getEnergyColor(double energy, double maxEnergy = 10.0) {
+    float t = static_cast<float>(std::min(energy / maxEnergy, 1.0));
+    // От синего (низкая энергия) к красному (высокая)
+    return sf::Color(
+        static_cast<std::uint8_t>(t * 255),
+        static_cast<std::uint8_t>((1.0f - std::abs(t - 0.5f) * 2) * 255),
+        static_cast<std::uint8_t>((1.0f - t) * 255)
+        );
     }
     
     void drawConnections3D(sf::RenderWindow& window, const NeuralFieldSystem& system,
@@ -459,14 +565,7 @@ private:
     double minActivity = 0.0;
     double maxActivity = 1.0;
     
-    float orbital_radius = 50.0f;
-    float orbital_width = 30.0f;
-    
     std::vector<std::vector<sf::CircleShape>> neurons;
-    std::vector<sf::CircleShape> orbits;
-    std::vector<sf::CircleShape> orbitalZones;
+    std::vector<sf::CircleShape> orbitSpheres;  // 5 орбитальных сфер
     sf::CircleShape singularity;
-    
-    std::vector<float> groupOrbitAngles;
-    std::vector<float> groupOrbitRadii;
 };

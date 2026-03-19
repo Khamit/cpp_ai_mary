@@ -5,6 +5,7 @@
 #include <numeric>  // для std::accumulate
 #include <thread>
 #include "core/MemoryManager.hpp"
+#include <set>
 
 EffectiveLearning::EffectiveLearning(NeuralFieldSystem& ns, LanguageModule& lang, 
                                     SemanticManager& sm, MemoryManager& mem,
@@ -28,6 +29,113 @@ EffectiveLearning::EffectiveLearning(NeuralFieldSystem& ns, LanguageModule& lang
     loadMeaningCurriculum();
     std::cout << "EffectiveLearning (semantic) initialized" << std::endl;
 }
+
+
+// ============================================================================
+// ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ИЗМЕРЕНИЯ
+// ============================================================================
+
+float EffectiveLearning::measureActivationForConcept(uint32_t concept_id) {
+    auto& groups = neural_system.getGroups();
+    auto node = semantic_graph.getNode(concept_id);
+    if (!node) return 0.0f;
+    
+    float total_activation = 0.0f;
+    float max_possible = 0.0f;
+    
+    // Проходим по всем семантическим группам (16-21)
+    for (int g = 16; g <= 21; g++) {
+        const auto& phi = groups[g].getPhi();
+        
+        for (int i = 0; i < 32; i++) {
+            // Сигнатура определяет, насколько этот нейрон относится к концепту
+            float affinity = node->signature[i + (g-16)*32];
+            float activation = phi[i];
+            
+            total_activation += activation * affinity;
+            max_possible += affinity;  // максимальная возможная активация
+        }
+    }
+    
+    return max_possible > 0 ? total_activation / max_possible : 0.0f;
+}
+
+float EffectiveLearning::measureContextualUsage(uint32_t concept_id) {
+    auto node = semantic_graph.getNode(concept_id);
+    if (!node || node->usage_contexts.empty()) return 0.5f;  // нейтрально
+    
+    float score = 0.0f;
+    int contexts_tested = 0;
+    
+    // Проверяем каждый контекст использования
+    for (const auto& context : node->usage_contexts) {
+        // Получаем релевантные узлы для этого контекста
+        auto relevant = semantic_graph.getRelevantNodes(context, 10);
+        
+        // Проверяем, входит ли наш концепт в релевантные
+        bool is_relevant = false;
+        for (uint32_t rel_id : relevant) {
+            if (rel_id == concept_id) {
+                is_relevant = true;
+                break;
+            }
+        }
+        
+        if (is_relevant) {
+            // Измеряем активацию в контексте
+            float context_activation = 0.0f;
+            for (uint32_t rel_id : relevant) {
+                context_activation += measureActivationForConcept(rel_id);
+            }
+            context_activation /= relevant.size();
+            
+            score += context_activation;
+            contexts_tested++;
+        }
+    }
+    
+    return contexts_tested > 0 ? score / contexts_tested : 0.5f;
+}
+
+float EffectiveLearning::getNeuronAffinityToConcept(int group_idx, int neuron_idx, uint32_t concept_id) {
+    auto node = semantic_graph.getNode(concept_id);
+    if (!node) return 0.0f;
+    
+    // Индекс в сигнатуре
+    int sig_idx = neuron_idx + (group_idx - 16) * 32;
+    if (sig_idx >= 0 && sig_idx < 192) {  // 6 групп * 32 нейрона = 192
+        return node->signature[sig_idx];
+    }
+    
+    return 0.0f;
+}
+
+uint32_t EffectiveLearning::findMostAbstractConceptForNeuron(int group_idx, int neuron_idx) {
+    float best_affinity = 0.3f;  // минимальный порог
+    uint32_t best_concept = 0;
+    
+    // Ищем среди абстрактных концептов (уровень 6-10)
+    auto abstract_concepts = semantic_graph.getNodesByAbstraction(6, 10);
+    
+    for (uint32_t concept_id : abstract_concepts) {
+        float affinity = getNeuronAffinityToConcept(group_idx, neuron_idx, concept_id);
+        
+        // Учитываем также текущую активацию
+        float activation = measureActivationForConcept(concept_id);
+        
+        // Комбинированная метрика
+        float combined = affinity * (0.7f + 0.3f * activation);
+        
+        if (combined > best_affinity) {
+            best_affinity = combined;
+            best_concept = concept_id;
+        }
+    }
+    
+    return best_concept;
+}
+
+// =========== МЕТОДЫ ОБУЧЕНИЯ
 
 void EffectiveLearning::loadMeaningCurriculum() {
     std::cout << "Loading semantic curriculum from graph..." << std::endl;
@@ -349,15 +457,85 @@ void EffectiveLearning::trainAbstractionLevel(int min_abs, int max_abs, int step
     
     if (level_examples.empty()) return;
     
-    for (int i = 0; i < steps && training_active_; i++) {
-        int idx = rng_() % level_examples.size(); // = 0 
-        trainOnExampleAdvanced(level_examples[idx], true);
+    auto& groups = neural_system.getGroups();
+    
+    // Проверяем готовность элитных нейронов к абстракциям
+    float elite_readiness = 0.0f;
+    int elite_count = 0;
+    
+    for (int g = 16; g <= 21 && g < groups.size(); g++) {
+        for (int i = 0; i < 32; i++) {
+            if (groups[g].getOrbitLevel(i) >= 3) {
+                elite_count++;
+                float stability = groups[g].getLocalStability(i);
+                elite_readiness += stability;
+            }
+        }
+    }
+    
+    if (elite_count > 0) {
+        elite_readiness /= elite_count;
+    } else {
+        elite_readiness = 0.3f;  // мало элиты
+    }
+    
+    // Если элита не готова, учим проще
+    int actual_steps = steps;
+    if (elite_readiness < 0.5f && min_abs > 5) {
+        std::cout << "  Elite neurons not ready (" << std::fixed << std::setprecision(2)
+                  << elite_readiness << "), simplifying curriculum\n";
+        actual_steps = steps / 2;
+    }
+    
+    for (int i = 0; i < actual_steps && training_active_; i++) {
+        int idx = rng_() % level_examples.size();
         
-        if (i % 100 == 0) {
-            std::cout << "\r  Progress: " << (i * 100 / steps) << "%" << std::flush;
+        // Для абстрактных концептов используем больше шагов мышления
+        const auto& example = level_examples[idx];
+        
+        trainOnExampleAdvanced(example, true);
+        
+        if (i % 50 == 0) {
+            std::cout << "\r  Abstraction " << min_abs << "-" << max_abs 
+                      << " progress: " << (i * 100 / actual_steps) << "%" 
+                      << " (elite readiness: " << std::fixed << std::setprecision(2)
+                      << elite_readiness << ")" << std::flush;
         }
     }
     std::cout << std::endl;
+}
+
+float EffectiveLearning::getNeuronEnergy(int group_idx, int neuron_idx) {
+    auto& groups = neural_system.getGroups();
+    if (group_idx < 0 || group_idx >= groups.size()) return 0.0f;
+    
+    return groups[group_idx].getNeuronEnergy(neuron_idx);
+}
+
+void EffectiveLearning::adaptLearningRateByOrbits() {
+    auto& groups = neural_system.getGroups();
+    
+    // Считаем "стабильность" системы (доля нейронов на высоких орбитах)
+    int stable_neurons = 0;
+    int total = 0;
+    for (int g = 16; g <= 21; g++) {
+        for (int i = 0; i < 32; i++) {
+            if (groups[g].getOrbitLevel(i) >= 2) {
+                stable_neurons++;
+            }
+            total++;
+        }
+    }
+    
+    float stability = static_cast<float>(stable_neurons) / total;
+    
+    // Чем стабильнее система, тем выше скорость обучения
+    // (можно учить новому, не боясь все сломать)
+    if (stability > 0.7f && current_learning_rate_ < 0.05f) {
+        current_learning_rate_ *= 1.1f;
+    } else if (stability < 0.3f && current_learning_rate_ > 0.01f) {
+        current_learning_rate_ *= 0.9f;  // осторожнее в хаосе
+    }
 }
 
 // НОВЫЙ МЕТОД: улучшенное обучение на одном примере
@@ -659,7 +837,7 @@ void EffectiveLearning::trainOnExampleAdvanced(const MeaningTrainingExample& exa
         }
         
         if (activation_score > success_threshold) {
-            reward = 2.0f;
+            reward = 2.0f; // TODO: вычислять по орбите calculateOrbitalReward
             is_success = true;
             word_success_count_[input_word]++;
             word_fail_count_[input_word] = 0;
@@ -772,6 +950,7 @@ void EffectiveLearning::trainOnExampleAdvanced(const MeaningTrainingExample& exa
         
         // Каждые 500 шагов сбрасываем цикл
         if (total_steps_ % 500 == 0) {
+            logOrbitalDistribution();
             force_cycle_mode_ = false;
             recent_concepts_.clear();
             std::cout << "Resetting cycle mode" << std::endl;
@@ -782,6 +961,320 @@ void EffectiveLearning::trainOnExampleAdvanced(const MeaningTrainingExample& exa
     }
 
     is_processing_ = false;
+}
+
+void EffectiveLearning::specializeNeuronsByAbstraction() {
+    auto& groups = neural_system.getGroups();
+    
+    std::cout << "\n=== SPECIALIZING NEURONS BY ABSTRACTION ===\n";
+    
+    int specialized_count = 0;
+    
+    // Очищаем карты специализации
+    neuron_specialization.clear();
+    concept_neurons.clear();
+    
+    // Элитные нейроны (орбита 3-4) специализируются на абстрактных концептах
+    for (int g = 16; g <= 21; g++) {
+        for (int i = 0; i < 32; i++) {
+            int orbit = groups[g].getOrbitLevel(i);
+            
+            if (orbit >= 3) {  // элитные нейроны
+                // Находим подходящий абстрактный концепт
+                uint32_t best_concept = findMostAbstractConceptForNeuron(g, i);
+                
+                if (best_concept > 0) {
+                    auto key = std::make_pair(g, i);
+                    neuron_specialization[key] = best_concept;
+                    concept_neurons[best_concept].push_back({g, i});
+                    specialized_count++;
+                    
+                    auto node = semantic_graph.getNode(best_concept);
+                    if (node) {
+                        std::cout << "  Neuron (" << g << "," << i << ") orbit " << orbit 
+                                  << " specialized for '" << node->name 
+                                  << "' (abstraction " << node->abstraction_level << ")\n";
+                    }
+                }
+            }
+        }
+    }
+    
+    std::cout << "  Specialized " << specialized_count << " elite neurons\n";
+    
+    // Теперь усиливаем связи между специализированными нейронами
+    for (const auto& [concept_id, neurons] : concept_neurons) {
+        if (neurons.size() >= 2) {
+            // Укрепляем связи между нейронами, специализированными на одном концепте
+            for (size_t a = 0; a < neurons.size(); a++) {
+                for (size_t b = a + 1; b < neurons.size(); b++) {
+                    auto [g1, i1] = neurons[a];
+                    auto [g2, i2] = neurons[b];
+                    
+                    // Укрепляем внутригрупповые и межгрупповые связи
+                    if (g1 == g2) {
+                        // Внутри одной группы - через веса
+                        // (нужен доступ к W_intra, но это сложно)
+                    } else {
+                        // Между разными группами - через interWeights
+                        neural_system.strengthenInterConnection(g1, g2, 0.05f);
+                    }
+                }
+            }
+        }
+    }
+}
+
+void EffectiveLearning::analyzeWeaknesses() {
+    std::map<std::string, float> category_accuracy;
+    std::map<std::string, int> category_count;
+    
+    std::map<int, float> abstraction_accuracy;
+    std::map<int, int> abstraction_count;
+    
+    std::map<EmotionalTone, float> emotion_accuracy;
+    std::map<EmotionalTone, int> emotion_count;
+    
+    // Анализируем все концепты в графе
+    for (uint32_t id = 1; id <= 614; id++) {
+        auto node = semantic_graph.getNode(id);
+        if (!node) continue;
+        
+        float mastery = getConceptMastery(id);
+        
+        if (mastery < 0.4f) {  // слабые места (порог понижен до 0.4)
+            // По категориям
+            category_accuracy[node->primary_category] += mastery;
+            category_count[node->primary_category]++;
+            
+            // По уровню абстракции
+            abstraction_accuracy[node->abstraction_level] += mastery;
+            abstraction_count[node->abstraction_level]++;
+            
+            // По эмоциональной окраске
+            emotion_accuracy[node->emotional_tone] += mastery;
+            emotion_count[node->emotional_tone]++;
+        }
+    }
+    
+    // Вывод статистики
+    std::cout << "\n=== WEAKNESSES ANALYSIS ===\n";
+    
+    std::cout << "\nWeak categories:\n";
+    for (const auto& [cat, total] : category_accuracy) {
+        if (category_count[cat] > 0) {
+            float avg = total / category_count[cat];
+            std::cout << "  " << cat << ": " << std::fixed << std::setprecision(1) 
+                      << (avg * 100) << "% (" << category_count[cat] << " concepts)\n";
+        }
+    }
+    
+    std::cout << "\nWeak abstraction levels:\n";
+    for (int level = 1; level <= 10; level++) {
+        if (abstraction_count[level] > 0) {
+            float avg = abstraction_accuracy[level] / abstraction_count[level];
+            std::cout << "  Level " << level << ": " << std::fixed << std::setprecision(1) 
+                      << (avg * 100) << "%\n";
+        }
+    }
+    
+    // Фокусируем обучение на слабых местах
+    int focus_level = -1;
+    float min_mastery = 1.0f;
+    
+    for (int level = 1; level <= 10; level++) {
+        if (abstraction_count[level] > 0) {
+            float avg = abstraction_accuracy[level] / abstraction_count[level];
+            if (avg < min_mastery) {
+                min_mastery = avg;
+                focus_level = level;
+            }
+        }
+    }
+    
+    if (focus_level >= 1 && min_mastery < 0.3f) {
+        std::cout << "\n🎯 FOCUSING ON ABSTRACTION LEVEL " << focus_level 
+                  << " (mastery " << (min_mastery * 100) << "%)\n";
+        
+        // Обучаем на этом уровне с повышенным приоритетом
+        trainAbstractionLevel(focus_level, focus_level, 500);
+    }
+    
+    // Проверяем эмоциональные слабости
+    for (const auto& [tone, total] : emotion_accuracy) {
+        if (emotion_count[tone] > 0) {
+            float avg = total / emotion_count[tone];
+            if (avg < 0.25f && tone != EmotionalTone::NEUTRAL) {
+                std::cout << "🎯 Weak on " << emotionalToneToString(tone) 
+                          << " concepts (" << (avg * 100) << "%)\n";
+                
+                // Собираем примеры с этой эмоцией
+                auto emotion_nodes = semantic_graph.getNodesByEmotion(tone);
+                for (uint32_t nid : emotion_nodes) {
+                    // Находим пример в replay_buffer
+                    for (const auto& ex : replay_buffer_) {
+                        for (uint32_t mid : ex.expected_meanings) {
+                            if (mid == nid) {
+                                trainOnExampleAdvanced(ex, false);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+void EffectiveLearning::trainRelation(uint32_t from_id, uint32_t to_id, 
+                                      SemanticEdge::Type relation) {
+    auto& groups = neural_system.getGroups();
+    
+    // Сохраняем состояние ДО
+    std::vector<float> before_activation;
+    for (int g = 16; g <= 21; g++) {
+        before_activation.push_back(groups[g].getAverageActivity());
+    }
+    
+    // Активируем первый концепт (причина)
+    activateMeaning(from_id, 1.0f);
+    
+    // Даем время на распространение через reentry
+    for (int i = 0; i < 10; i++) {  // увеличили до 10 шагов
+        neural_system.step(0.0f, total_steps_ + i);
+    }
+    
+    // Измеряем активацию второго концепта (следствие)
+    float to_activation = measureActivationForConcept(to_id);
+    
+    // Ожидаемая сила связи в зависимости от типа
+    float expected_strength = 0.0f;
+    switch(relation) {
+        case SemanticEdge::Type::IS_A: 
+        case SemanticEdge::Type::IS_A_KIND_OF: 
+            expected_strength = 0.9f; break;
+            
+        case SemanticEdge::Type::CAUSES: 
+        case SemanticEdge::Type::LEADS_TO: 
+            expected_strength = 0.8f; break;
+            
+        case SemanticEdge::Type::PART_OF: 
+        case SemanticEdge::Type::HAS_PART: 
+            expected_strength = 0.7f; break;
+            
+        case SemanticEdge::Type::SIMILAR_TO: 
+        case SemanticEdge::Type::RELATED_TO: 
+            expected_strength = 0.6f; break;
+            
+        case SemanticEdge::Type::OPPOSITE_OF: 
+        case SemanticEdge::Type::CONTRADICTS: 
+            expected_strength = 0.2f; break;  // должны быть противоположны
+            
+        default: 
+            expected_strength = 0.5f;
+    }
+    
+    // Награда: чем ближе к ожиданию, тем лучше
+    float error = std::abs(to_activation - expected_strength);
+    float reward = 1.0f - error;
+    
+    // Если связь противоположная, награда за МАЛУЮ активацию
+    if (relation == SemanticEdge::Type::OPPOSITE_OF) {
+        reward = 1.0f - to_activation;  // хорошо, если to_activation мала
+    }
+    
+    // Укрепляем связь между группами, используя сигнатуры
+    auto node_from = semantic_graph.getNode(from_id);
+    auto node_to = semantic_graph.getNode(to_id);
+    
+    if (node_from && node_to) {
+        for (int g_from = 16; g_from <= 21; g_from++) {
+            for (int g_to = 16; g_to <= 21; g_to++) {
+                // Сила связи между группами зависит от сигнатур
+                float connection_strength = 0.0f;
+                for (int i = 0; i < 32; i++) {
+                    float sig_from = node_from->signature[i + (g_from-16)*32];
+                    float sig_to = node_to->signature[i + (g_to-16)*32];
+                    connection_strength += sig_from * sig_to;
+                }
+                
+                if (connection_strength > 0.1f) {
+                    neural_system.strengthenInterConnection(
+                        g_from, g_to, 
+                        reward * 0.02f * connection_strength
+                    );
+                }
+            }
+        }
+    }
+    
+    // Награждаем все семантические группы
+    for (int g = 16; g <= 21; g++) {
+        groups[g].learnSTDP(reward, total_steps_);
+    }
+    
+    total_steps_ += 10;
+}
+
+float EffectiveLearning::evaluateConceptMastery(uint32_t concept_id) {
+    // 1. Прямая активация (измеряем, насколько сильно активируется концепт)
+    float direct = measureActivationForConcept(concept_id);
+    
+    // 2. Дискриминация (отличие от похожих концептов)
+    auto similar = semantic_graph.getSimilarConcepts(concept_id, 5);
+    float discrimination = 1.0f;
+    int similar_count = 0;
+    
+    for (uint32_t sim_id : similar) {
+        if (sim_id == concept_id) continue;
+        
+        float sim_activation = measureActivationForConcept(sim_id);
+        
+        // Если похожий концепт активируется почти так же сильно - плохо
+        float diff = std::abs(direct - sim_activation);
+        discrimination *= (1.0f + diff);  // чем больше разница, тем лучше
+        
+        similar_count++;
+    }
+    
+    // Нормализуем дискриминацию
+    if (similar_count > 0) {
+        discrimination = std::pow(discrimination, 1.0f / similar_count);
+        discrimination = std::clamp(discrimination, 0.5f, 1.5f);
+    } else {
+        discrimination = 1.0f;
+    }
+    
+    // 3. Орбитальная стабильность (концепт закреплен на элитных нейронах?)
+    float orbital_stability = 0.0f;
+    auto& groups = neural_system.getGroups();
+    int elite_count = 0;
+    
+    for (int g = 16; g <= 21; g++) {
+        for (int i = 0; i < 32; i++) {
+            if (groups[g].getOrbitLevel(i) >= 3) {
+                float affinity = getNeuronAffinityToConcept(g, i, concept_id);
+                if (affinity > 0.3f) {
+                    orbital_stability += affinity;
+                    elite_count++;
+                }
+            }
+        }
+    }
+    
+    float elite_factor = elite_count > 0 ? 
+                         std::min(1.0f, orbital_stability / elite_count) : 0.5f;
+    
+    // 4. Контекстное использование
+    float contextual = measureContextualUsage(concept_id);
+    
+    // ИТОГОВАЯ ФОРМУЛА с орбитальным усилением
+    float mastery = (direct * 0.3f + 
+                     (discrimination - 0.5f) * 0.2f + 
+                     contextual * 0.2f + 
+                     elite_factor * 0.3f);
+    
+    return std::clamp(mastery, 0.0f, 1.0f);
 }
 
 void EffectiveLearning::forceLearnAllConcepts() {
@@ -825,29 +1318,52 @@ void EffectiveLearning::forceLearnAllConcepts() {
     std::cout << "\nForced learning complete. Learned " << learned << " concepts." << std::endl;
 }
 
-float EffectiveLearning::getConceptMastery(uint32_t concept_id) {
-
+float EffectiveLearning::calculateOrbitalReward(uint32_t concept_id, float activation_score) {
     auto& groups = neural_system.getGroups();
-    int group_idx = 16 + (concept_id % 6);  // concept_id % 6 может быть 0-5, значит group_idx 16-21
-    if (group_idx > 21 || group_idx >= groups.size()) {  // ДОБАВИТЬ ПРОВЕРКУ
-        return 0.0f;
+    int group_idx = 16 + (concept_id % 6);
+    if (group_idx >= groups.size()) return 2.0f;  // базовое значение
+    
+    const auto& group = groups[group_idx];
+    
+    // Средний орбитальный уровень для этого концепта
+    float avg_orbit = 0.0f;
+    for (int i = 0; i < 32; i++) {
+        avg_orbit += group.getOrbitLevel(i);
     }
+    avg_orbit /= 32.0f;
+    
+    // Базовый успех
+    float base_reward = 2.0f;
+    
+    // Бонус за высокие орбиты (элитные концепты)
+    float orbit_bonus = 1.0f + avg_orbit * 0.25f;  // 1.0 - 2.0
+    
+    return base_reward * orbit_bonus;
+}
+
+float EffectiveLearning::getConceptMastery(uint32_t concept_id) {
+    auto& groups = neural_system.getGroups();
+    int group_idx = 16 + (concept_id % 6);
+    if (group_idx >= groups.size()) return 0.0f;
+    
+    const auto& group = groups[group_idx];
+    const auto& positions = group.getPositions();  // НОВЫЙ МЕТОД
     
     float activation = 0.0f;
-    const auto& phi = groups[group_idx].getPhi();
+    float max_possible = 0.0f;
     
-    // Проверяем на nan/inf
-    bool has_valid = false;
     for (int i = 0; i < 32; i++) {
-        if (std::isfinite(phi[i])) {
-            activation += phi[i];
-            has_valid = true;
-        }
+        double r = positions[i].norm();
+        activation += r;
+        
+        // Максимальная активность зависит от орбиты
+        int orbit = group.getOrbitLevel(i);
+        
+        // ИСПРАВЛЕНИЕ: вызываем метод через объект group
+        max_possible += group.getOrbitRadius(orbit);  // <--- ИЗМЕНЕНО: group.getOrbitRadius(orbit)
     }
     
-    if (!has_valid) return 0.5f;  // если все nan, возвращаем среднее
-    
-    return std::min(1.0f, activation / 32.0f);
+    return activation / max_possible;  // нормализуем по максимуму
 }
 
 // НОВЫЙ МЕТОД: вычисление приоритета для replay buffer
@@ -926,14 +1442,34 @@ void EffectiveLearning::activateMeaning(uint32_t meaning_id, float strength) {
     if (!node) return;
     
     auto& groups = neural_system.getGroups();
-    // тоже эвристическое распределение.
-    int group_idx = meaning_id % 32;
     
-    if (group_idx < groups.size()) {
-        auto& phi = groups[group_idx].getPhiNonConst();
+    // НОРМАЛИЗУЕМ СИГНАТУРУ, чтобы сумма была 1.0
+    float sig_sum = 0.0f;
+    for (int g = 16; g <= 21; g++) {
         for (int i = 0; i < 32; i++) {
-            phi[i] += strength * 0.1f * node->signature[i];
-            phi[i] = std::clamp<double>(phi[i], 0.0, 1.0);  // явно указываем тип double
+            sig_sum += node->signature[i + (g-16)*32];
+        }
+    }
+    
+    if (sig_sum < 0.001f) return;  // защита от деления на ноль
+    
+    // Распределяем активацию по ВСЕМ группам на основе нормализованной сигнатуры
+    for (int g = 16; g <= 21; g++) {
+        auto& phi = groups[g].getPhiNonConst();
+        
+        for (int i = 0; i < 32; i++) {
+            float normalized_sig = node->signature[i + (g-16)*32] / sig_sum;
+            
+            // Элитные нейроны (высокие орбиты) получают БОЛЬШЕ активации
+            float orbit_multiplier = 1.0f;
+            if (groups[g].getOrbitLevel(i) >= 3) {
+                orbit_multiplier = 2.0f;  // элита в 2 раза чувствительнее
+            } else if (groups[g].getOrbitLevel(i) <= 1) {
+                orbit_multiplier = 0.5f;  // молодые нейроны слабее реагируют
+            }
+            
+            phi[i] += strength * 0.2f * normalized_sig * orbit_multiplier;
+            phi[i] = std::clamp(phi[i], 0.0, 1.0);
         }
     }
 }
@@ -1553,4 +2089,35 @@ std::map<uint32_t, float> EffectiveLearning::getAllConceptsMastery() {
     }
     
     return result;
+}
+
+void EffectiveLearning::logOrbitalDistribution() {
+    auto& groups = neural_system.getGroups();
+    
+    std::cout << "\nORBITAL DISTRIBUTION BY GROUP:\n";
+    for (int g = 16; g <= 21; g++) {
+        std::vector<int> counts(5, 0);
+        for (int i = 0; i < 32; i++) {
+            counts[groups[g].getOrbitLevel(i)]++;
+        }
+        std::cout << "  Group " << g << ": ";
+        for (int lvl = 0; lvl < 5; lvl++) {
+            std::cout << "L" << lvl << ":" << counts[lvl] << " ";
+        }
+        std::cout << std::endl;
+    }
+    
+    // Общая статистика
+    std::vector<int> total(5, 0);
+    for (int g = 16; g <= 21; g++) {
+        for (int i = 0; i < 32; i++) {
+            total[groups[g].getOrbitLevel(i)]++;
+        }
+    }
+    
+    std::cout << "  TOTAL: ";
+    for (int lvl = 0; lvl < 5; lvl++) {
+        std::cout << "L" << lvl << ":" << total[lvl] << " ";
+    }
+    std::cout << std::endl;
 }

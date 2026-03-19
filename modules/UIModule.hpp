@@ -81,12 +81,13 @@ public:
     void toggleInterConnections();
     void toggleIntraConnections();
     void toggleNeurons();
-    // Добавьте в public секцию:
+    // 3D управление:
     void toggleAutoRotate();
     void resetView();
     void handleRotate(float delta);
     void handleTilt(float delta);
-
+    // chat
+    void toggleChat();
 
 private:
     // Добавить поле
@@ -158,4 +159,9 @@ private:
     UnifiedStatsCollector* stats_collector = nullptr;
     int current_display_mode = 0; // 0=все, 1=neural, 2=evolution, 3=language, 4=memory
     sf::Text modeText;
+
+    // кнопка чата
+    bool chat_visible = true;  // флаг видимости чата
+    sf::RectangleShape toggleChatButton;  // кнопка для переключения
+    sf::Text toggleChatText;  // текст на кнопке
 };

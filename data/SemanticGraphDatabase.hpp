@@ -14,8 +14,9 @@
 #include <filesystem>
 #include <iomanip>
 #include <algorithm>
-#include "modules/lang/EffectiveLearning.hpp"
 #include "MeaningTrainingExample_fwd.hpp"
+
+class EffectiveLearning; 
 
 // Перечисление для эмоциональной окраски
 enum class EmotionalTone {
@@ -1287,6 +1288,33 @@ public:
         }
         
         return result;
+    }
+
+        // НОВЫЙ МЕТОД: получить похожие концепты
+    std::vector<uint32_t> getSimilarConcepts(uint32_t concept_id, int max_count = 5) {
+        std::vector<uint32_t> similar;
+        auto edges = getEdgesFrom(concept_id);
+        
+        // Сортируем по весу и типу связи
+        std::vector<std::pair<uint32_t, float>> candidates;
+        
+        for (const auto& edge : edges) {
+            if (edge.type == SemanticEdge::Type::SIMILAR_TO || 
+                edge.type == SemanticEdge::Type::IS_A ||
+                edge.type == SemanticEdge::Type::RELATED_TO) {
+                candidates.push_back({edge.to_id, edge.weight * edge.trust_level});
+            }
+        }
+        
+        // Сортируем по убыванию веса
+        std::sort(candidates.begin(), candidates.end(),
+                 [](const auto& a, const auto& b) { return a.second > b.second; });
+        
+        for (size_t i = 0; i < std::min(size_t(max_count), candidates.size()); i++) {
+            similar.push_back(candidates[i].first);
+        }
+        
+        return similar;
     }
     
 private:

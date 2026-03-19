@@ -39,7 +39,8 @@ UIModule::UIModule(const UIConfig& config, int windowWidth, int windowHeight)
       stopLearnText(font),
       modeText(font),
       stats_collector(nullptr),  // инициализируем nullptr
-      current_display_mode(0)
+      current_display_mode(0),
+      toggleChatText(font)
 {
     // Загрузка шрифта
     if (!font.openFromFile("SF-Pro-Display-Regular.otf")) {
@@ -219,6 +220,49 @@ UIModule::UIModule(const UIConfig& config, int windowWidth, int windowHeight)
     modeText.setCharacterSize(12);
     modeText.setFillColor(TEXT_INFO);
     modeText.setPosition(sf::Vector2f(startX, 300.0f)); // под статистикой
+
+    // Кнопка переключения чата
+    float toggleButtonX = 10.0f;  // слева, над чатом
+    float toggleButtonY = chatY - 30.0f;  // прямо над чатом
+
+    toggleChatButton.setSize(sf::Vector2f(100.0f, 25.0f));
+    toggleChatButton.setPosition(sf::Vector2f(toggleButtonX, toggleButtonY));
+    toggleChatButton.setFillColor(sf::Color(70, 70, 90));
+    toggleChatButton.setOutlineColor(sf::Color(100, 100, 150));
+    toggleChatButton.setOutlineThickness(1.0f);
+
+    toggleChatText.setFont(font);
+    toggleChatText.setString("▼ Hide Chat");  // изначально чат виден
+    toggleChatText.setCharacterSize(12);
+    toggleChatText.setFillColor(TEXT_MAIN);
+
+    // Центрируем текст на кнопке
+    sf::FloatRect textBounds = toggleChatText.getLocalBounds();
+    toggleChatText.setPosition(sf::Vector2f(
+        toggleButtonX + (100.0f - textBounds.size.x) / 2.0f,
+        toggleButtonY + (25.0f - textBounds.size.y) / 2.0f - 2.0f
+        )
+    );
+}
+
+void UIModule::toggleChat() {
+    chat_visible = !chat_visible;
+    
+    if (chat_visible) {
+        toggleChatText.setString("▼ Hide Chat");
+        std::cout << "Chat shown" << std::endl;
+    } else {
+        toggleChatText.setString("▶ Show Chat");
+        std::cout << "Chat hidden" << std::endl;
+    }
+    
+    // Центрируем текст заново после изменения
+    sf::FloatRect textBounds = toggleChatText.getLocalBounds();
+    sf::Vector2f btnPos = toggleChatButton.getPosition();
+    toggleChatText.setPosition(sf::Vector2f(
+        btnPos.x + (100.0f - textBounds.size.x) / 2.0f,
+        btnPos.y + (25.0f - textBounds.size.y) / 2.0f - 2.0f)
+    );
 }
 
 // modules/UIModule.cpp - исправьте метод handleEvents
@@ -318,8 +362,14 @@ void UIModule::handleMouseClick(const sf::Event::MouseButtonPressed& event, Neur
         static_cast<float>(event.position.y)
     };
     
-    // Проверяем кнопку Send
-    if (sendButton.getGlobalBounds().contains(mousePos)) {
+    // ===== НОВОЕ: Проверка клика по кнопке переключения чата =====
+    if (toggleChatButton.getGlobalBounds().contains(mousePos)) {
+        toggleChat();
+        return;
+    }
+    
+    // Проверяем кнопку Send (только если чат виден)
+    if (chat_visible && sendButton.getGlobalBounds().contains(mousePos)) {
         sendMessage();
         std::cout << "Send button clicked" << std::endl;
         return;
@@ -523,6 +573,12 @@ void UIModule::draw(sf::RenderWindow& window, const NeuralFieldSystem& system,
 
 void UIModule::drawChat(sf::RenderWindow& window)
 {
+    // ===== НОВОЕ: Всегда рисуем кнопку переключения =====
+    window.draw(toggleChatButton);
+    window.draw(toggleChatText);
+    
+    // Если чат скрыт - не рисуем остальное
+    if (!chat_visible) return;
     // --- 1. Рисуем фон панели чата ---
     window.draw(chatPanel);
 

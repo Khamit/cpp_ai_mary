@@ -198,6 +198,38 @@ int main() {
                                visConfig, interConfig, uiConfig,
                               resConfig, evolConfig);
 
+        // СОЗДАЕМ КОНФИГУРАЦИЮ ДЛЯ ПАРАМЕТРОВ
+    Config systemConfig;
+    if (configLoaded) {
+        // Загружаем JSON в Config
+        std::ifstream configFile("config/system_config.json");
+        if (configFile.is_open()) {
+            std::string content((std::istreambuf_iterator<char>(configFile)), 
+                               std::istreambuf_iterator<char>());
+            systemConfig = Config::fromJSON(content);
+        }
+    }
+
+    // ОПРЕДЕЛЯЕМ РЕЖИМ ЗАПУСКА
+    OperatingMode::Type startupMode = systemConfig.getStartupMode();
+    std::cout << "Startup mode: " << OperatingMode::toString(startupMode) << std::endl;
+
+    // ВЫБИРАЕМ ПАРАМЕТРЫ В ЗАВИСИМОСТИ ОТ РЕЖИМА
+    Config::ModeLimits selectedLimits;  // ИСПРАВЛЕНО: используем Config::ModeLimits
+    switch(startupMode) {
+        case OperatingMode::TRAINING:
+            selectedLimits = systemConfig.getTrainingLimits();
+            break;
+        case OperatingMode::NORMAL:
+            selectedLimits = systemConfig.getNormalLimits();
+            break;
+        case OperatingMode::IDLE:
+        case OperatingMode::SLEEP:
+            selectedLimits = systemConfig.getIdleLimits();
+            break;
+    }
+    
+
     // Параметры системы
     double dt = 0.001;
     unsigned int windowWidth = 800;
@@ -301,8 +333,24 @@ int main() {
         // Мастер-ключ уже сгенерирован в MasterKeyManager
         std::cout << "=====================================\n\n";
     }
-    
+
+    // КОНВЕРТИРУЕМ Config::ModeLimits В MassLimits (из NeuralGroup.hpp)
+    MassLimits initialLimits;
+    initialLimits.planck_mass = selectedLimits.planck_mass;
+    initialLimits.schwarzschild_radius_factor = selectedLimits.schwarzschild_radius_factor;
+    initialLimits.max_temperature_mass = selectedLimits.max_temperature_mass;
+    initialLimits.evaporation_rate = selectedLimits.evaporation_rate;
+    initialLimits.info_capacity_factor = selectedLimits.info_capacity_factor;
+    initialLimits.max_entropy_density = selectedLimits.max_entropy_density;
+    initialLimits.binding_energy_factor = selectedLimits.binding_energy_factor;
+    initialLimits.saturation_mass = selectedLimits.saturation_mass;
+
+    // ИНИЦИАЛИЗАЦИЯ НЕЙРОСИСТЕМЫ С ВЫБРАННЫМИ ПАРАМЕТРАМИ
     std::mt19937 rng(std::random_device{}());
+    neuralSystem.initializeWithLimits(rng, initialLimits);
+    
+    // УСТАНАВЛИВАЕМ РЕЖИМ
+    neuralSystem.setTrainingMode(startupMode == OperatingMode::TRAINING);
     neuralSystem.initializePredictiveCoder(memoryManager);
     
     // Создаем остальные модули

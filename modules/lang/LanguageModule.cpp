@@ -2,6 +2,8 @@
 #include "../../core/Config.hpp"
 #include "../../core/MemoryManager.hpp"
 #include "../learning/CuriosityDriver.hpp"
+#include "EffectiveLearning.hpp"
+#include "../../core/AccessLevel.hpp"
 #include <thread>
 #include <numeric>
 #include <iomanip>
@@ -10,6 +12,8 @@
 #include <cctype>
 #include <cmath>
 #include <fstream>
+
+
 
 // Конструктор
 LanguageModule::LanguageModule(NeuralFieldSystem& system, 
@@ -328,9 +332,19 @@ std::vector<uint32_t> LanguageModule::textToMeanings(const std::string& text) {
     }
     std::cout << std::endl;
     
-     // Даем системе ПОДОЛЬШЕ подумать (50 шагов вместо 10)
-    for (int i = 0; i < 50; i++) {
-        neural_system.step(0.0f, i);
+    // ИСПРАВЛЕНИЕ: используем статический счетчик или получаем из системы
+    static int local_step_counter = 0;  // локальный счетчик для мышления
+    
+    // Уменьшить время мышления и добавить мониторинг
+    int think_steps = 10;  // достаточно для распространения сигнала
+    for (int i = 0; i < think_steps; i++) {
+        neural_system.step(0.0f, local_step_counter++);
+        
+        // Проверяем, не схлопнулась ли система
+        if (i > 5 && neural_system.computeSystemEntropy() < 0.1f) {
+            std::cout << "⚠️ System collapse detected, stopping early" << std::endl;
+            break;
+        }
     }
     
     auto result = semantic_manager->extractMeaningsFromSystem();

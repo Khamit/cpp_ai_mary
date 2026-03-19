@@ -66,5 +66,43 @@
         "evolution_interval_steps": 1000,
         "backup_on_improvement": false  ,
         "enable_adaptive_mutations": true
+    },
+    
+    "mode": {
+        "startup": "normal",
+        "training": {
+            "planck_mass": 1.0,
+            "schwarzschild_radius_factor": 2.0,
+            "max_temperature_mass": 4.5,
+            "evaporation_rate": 0.01,
+            "info_capacity_factor": 0.1,
+            "max_entropy_density": 1.0,
+            "binding_energy_factor": 0.3,
+            "saturation_mass": 5.0
+        },
+        "normal": {
+            "planck_mass": 1.0,
+            "schwarzschild_radius_factor": 2.0,
+            "max_temperature_mass": 2.5,
+            "evaporation_rate": 0.005,
+            "info_capacity_factor": 0.1,
+            "max_entropy_density": 1.0,
+            "binding_energy_factor": 0.4,
+            "saturation_mass": 3.0
+        },
+        "idle": {
+            "planck_mass": 1.0,
+            "schwarzschild_radius_factor": 2.0,
+            "max_temperature_mass": 1.5,
+            "evaporation_rate": 0.001,
+            "info_capacity_factor": 0.1,
+            "max_entropy_density": 1.0,
+            "binding_energy_factor": 0.5,
+            "saturation_mass": 2.0
+        }
+    },
+
+    "ui": {
+        "button_pressed": false
     }
 }

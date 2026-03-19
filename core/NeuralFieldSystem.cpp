@@ -1,4 +1,5 @@
 #include "NeuralFieldSystem.hpp"
+#include "DynamicParams.hpp"
 #include <cmath>
 #include <iostream>
 #include <numeric>
@@ -19,43 +20,43 @@ NeuralFieldSystem::NeuralFieldSystem(double dt, EventSystem& events)
     // Группы будут созданы позже в initializeRandom
 }
 
-void NeuralFieldSystem::initializeRandom(std::mt19937& rng) {
+void NeuralFieldSystem::initializeWithLimits(std::mt19937& rng, const MassLimits& limits) {
     groups.clear();
     groups.reserve(NUM_GROUPS);
     for (int g = 0; g < NUM_GROUPS; ++g) {
-        groups.emplace_back(GROUP_SIZE, dt, rng);
+        // Передаем лимиты в конструктор NeuralGroup
+        groups.emplace_back(GROUP_SIZE, dt, rng, limits);
     }
     
-    // Убедиться, что groups.size() == NUM_GROUPS
+    // Проверка размера
     if (groups.size() != NUM_GROUPS) {
         std::cerr << "ERROR: Groups not properly initialized!" << std::endl;
         return;
     }
     
-    // Проверить размер interWeights
+    // Инициализация межгрупповых связей
     interWeights.resize(NUM_GROUPS, std::vector<double>(NUM_GROUPS, 0.0));
     
-    // УСИЛИВАЕМ СВЯЗИ ОТ ГРУППЫ 0 К СЕМАНТИКЕ
+    // Усиливаем связи от группы 0 к семантике
     for (int g = 16; g <= 21; g++) {
-        interWeights[0][g] = 2.0;  // было 0.8, увеличили до 2.0
-        interWeights[g][0] = 0.5;  // обратная связь тоже усилили
+        interWeights[0][g] = 2.0;
+        interWeights[g][0] = 0.5;
     }
-
+    
     // Инициализация межгрупповых связей с геометрической структурой
-    // Используем синусоидальную зависимость от расстояния между группами
     std::uniform_real_distribution<double> dist(-0.01, 0.01);
     for (int i = 0; i < NUM_GROUPS; ++i) {
         for (int j = 0; j < NUM_GROUPS; ++j) {
             if (i != j) {
-                // Геометрический фактор: связь сильнее между близкими группами
                 double angle = 2.0 * M_PI * std::abs(i - j) / NUM_GROUPS;
-                double geometric_factor = std::cos(angle) * 0.5 + 0.5; // от 0 до 1
+                double geometric_factor = std::cos(angle) * 0.5 + 0.5;
                 interWeights[i][j] = dist(rng) * geometric_factor;
             } else {
                 interWeights[i][j] = 0.0;
             }
         }
     }
+    
     flatDirty = true;
 }
 
@@ -131,6 +132,37 @@ double NeuralFieldSystem::computeSystemEntropy() const {
     // Максимальная энтропия при равномерном распределении: log(BINS)
     
     return entropy;  // возвращаем в нат
+}
+
+OperatingMode::Type NeuralFieldSystem::determineOperatingMode() {
+    // Если нет внешних стимулов долгое время
+    static int idle_steps = 0;
+    static int last_activity_step = 0;
+    
+    double avg_activity = 0;
+    for (const auto& group : groups) {
+        avg_activity += group.getAverageActivity();
+    }
+    avg_activity /= groups.size();
+    
+    if (avg_activity < 0.1) {
+        idle_steps++;
+    } else {
+        idle_steps = 0;
+        last_activity_step = stepCounter;
+    }
+    
+    // Если долго без активности - переходим в IDLE
+    if (idle_steps > 10000) {  // ~10 секунд при dt=0.001
+        return OperatingMode::IDLE;
+    }
+    
+    // Если система не обучается и не активна
+    if (external_inputs_.empty() && !training_mode_) {
+        return OperatingMode::NORMAL;
+    }
+    
+    return OperatingMode::TRAINING;
 }
 
 void NeuralFieldSystem::applyReentry(int iterations) {
@@ -210,22 +242,41 @@ void NeuralFieldSystem::maintainCriticality() {
 void NeuralFieldSystem::step(float globalReward, int stepNumber) {
     stepCounter = stepNumber;
     
-    // Сохраняем состояние ДО обновления (для будущего использования)
+    
+    // Определяем режим работы
+    OperatingMode::Type current_mode = determineOperatingMode();
+    
+    // Сохраняем состояние ДО обновления
     std::vector<double> state_before = getFeaturesDouble();
     
     // УРОВЕНЬ 1: каждый шаг
-    for (auto& group : groups) group.evolve();
+    for (auto& group : groups) {
+        group.evolve();
+        
+        // НОВОЕ: поддержание активности в зависимости от режима
+        group.maintainActivity(current_mode);
+    }
     
-    // Поток Риччи каждые 10 шагов
-    if (stepNumber % 10 == 0) {
+    // Поток Риччи реже в обычном режиме
+    int ricci_interval = (current_mode == OperatingMode::TRAINING) ? 10 : 50;
+    if (stepNumber % ricci_interval == 0) {
         applyRicciFlow();
     }
     
-    // Детектор сингулярностей - ТОЛЬКО РЕДКО (например, раз в 100 шагов)
-    if (stepNumber % 100 == 0) {
-        detectAndHandleSingularities();
-    }
+    // Меньше итераций reentry в обычном режиме
+    int reentry_iter = (current_mode == OperatingMode::TRAINING) ? 3 : 1;
+    applyReentry(reentry_iter);
     
+    // В обычном режиме STDP отключено или очень слабое
+    float stdp_factor = (current_mode == OperatingMode::TRAINING) ? 
+                        globalReward : globalReward * 0.1f;
+    
+    for (auto& group : groups) {
+        group.learnSTDP(stdp_factor, stepNumber);
+        group.updateElevationFast(globalReward, group.getAverageActivity());
+    }
+
+    // Детектор сингулярностей больше не нужен - орбитальная модель обрабатывает это автоматически
     
     applyReentry(3);
     
@@ -286,6 +337,11 @@ void NeuralFieldSystem::step(float globalReward, int stepNumber) {
         applyPruningByElevation();
     }
 
+    // НОВОЕ: логирование орбитального здоровья
+    if (stepNumber % 1000 == 0) {
+        logOrbitalHealth();
+    }
+
     // УРОВЕНЬ 3: очень редко (раз в 5000 шагов)
     if (stepNumber % EVOLUTION_INTERVAL == 0) {
         pendingEvolutionRequest_ = true;
@@ -295,11 +351,12 @@ void NeuralFieldSystem::step(float globalReward, int stepNumber) {
 }
 
 void NeuralFieldSystem::applyPruningByElevation() {
-    const float PRUNING_THRESHOLD = -0.3f;
+    const float PRUNING_THRESHOLD = -0.5f;  // повысили порог
     
     for (auto& group : groups) {
         if (group.getElevation() < PRUNING_THRESHOLD) {
-            group.decayAllWeights(0.9f);
+            // Ослабляем, но не обрезаем полностью
+            group.decayAllWeights(0.95f);  // мягче, чем 0.9
         }
     }
 }
@@ -489,165 +546,31 @@ void NeuralFieldSystem::applyRicciFlow() {
     }
 }
 
-void NeuralFieldSystem::performSurgery(NeuralGroup& group, double curvature, double entropy) {
-    auto& phi = group.getPhiNonConst();
-    auto& synapses = group.getSynapses();
+// НОВЫЙ МЕТОД: мониторинг орбитального здоровья системы
+void NeuralFieldSystem::logOrbitalHealth() {
+    if (stepCounter % 1000 != 0) return;  // раз в 1000 шагов
     
-    // 1. Сбрасываем активности с квантовыми флуктуациями
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::normal_distribution<> noise(0.0, 0.05);
+    std::vector<int> orbit_distribution(5, 0);
+    int total_neurons = 0;
     
-    for (size_t i = 0; i < phi.size(); i++) {
-        // Гауссово распределение вокруг 0.5
-        phi[i] = 0.5 + noise(gen);
-        phi[i] = std::clamp(phi[i], 0.0, 1.0);
-    }
-    
-    // 2. Ослабляем слишком сильные связи
-    for (auto& syn : synapses) {
-        if (std::abs(syn.weight) > 0.8) {
-            syn.weight *= 0.5;  // хирургическое уменьшение
+    for (const auto& group : groups) {
+        for (int i = 0; i < GROUP_SIZE; i++) {
+            int level = group.getOrbitLevel(i);
+            orbit_distribution[level]++;
+            total_neurons++;
         }
     }
     
-    // ИСПРАВЛЕНИЕ: Используем новые методы вместо прямого доступа к private полям
-    int group_size = group.getSize();  // используем геттер
-    
-    // 3. Обновляем W_intra из синапсов
-    int idx = 0;
-    for (int i = 0; i < group_size; i++) {
-        for (int j = i + 1; j < group_size; j++) {
-            if (idx < synapses.size()) {
-                // Используем setWeight вместо прямого доступа
-                group.setWeight(i, j, synapses[idx].weight);
-                group.setWeight(j, i, synapses[idx].weight);
-                idx++;
-            }
-        }
-    }
-    
-    // 4. Генерируем событие для системы
-    Event surgery_event;
-    surgery_event.type = EventType::SURGERY_PERFORMED;
-    surgery_event.source = "ricci_flow";
-    surgery_event.value = curvature;
-    surgery_event.step = stepCounter;
-    events.emit(surgery_event);
-}
-
-// singularity
-void NeuralFieldSystem::detectAndHandleSingularities() {
-    const double SINGULARITY_THRESHOLD = 5.0;
-    const double ENTROPY_COLLAPSE = 1.5;  // Порог коллапса энтропии
-    
-    static std::mt19937 rng(std::random_device{}());
-    static int reset_count = 0;
-    static int last_reset_step = 0;
-    
-    // Сбрасываем счетчик каждые 1000 шагов
-    if (stepCounter % 1000 == 0) {
-        reset_count = 0;
-    }
-    
-    for (auto& group : groups) {
-        double curvature = group.scalarCurvature();
-        double entropy = group.computeEntropy();
-        
-        // ПРОВЕРКА 1: NaN или бесконечность
-        if (!std::isfinite(curvature) || !std::isfinite(entropy)) {
-            // Мягкое восстановление - только испорченные нейроны
-            auto& phi = group.getPhiNonConst();
-            auto& pi = group.getPiNonConst();
-            
-            for (int i = 0; i < GROUP_SIZE; i++) {
-                if (!std::isfinite(phi[i])) {
-                    phi[i] = 0.5 + 0.1 * std::sin(i * 0.5);  // Паттерн, а не случайный
-                }
-                if (!std::isfinite(pi[i])) {
-                    pi[i] = 0.0;
-                }
-            }
-            continue;  // Не делаем дополнительных сбросов
-        }
-
-        // ПРОВЕРКА НА НЕДАВНИЙ BURST
-        if (stepCounter - group.getLastBurstStep() < 50) {
-            continue;  // пропускаем группу, если был недавний burst
-        }
-        
-        // ПРОВЕРКА 2: Полный ноль (все нейроны мертвы)
-        bool all_zero = true;
-        double avg = 0.0;
-        for (double v : group.getPhi()) {
-            avg += v;
-            if (v > 0.05) {  // Понизили порог с 0.01 до 0.05
-                all_zero = false;
-                break;
-            }
-        }
-        avg /= GROUP_SIZE;
-        
-        // ПРОВЕРКА 3: Очень низкая энтропия (застой)
-        bool low_entropy = (entropy < ENTROPY_COLLAPSE);  // УБРАЛИ avg < 0.3
-        
-        // Применяем лечение ТОЛЬКО если действительно нужно
-        if (all_zero || low_entropy) {
-            if (reset_count < 10 && stepCounter - last_reset_step > 100) {  // УВЕЛИЧИЛИ reset_count
-                
-                std::cout << "Resetting group: entropy=" << entropy 
-                        << ", avg=" << avg << std::endl;
-                
-                auto& phi = group.getPhiNonConst();
-                auto& vel = group.getNeuronVelocity();
-                auto& pi = group.getPiNonConst();
-                if (vel.size() == GROUP_SIZE && pi.size() == GROUP_SIZE) {
-                    for (int i = 0; i < GROUP_SIZE; i++) {
-                        vel[i] = pi[i] * 2.0;
-                    }
-                }
-                
-                // БОЛЕЕ РАЗНООБРАЗНЫЙ ПАТТЕРН с разными фазами
-                for (int i = 0; i < GROUP_SIZE; i++) {
-                    // Используем разные частоты для каждого нейрона
-                    double freq1 = 0.3 + 0.1 * (i % 5);
-                    double freq2 = 0.7 + 0.1 * ((i + 3) % 7);
-                    double pattern = 0.3 + 0.25 * std::sin(i * freq1 + stepCounter * 0.05) 
-                                        + 0.2 * std::cos(i * freq2 + stepCounter * 0.03);
-                    phi[i] = std::clamp(pattern, 0.2, 0.8);
-                    
-                    // Разные скорости для каждого нейрона
-                    pi[i] = 0.05 * std::sin(i * 1.1) + 0.03 * std::cos(i * 0.9);
-                    if (!vel.empty()) vel[i] = pi[i] * 2.0;  // УВЕЛИЧИЛИ скорость
-                }
-                
-                reset_count++;
-                last_reset_step = stepCounter;
-            }
-        }
-
-        
-        // ПРОВЕРКА 4: Слишком высокая кривизна (сингулярность)
-        if (curvature > SINGULARITY_THRESHOLD && reset_count < 10) {
-            // Ослабляем слишком сильные связи
-            auto& synapses = group.getSynapsesNonConst();
-            for (auto& syn : synapses) {
-                if (std::abs(syn.weight) > 0.8) {
-                    syn.weight *= 0.7;  // Уменьшаем, но не обнуляем
-                }
-            }
-            
-            // Обновляем веса в матрице
-            int idx = 0;
-            for (int i = 0; i < GROUP_SIZE; i++) {
-                for (int j = i + 1; j < GROUP_SIZE; j++) {
-                    if (idx < synapses.size()) {
-                        group.setWeight(i, j, synapses[idx].weight);
-                        group.setWeight(j, i, synapses[idx].weight);
-                        idx++;
-                    }
-                }
-            }
-        }
-    }
+    std::cout << "\n=== ORBITAL HEALTH ===\n";
+    std::cout << "Orbit 4 (elite): " << orbit_distribution[4] 
+              << " (" << (orbit_distribution[4] * 100 / total_neurons) << "%)\n";
+    std::cout << "Orbit 3: " << orbit_distribution[3] 
+              << " (" << (orbit_distribution[3] * 100 / total_neurons) << "%)\n";
+    std::cout << "Orbit 2: " << orbit_distribution[2] 
+              << " (" << (orbit_distribution[2] * 100 / total_neurons) << "%)\n";
+    std::cout << "Orbit 1: " << orbit_distribution[1] 
+              << " (" << (orbit_distribution[1] * 100 / total_neurons) << "%)\n";
+    std::cout << "Orbit 0 (singularity): " << orbit_distribution[0] 
+              << " (" << (orbit_distribution[0] * 100 / total_neurons) << "%)\n";
+    std::cout << "====================\n";
 }

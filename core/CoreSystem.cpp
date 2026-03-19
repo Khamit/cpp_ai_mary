@@ -50,7 +50,22 @@ bool CoreSystem::initialize(const std::string& configFile) {
     
     // 2. Инициализируем нейросистему (уже создана в конструкторе)
     std::mt19937 rng(std::random_device{}());
-    neuralSystem->initializeRandom(rng);
+
+        // НОВОЕ: настраиваем лимиты массы под железо
+    MassLimits mass_limits;
+    if (deviceInfo.resources.ram_mb < 700) {  // меньше 700MB
+        mass_limits = MassRecommendations::forLowMemory();
+        std::cout << "Low memory mode: mass limit 2.0" << std::endl;
+    } else if (deviceInfo.resources.ram_mb < 1500) {  // меньше 1.5GB
+        mass_limits = MassRecommendations::forMediumMemory();
+        std::cout << "Medium memory mode: mass limit 3.5" << std::endl;
+    } else {
+        mass_limits = MassRecommendations::forHighMemory();
+        std::cout << "High performance mode: mass limit 5.0" << std::endl;
+    }
+    
+    // Передаем лимиты в нейросистему (нужно будет модифицировать NeuralFieldSystem)
+    neuralSystem->initializeWithLimits(rng, mass_limits);
     
     // 3. Определяем, мать мы или дочь (MaryDefense)
     lineage = MaryDefense::boot(rng);

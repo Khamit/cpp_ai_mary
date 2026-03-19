@@ -108,6 +108,7 @@ struct AttentionMechanism {
  */
 class NeuralFieldSystem : public INeuralGroupAccess { 
 public:
+
     static constexpr int NUM_GROUPS = 32;       ///< 32 группы
     static constexpr int GROUP_SIZE = 32;       ///< 32 нейрона в группе
     static constexpr int TOTAL_NEURONS = NUM_GROUPS * GROUP_SIZE; // 1024
@@ -118,12 +119,19 @@ public:
      */
     NeuralFieldSystem(double dt, EventSystem& events);
    
+    // ИЗМЕНИТЬ существующий метод на вызов нового с параметрами по умолчанию
+    void initializeRandom(std::mt19937& rng) {
+        initializeWithLimits(rng, MassLimits());  // вызывает новую версию
+    }
+    
+    // НОВЫЙ МЕТОД: инициализация с лимитами массы
+    void initializeWithLimits(std::mt19937& rng, const MassLimits& limits);
+
     // Запрет копирования
     NeuralFieldSystem(const NeuralFieldSystem&) = delete;
     NeuralFieldSystem& operator=(const NeuralFieldSystem&) = delete;
 
-    /** Инициализация случайными значениями */
-    void initializeRandom(std::mt19937& rng);
+    OperatingMode::Type determineOperatingMode();
 
     /**
      * Основной шаг симуляции с трехуровневой архитектурой
@@ -189,6 +197,9 @@ public:
     std::vector<NeuralGroup>& getGroups() { return groups; }
     const std::vector<NeuralGroup>& getGroups() const { return groups; }
 
+    // LOG
+    void logOrbitalHealth();
+
     // УДАЛЕНО: старые методы предсказателя
     // void initializePredictor(size_t input_dim, size_t latent_dim, std::mt19937& rng);
     // std::vector<double> predictNextState(const std::vector<double>& current_features);
@@ -196,8 +207,19 @@ public:
     // bool detectAnomaly(const std::vector<double>& features);
     // std::vector<double> getCompressedState(const std::vector<double>& features);
     // double getPredictionEntropy() const;
+    
+    bool isTrainingMode() const { return training_mode_; }
+    void setTrainingMode(bool enabled) { training_mode_ = enabled; }
+    
+    void addExternalInput(const std::vector<float>& input) {
+        external_inputs_ = input;
+    }
+    
+    void clearExternalInputs() {
+        external_inputs_.clear();
+    }
 
-        // РЕАЛИЗАЦИЯ ИНТЕРФЕЙСА
+    // РЕАЛИЗАЦИЯ ИНТЕРФЕЙСА
     std::vector<NeuralGroup*>& getHubGroups() override {
         // Ленивое заполнение вектора указателей
         static std::vector<NeuralGroup*> hubPointers;
@@ -231,9 +253,6 @@ public:
     void initializePredictiveCoder(MemoryManager& memory) {
         predictive_coder = std::make_unique<PredictiveCoder>(*this, memory);
     }
-
-    void detectAndHandleSingularities();
-    void performSurgery(NeuralGroup& group, double curvature, double entropy);
     // Временное решение для прямой активации семантических групп
     void setInputText(const std::vector<float>& input_signal) {
         // Группа 0 - входной буфер
@@ -285,6 +304,10 @@ private:
     void consolidateInterWeights();
     
     bool pendingEvolutionRequest_ = false;
+
+    // НОВЫЕ ЧЛЕНЫ для определения режима
+    std::vector<float> external_inputs_;  // внешние входы
+    bool training_mode_ = false;           // флаг режима обучения
 
      // НОВОЕ: предсказательный кодер (вместо старого predictor)
     std::unique_ptr<PredictiveCoder> predictive_coder;
