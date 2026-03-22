@@ -134,37 +134,6 @@ double NeuralFieldSystem::computeSystemEntropy() const {
     return entropy;  // возвращаем в нат
 }
 
-OperatingMode::Type NeuralFieldSystem::determineOperatingMode() {
-    // Если нет внешних стимулов долгое время
-    static int idle_steps = 0;
-    static int last_activity_step = 0;
-    
-    double avg_activity = 0;
-    for (const auto& group : groups) {
-        avg_activity += group.getAverageActivity();
-    }
-    avg_activity /= groups.size();
-    
-    if (avg_activity < 0.1) {
-        idle_steps++;
-    } else {
-        idle_steps = 0;
-        last_activity_step = stepCounter;
-    }
-    
-    // Если долго без активности - переходим в IDLE
-    if (idle_steps > 10000) {  // ~10 секунд при dt=0.001
-        return OperatingMode::IDLE;
-    }
-    
-    // Если система не обучается и не активна
-    if (external_inputs_.empty() && !training_mode_) {
-        return OperatingMode::NORMAL;
-    }
-    
-    return OperatingMode::TRAINING;
-}
-
 void NeuralFieldSystem::applyReentry(int iterations) {
     std::vector<double> newGroupAvg(NUM_GROUPS, 0.0);
     std::vector<double> currAvg = getGroupAverages();
@@ -210,41 +179,46 @@ void NeuralFieldSystem::applyReentry(int iterations) {
 void NeuralFieldSystem::maintainCriticality() {
     double entropy = computeSystemEntropy();
     double target = 2.5;
+
+    // ===== НОВОЕ: температурное охлаждение =====
+    static int annealing_step = 0;
+    annealing_step++;
     
-    // Используем кривизну для регуляции
-    double total_curvature = 0.0;
-    int count = 0;
-    for (const auto& group : groups) {
-        double curv = group.scalarCurvature();
-        if (std::isfinite(curv)) {
-            total_curvature += curv;
-            count++;
-        }
+    // Постепенное снижение температуры
+    if (annealing_step > 1000 && attention.temperature > 0.3f) {
+        // Медленное охлаждение
+        attention.temperature *= 0.999f;
     }
     
-    if (count > 0) {
-        double avg_curvature = total_curvature / count;
-        
-        // Если кривизна высокая (сингулярность), увеличиваем температуру
-        if (avg_curvature > 1.0) {
-            attention.temperature *= 1.1f;
-        }
-        // Если кривизна низкая (плоское пространство), уменьшаем
-        else if (avg_curvature < 0.1) {
-            attention.temperature *= 0.95f;
+    // Адаптация на основе энтропии
+    double entropy_error = target - entropy;
+    
+    if (std::abs(entropy_error) > 0.3) {
+        // Сильная коррекция
+        if (entropy_error > 0) {
+            // Слишком низкая энтропия - увеличиваем температуру
+            attention.temperature *= 1.01f;
+        } else {
+            // Слишком высокая энтропия - уменьшаем температуру
+            attention.temperature *= 0.99f;
         }
     }
     
     // Ограничиваем температуру
-    attention.temperature = std::clamp(attention.temperature, 0.1f, 10.0f);
+    attention.temperature = std::clamp(attention.temperature, 0.1f, 5.0f);
+}
+
+void NeuralFieldSystem::setOperatingMode(OperatingMode::Type mode) {
+    current_mode_ = mode;
+    
+    // Передаем режим во все группы
+    for (auto& group : groups) {
+        group.setCurrentMode(mode);
+    }
 }
 
 void NeuralFieldSystem::step(float globalReward, int stepNumber) {
     stepCounter = stepNumber;
-    
-    
-    // Определяем режим работы
-    OperatingMode::Type current_mode = determineOperatingMode();
     
     // Сохраняем состояние ДО обновления
     std::vector<double> state_before = getFeaturesDouble();
@@ -252,23 +226,21 @@ void NeuralFieldSystem::step(float globalReward, int stepNumber) {
     // УРОВЕНЬ 1: каждый шаг
     for (auto& group : groups) {
         group.evolve();
-        
-        // НОВОЕ: поддержание активности в зависимости от режима
-        group.maintainActivity(current_mode);
+        group.maintainActivity(current_mode_);  // используем сохраненный режим
     }
     
     // Поток Риччи реже в обычном режиме
-    int ricci_interval = (current_mode == OperatingMode::TRAINING) ? 10 : 50;
+    int ricci_interval = (current_mode_ == OperatingMode::TRAINING) ? 10 : 50;
     if (stepNumber % ricci_interval == 0) {
         applyRicciFlow();
     }
     
     // Меньше итераций reentry в обычном режиме
-    int reentry_iter = (current_mode == OperatingMode::TRAINING) ? 3 : 1;
+    int reentry_iter = (current_mode_ == OperatingMode::TRAINING) ? 3 : 1;
     applyReentry(reentry_iter);
     
     // В обычном режиме STDP отключено или очень слабое
-    float stdp_factor = (current_mode == OperatingMode::TRAINING) ? 
+    float stdp_factor = (current_mode_ == OperatingMode::TRAINING) ? 
                         globalReward : globalReward * 0.1f;
     
     for (auto& group : groups) {
@@ -276,8 +248,6 @@ void NeuralFieldSystem::step(float globalReward, int stepNumber) {
         group.updateElevationFast(globalReward, group.getAverageActivity());
     }
 
-    // Детектор сингулярностей больше не нужен - орбитальная модель обрабатывает это автоматически
-    
     applyReentry(3);
     
     for (auto& group : groups) {
@@ -379,7 +349,27 @@ float NeuralFieldSystem::computeGlobalImportance() {
 double NeuralFieldSystem::computeTotalEnergy() const {
     rebuildFlatVectors();
     double total = 0.0;
-    for (double v : flatPhi) total += v * v;
+    
+    // Кинетическая энергия (скорости)
+    for (double v : flatPi) {
+        total += v * v * 0.5;  // E_kin = 1/2 * m * v^2, m≈1
+    }
+    
+    // Потенциальная энергия (расстояния от центра)
+    for (double r : flatPhi) {
+        total += r * r * 0.5;   // гармонический осциллятор
+    }
+    
+    // Энергия связей
+    for (int g = 0; g < NUM_GROUPS; g++) {
+        const auto& weights = groups[g].getWeights();
+        for (int i = 0; i < GROUP_SIZE; i++) {
+            for (int j = i + 1; j < GROUP_SIZE; j++) {
+                total += std::abs(weights[i][j]) * 0.1;
+            }
+        }
+    }
+    
     return total / TOTAL_NEURONS;
 }
 

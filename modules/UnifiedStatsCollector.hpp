@@ -5,7 +5,10 @@
 #include "EvolutionModule.hpp"
 #include "lang/LanguageModule.hpp"
 #include "MetaCognitiveModule.hpp"
-#include "lang/EffectiveLearning.hpp"
+#include "lang/LearningOrchestrator.hpp"
+#include "learning/NeuralTrainer.hpp"           
+#include "learning/TrainingExampleManager.hpp"  
+#include "learning/ConceptMasteryEvaluator.hpp"
 #include <map>
 #include <string>
 #include <sstream>
@@ -26,11 +29,10 @@ private:
     EvolutionModule* evolution = nullptr;
     LanguageModule* language = nullptr;
     MetaCognitiveModule* metacog = nullptr;
-    EffectiveLearning* learning = nullptr;
+    LearningOrchestrator* learning = nullptr;  // ИЗМЕНЕНО
     
     std::map<std::string, ModuleStats> all_stats;
     int current_step = 0;
-    EffectiveLearning* effective_learning = nullptr;
     
 public:
     void setNeuralSystem(NeuralFieldSystem* ns) { neural_system = ns; }
@@ -38,8 +40,8 @@ public:
     void setEvolution(EvolutionModule* ev) { evolution = ev; }
     void setLanguage(LanguageModule* lang) { language = lang; }
     void setMetaCognitive(MetaCognitiveModule* meta) { metacog = meta; }
-    void setEffectiveLearning(EffectiveLearning* learning) { effective_learning = learning; }
-    EffectiveLearning* getEffectiveLearning() const { return effective_learning; }
+    void setLearning(LearningOrchestrator* learn) { learning = learn; }  // ИЗМЕНЕНО
+    LearningOrchestrator* getLearning() const { return learning; }  // ИЗМЕНЕНО
     
 void update(int step) {
     current_step = step;
@@ -160,27 +162,25 @@ void update(int step) {
         all_stats["metacog"] = meta;
     }
     
-    // 6. LEARNING STATS
-    if (learning) {
-        ModuleStats learn;
-        learn.name = "LEARNING";
-        
-        learn.numeric_stats["total_steps"] = learning->getTotalSteps();
-        learn.numeric_stats["epoch"] = learning->getEpoch();
-        learn.numeric_stats["learning_rate"] = learning->getCurrentLearningRate();
-        learn.numeric_stats["buffer_size"] = learning->getBufferSize();
-        learn.numeric_stats["accuracy"] = learning->getAverageAccuracy();
-        learn.numeric_stats["training_active"] = learning->isTrainingActive() ? 1.0 : 0.0;
-        
-        all_stats["learning"] = learn;
-    }
+        if (learning) {
+            ModuleStats learn;
+            learn.name = "LEARNING";
             
-    // 7. SYSTEM STATS
-    ModuleStats system;
-    system.name = "SYSTEM";
-    system.numeric_stats["step"] = step;
-    all_stats["system"] = system;
-}
+            learn.numeric_stats["total_steps"] = learning->getNeuralTrainer().getTotalSteps();
+            learn.numeric_stats["accuracy"] = learning->getAverageAccuracy();
+            learn.numeric_stats["buffer_size"] = learning->getExampleManager().getBufferSize();
+            learn.numeric_stats["average_mastery"] = learning->getMasteryEvaluator().getAverageMastery();
+            learn.numeric_stats["mastered_concepts"] = learning->getMasteryEvaluator().getMasteredConceptsCount();
+            
+            all_stats["learning"] = learn;
+        }
+        
+        // 7. SYSTEM STATS
+        ModuleStats system;
+        system.name = "SYSTEM";
+        system.numeric_stats["step"] = step;
+        all_stats["system"] = system;
+    }
     
     const std::map<std::string, ModuleStats>& getAllStats() const { return all_stats; }
     

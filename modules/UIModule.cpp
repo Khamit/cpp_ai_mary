@@ -282,8 +282,9 @@ void UIModule::handleTextEntered(const sf::Event::TextEntered& event) {
     }
     else if (event.unicode == 13) { // enter
         sendMessage();
+        // НЕ добавляем \n в currentInput
     }
-    else if (event.unicode < 128) {
+    else if (event.unicode < 128 && event.unicode != 13) { // игнорируем enter
         currentInput += static_cast<char>(event.unicode);
     }
 
@@ -329,30 +330,55 @@ void UIModule::handleChatClick(sf::Vector2f mousePos) {
 void UIModule::sendMessage() {
     if (!languageModule || currentInput.empty())
         return;
+
+    // Очищаем ввод от служебных символов
+    std::string cleanInput = currentInput;
+    cleanInput.erase(std::remove(cleanInput.begin(), cleanInput.end(), '\n'), cleanInput.end());
+    cleanInput.erase(std::remove(cleanInput.begin(), cleanInput.end(), '\r'), cleanInput.end());
+    
+    if (cleanInput.empty()) {
+        currentInput.clear();
+        inputText.setString("");
+        return;
+    }
+    
+    // ДОБАВИТЬ: проверка, запущена ли симуляция
+    if (!simulation_running_) {
+        chatHistory.push_back({currentInput, true});
+        chatHistory.push_back({"Please start simulation first (click Start Simulation)", false});
+        currentInput.clear();
+        inputText.setString("");
+        return;
+    }
+    
+    // Проверяем, не занята ли нейросеть
+    static std::atomic<bool> processing{false};
+    if (processing.exchange(true)) {
+        std::cout << "System is busy, please wait..." << std::endl;
+        return;
+    }
     
     std::cout << "Sending message: " << currentInput << std::endl;
-    std::string response = languageModule->process(currentInput);
-    // Вот здесь ответ ДОБАВЛЯЕТСЯ в историю чата
-    chatHistory.push_back({currentInput, true});
-    chatHistory.push_back({response, false});
     
-    // Ограничиваем историю
+    try {
+        std::string response = languageModule->process(currentInput);
+        chatHistory.push_back({currentInput, true});
+        chatHistory.push_back({response, false});
+    } catch (const std::exception& e) {
+        std::cerr << "Error processing message: " << e.what() << std::endl;
+        chatHistory.push_back({currentInput, true});
+        chatHistory.push_back({"Sorry, I encountered an error", false});
+    }
+    
+    processing = false;
+    
     if (chatHistory.size() > 20) {
         chatHistory.erase(chatHistory.begin(), chatHistory.begin() + 2);
     }
     
-    // Обновляем текст для отображения (опционально, если используете chatHistoryText)
-    std::stringstream ss;
-    for (const auto& msg : chatHistory) {
-        ss << (msg.isUser ? "You: " : "AI: ") << msg.text << "\n";
-    }
-    chatHistoryText.setString(ss.str());
-    
     currentInput.clear();
     inputText.setString("");
-    stickToBottom = true; // Прокручиваем вниз при новом сообщении
-    
-    std::cout << "Chat history size: " << chatHistory.size() << std::endl;
+    stickToBottom = true;
 }
 
 void UIModule::handleMouseClick(const sf::Event::MouseButtonPressed& event, NeuralFieldSystem& system, 
@@ -939,9 +965,10 @@ void UIModule::drawBar(sf::RenderWindow& window, const std::string& label, float
     window.draw(valueText);
 }
 
+// modules/UIModule.cpp - в методе drawUnifiedStats()
+
 void UIModule::drawUnifiedStats(sf::RenderWindow& window) {
     if (!stats_collector) {
-        // Если коллектор не установлен, показываем заглушку
         sf::Text errorText(font);
         errorText.setString("Stats collector not connected");
         errorText.setCharacterSize(12);
@@ -960,32 +987,47 @@ void UIModule::drawUnifiedStats(sf::RenderWindow& window) {
     ss << "SYSTEM DASHBOARD\n";
     ss << "--\n";
     
-if (current_display_mode == 0) {
-        // COMPACT MODE - все модули в одну строку
+    if (current_display_mode == 0) {
+        // COMPACT MODE
         ss << stats_collector->getCompactStats();
     } 
-    else if (current_display_mode == 5) {  // НОВЫЙ РЕЖИМ: Concepts
+    else if (current_display_mode == 5) {  // CONCEPTS MODE
         ss << "CONCEPTS MASTERY\n\n";
         
-        // Получаем данные из EffectiveLearning
-        if (stats_collector->getEffectiveLearning()) {
-            auto* learning = stats_collector->getEffectiveLearning();
+        // Получаем LearningOrchestrator через stats_collector
+        auto* learning = stats_collector->getLearning();
+        if (learning) {
+            // Получаем доступ к ConceptMasteryEvaluator
+            auto& evaluator = learning->getMasteryEvaluator();
             
             // Общая статистика
-            float avg_mastery = learning->getAverageMastery();
-            int mastered = learning->getMasteredConceptsCount(0.7f);
-            int learning_now = learning->getLearningConceptsCount(0.3f, 0.7f);
-            int total_concepts = mastered + learning_now;
+            float avg_mastery = evaluator.getAverageMastery();
+            int mastered = evaluator.getMasteredConceptsCount(0.7f);
             
-            // Прогресс-бар
-            ss << "Overall Mastery: " << learning->getConceptsProgressBar(30) << "\n";
+            // Для "learning" концептов (30-70%) - нужно посчитать самим
+            int learning_count = 0;
+            for (uint32_t id = 1; id <= 614; id++) {
+                float mastery = evaluator.getConceptMastery(id);
+                if (mastery > 0.3f && mastery < 0.7f) {
+                    learning_count++;
+                }
+            }
+            int total_concepts = mastered + learning_count;
+            
+            // Прогресс-бар (создаем вручную)
+            ss << "Overall Mastery: ";
+            int filled = static_cast<int>(avg_mastery * 30);
+            for (int i = 0; i < 30; i++) {
+                ss << (i < filled ? "█" : "░");
+            }
+            ss << "\n";
             ss << "Mastered (≥70%): " << mastered << " concepts\n";
-            ss << "Learning (30-70%): " << learning_now << " concepts\n";
+            ss << "Learning (30-70%): " << learning_count << " concepts\n";
             ss << "Total active: " << total_concepts << " concepts\n\n";
             
             // Статистика по уровням абстракции
             ss << "By Abstraction Level:\n";
-            auto level_stats = learning->getMasteryByAbstractionLevel();
+            auto level_stats = evaluator.getMasteryByAbstractionLevel();
             for (int level = 1; level <= 10; level++) {
                 if (level_stats.count(level)) {
                     int filled = static_cast<int>(level_stats[level] * 20);
@@ -1000,9 +1042,8 @@ if (current_display_mode == 0) {
             
             // Топ-5 самых освоенных концептов
             ss << "\nTop Mastered Concepts:\n";
-            auto all_mastery = learning->getAllConceptsMastery();
+            auto all_mastery = evaluator.getAllConceptsMastery();
             
-            // Сортируем по убыванию мастерства
             std::vector<std::pair<uint32_t, float>> sorted(
                 all_mastery.begin(), all_mastery.end());
             std::sort(sorted.begin(), sorted.end(),
@@ -1011,33 +1052,33 @@ if (current_display_mode == 0) {
             int count = 0;
             for (const auto& [id, mastery] : sorted) {
                 if (count++ >= 5) break;
-                if (semantic_graph_) {  // проверяем, что указатель не nullptr
+                if (semantic_graph_) {
                     auto node = semantic_graph_->getNode(id);
                     if (node) {
                         ss << "  " << node->canonical_form << ": " 
-                        << std::fixed << std::setprecision(0) << (mastery * 100) << "%\n";
+                           << std::fixed << std::setprecision(0) << (mastery * 100) << "%\n";
                     }
                 } else {
                     ss << "  Concept " << id << ": " 
-                    << std::fixed << std::setprecision(0) << (mastery * 100) << "%\n";
+                       << std::fixed << std::setprecision(0) << (mastery * 100) << "%\n";
                 }
             }
             
-            // Концепты, которые нужно подучить
+            // Концепты, которые нужно подучить (30-70%)
             ss << "\nNeed Practice:\n";
             count = 0;
             for (const auto& [id, mastery] : sorted) {
                 if (mastery > 0.3f && mastery < 0.7f) {
                     if (count++ >= 3) break;
-                    if (semantic_graph_) {  // проверяем, что указатель не nullptr
+                    if (semantic_graph_) {
                         auto node = semantic_graph_->getNode(id);
                         if (node) {
                             ss << "  " << node->canonical_form << ": " 
-                            << std::fixed << std::setprecision(0) << (mastery * 100) << "%\n";
+                               << std::fixed << std::setprecision(0) << (mastery * 100) << "%\n";
                         }
                     } else {
                         ss << "  Concept " << id << ": " 
-                        << std::fixed << std::setprecision(0) << (mastery * 100) << "%\n";
+                           << std::fixed << std::setprecision(0) << (mastery * 100) << "%\n";
                     }
                 }
             }
@@ -1045,7 +1086,7 @@ if (current_display_mode == 0) {
             ss << "Learning module not available\n";
         }
     } else {
-        // DETAILED MODE - существующие режимы 1-4
+        // DETAILED MODE
         std::string module_name;
         switch(current_display_mode) {
             case 1: module_name = "neural"; break;
@@ -1068,11 +1109,10 @@ if (current_display_mode == 0) {
             }
         }
     }
-
+    
     // Добавляем подсказку по переключению
-    ss << "\n[Click mode to cycle: ";
     std::string modeNames[] = {"Compact", "Neural", "Evolution", "Language", "Memory", "Concepts"};
-    ss << modeNames[current_display_mode] << "]";
+    ss << "\n[Click mode to cycle: " << modeNames[current_display_mode] << "]";
     
     sf::Text statsText(font);
     statsText.setString(ss.str());

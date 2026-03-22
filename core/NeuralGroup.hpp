@@ -1,5 +1,6 @@
 #pragma once
 #include <vector>
+#include <complex>
 #include <random>
 #include <string>
 #include <deque>
@@ -7,6 +8,7 @@
 #include <algorithm>
 #include <iostream>
 #include "Synapse.hpp"
+#include "DynamicParams.hpp"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -173,7 +175,10 @@ struct OrbitalParams {
     static constexpr double INNER_ORBIT = 0.6;             // кандидаты
     static constexpr double BASE_ORBIT = 1.0;              // рабочие
     static constexpr double MIDDLE_ORBIT = 1.5;            // менеджеры
-    static constexpr double OUTER_ORBIT = 2.0;              // элита
+    static constexpr double OUTER_ORBIT = 2.6;              // элита
+
+    // НОВЫЙ ПАРАМЕТР - НЕ УБЕГАЙТЕ ДЖЕКИЧАНЫ!
+    static constexpr double ESCAPE_VELOCITY = 3.0;  // скорость убегания
     
     // Энергетические пороги
     static constexpr double ESCAPE_ENERGY = 2.7;            // энергия для повышения
@@ -191,6 +196,13 @@ struct OrbitalParams {
     // Орбитальные силы
     static constexpr double ORBITAL_WELL_DEPTH = 4.0;       // глубина потенциальной ямы
     static constexpr double ORBITAL_WELL_WIDTH = 1.0;       // ширина потенциальной ямы
+
+    // НОВЫЕ ПАРАМЕТРЫ ДЛЯ ВЫБРОСА ИЗ СИНГУЛЯРНОСТИ
+    static constexpr double EJECTION_MIN_ORBIT = 2;      // минимальная орбита для выброса
+    static constexpr double EJECTION_MAX_ORBIT = 3;      // максимальная орбита для выброса
+    static constexpr double EJECTION_FORCE_FACTOR = 1.2; // множитель силы выброса
+    static constexpr double EJECTION_RANDOMNESS = 0.3;   // случайность в направлении
+    
 };
 
 /**
@@ -221,8 +233,8 @@ struct HomeostasisParams {
     // НОВЫЕ ПАРАМЕТРЫ ДЛЯ КВАНТОВОЙ СТАБИЛИЗАЦИИ
     double mass_energy_factor = 0.3;      // как сильно масса зависит от энергии
     double mass_orbit_factor = 0.5;       // как сильно масса зависит от орбиты
-    double max_mass = 5.0;                 // максимальная масса
-    double min_mass = 0.5;                  // минимальная масса
+    double max_mass = 10.0;                 // максимальная масса
+    double min_mass = 0.8;                  // минимальная масса
     
     // Потенциальный барьер
     double barrier_height = 2.0;            // высота барьера на границах орбит
@@ -246,7 +258,7 @@ struct HomeostasisParams {
 class NeuralGroup {
 public:
     NeuralGroup(int size, double dt, std::mt19937& rng, const MassLimits& limits = MassLimits());
-    
+    std::vector<std::string> neuron_specialization;
     // Запрет копирования
     NeuralGroup(const NeuralGroup&) = delete;
     NeuralGroup& operator=(const NeuralGroup&) = delete;
@@ -258,6 +270,17 @@ public:
     // Параметры гомеостаза (публичные для доступа)
     HomeostasisParams homeo;
     double activation_temp = 0.8;
+    double computeLocalEntropy(int i) const;
+
+    int getOrbitCapacity(int level) const {
+        switch(level) {
+            case 4: return std::max(1, (int)(size * 0.05));  // минимум 1
+            case 3: return std::max(1, (int)(size * 0.15));
+            case 2: return std::max(1, (int)(size * 0.30));
+            case 1: return std::max(1, (int)(size * 0.30));
+            default: return std::max(1, (int)(size * 0.20));
+        }
+    }
     
     // ===== ОСНОВНЫЕ МЕТОДЫ =====
     void evolve();                                      // эволюция группы
@@ -271,6 +294,16 @@ public:
     int getOrbitLevel(int i) const { return orbit_level[i]; }
     double getOrbitRadius(int level) const;
     double getNeuronEnergy(int i) const;
+
+    // Новые методы для вычисления компонентов важности
+    double computeConnectivity(int i) const;    // связность нейрона i
+    double computeUniqueness(int i) const;      // уникальность
+    double computeHomeostaticValue() const;     // гомеостатическая ценность всей группы
+    double computeAdaptability(int i) const;    // адаптивность
+
+    // Вес и энергия
+    const std::vector<std::vector<double>>& getWeights() const { return W_intra; }
+    const std::vector<double>& getOrbitalEnergy() const { return orbital_energy; }
 
     // Получить массу нейрона
     double getMass(int i) const { 
@@ -331,6 +364,12 @@ public:
     // MASS
     bool hasMass() const { return true; }  // всегда true, т.к. масса есть у всех
     bool hasTemperature() const { return true; }  // всегда true
+        // НОВЫЙ МЕТОД: установить массу нейрона
+    void setMass(int i, double new_mass) {
+        if (i >= 0 && i < size) {
+            mass[i] = std::clamp(new_mass, homeo.min_mass, homeo.max_mass);
+        }
+    }
     
     // ===== ВЕСА =====
     void setWeight(int i, int j, double weight) {
@@ -345,6 +384,18 @@ public:
         return 0.0;
     }
     void decayAllWeights(float factor);
+
+    // НОВЫЕ МЕТОДЫ ДЛЯ СИНГУЛЯРНОСТИ
+    void ejectFromSingularity(int i);
+    
+    // Для диагностики
+    bool isInSingularity(int i) const {
+        if (i < 0 || i >= size) return false;
+        return pos[i].norm() < OrbitalParams::SINGULARITY_RADIUS * 2.0;
+    }
+    
+    // Получить статистику по выбросам
+    int getEjectionCount() const { return ejection_count_; }
     
     // ===== ВСПОМОГАТЕЛЬНОЕ =====
     int getSize() const { return size; }
@@ -367,6 +418,9 @@ public:
     void computeGradients(const std::vector<double>& target);
     void applyGradients();
     void learnHebbian(double globalReward);
+
+        // НОВЫЙ МЕТОД
+    void updateWaveFunction();
 
     // ===== МЕТОДЫ ДЛЯ ВИЗУАЛИЗАЦИИ =====
     double getNeuronTemperature(int i) const {
@@ -403,6 +457,36 @@ public:
         }
         return memory / (size - 1);
     }
+
+    std::complex<double> getWaveFunction(int i) const { 
+    if (i < 0 || i >= size) return std::complex<double>(0,0);
+    return wave_function[i]; 
+    }
+
+    void updateWaveAmplitudeFromState() {
+    for (int i = 0; i < size; i++) {
+            double activity = pos[i].norm();
+            double activity_factor = std::min(1.0, activity / OrbitalParams::BASE_ORBIT);
+            double orbit_factor = 0.5 + orbit_level[i] * 0.25;
+            double stability = getLocalStability(i);
+            
+            double new_amplitude = 0.5 + activity_factor * 0.8 + orbit_factor * 0.3 + stability * 0.2;
+            wave_amplitude[i] = std::clamp(new_amplitude, 0.2, 2.5);
+            wave_function[i] = std::polar(wave_amplitude[i], wave_phase[i]);
+        }
+    }
+
+    int getSynapseIndex(int i, int j) const {
+        if (i == j) return -1;
+        if (i > j) std::swap(i, j);
+        // Индекс в линейном массиве synapses для пары (i, j)
+        return i * size - (i * (i + 1)) / 2 + (j - i - 1);
+    }
+
+    double getWavePhase(int i) const { 
+        if (i < 0 || i >= size) return 0.0;
+        return wave_phase[i]; 
+    }
     
     // ВАЖНО: ЭТИ МЕТОДЫ ОПРЕДЕЛЕНЫ ТОЛЬКО ЗДЕСЬ!
     double getKineticEnergy(int i) const { 
@@ -424,6 +508,11 @@ public:
     void generateGentleBurst();
     void maintainActivity(OperatingMode::Type mode);
 
+    // new
+    void pruneConnectionsByOrbit();
+    void generateCuriosityConnections();
+    void protectCoreConcepts();
+
         // НОВЫЕ ПУБЛИЧНЫЕ МЕТОДЫ для доступа извне
     void publicResetNeuron(int i, std::mt19937& rng) {
         if (i >= 0 && i < size) {
@@ -438,13 +527,18 @@ public:
     }
     
     OperatingMode::Type getCurrentMode() const {
-        // Этот метод должен получать режим от NeuralFieldSystem
-        // Пока возвращаем NORMAL как значение по умолчанию
-        return OperatingMode::NORMAL;
+        // Этот метод должен быть связан с NeuralFieldSystem
+        // Пока оставляем заглушку, но в реальности нужно передавать
+        return current_mode_;  // добавить поле
     }
     
     const DynamicParams::SurvivalParams& getSurvivalParams(OperatingMode::Type mode) const {
         return DynamicParams::getSurvivalParams(mode);
+    }
+
+    // Добавить поле и метод установки
+    void setCurrentMode(OperatingMode::Type mode) {
+        current_mode_ = mode;
     }
     
     // Добавить метод promoteToBaseOrbit если его нет
@@ -466,13 +560,57 @@ public:
         std::cout << "  Neuron " << i << " promoted to base orbit" << std::endl;
     }
 
+     // Запись использования связи
+    void recordConnectionUsage(int i, int j, bool success = false) {
+        if (i < 0 || i >= size || j < 0 || j >= size) return;
+        if (i == j) return;
+        
+        connection_usage_count[i][j]++;
+        connection_usage_count[j][i]++;
+        connection_last_used_step[i][j] = step_counter_;
+        connection_last_used_step[j][i] = step_counter_;
+        
+        if (success) {
+            connection_success_count[i][j]++;
+            connection_success_count[j][i]++;
+        }
+    }
+    
+    // Получить эффективность связи
+    float getConnectionEfficiency(int i, int j) const {
+        if (i < 0 || i >= size || j < 0 || j >= size) return 0.5f;
+        int total = connection_usage_count[i][j];
+        if (total == 0) return 0.5f;
+        return static_cast<float>(connection_success_count[i][j]) / total;
+    }
+
 private:
     MassLimits mass_limits;
+    OperatingMode::Type current_mode_ = OperatingMode::NORMAL;
     // ===== ФУНДАМЕНТАЛЬНЫЕ ПАРАМЕТРЫ =====
     int size;                       // количество нейронов
     double dt;                      // шаг времени
     double threshold;                // порог активации
     int step_counter_ = 0;
+    // счетчик выбросов
+    int ejection_count_ = 0;
+    // Счетчик связей 
+    // Счетчики использования связей
+    std::vector<std::vector<int>> connection_usage_count;
+    std::vector<std::vector<int>> connection_success_count;
+    
+    // Время последнего использования
+    std::vector<std::vector<int>> connection_last_used_step;
+
+    mutable double cached_curvature_ = 0.0;
+    mutable int curvature_step_ = -1;
+
+    // ВОЛНОВАЯ ФУНКЦИЯ
+    std::vector<std::complex<double>> wave_function;  // волновая функция ψ
+    std::vector<double> wave_phase;                   // фаза волны
+    std::vector<double> wave_amplitude;               // амплитуда волны
+    double wave_frequency = 0.1;                       // базовая частота
+    double wave_damping = 0.999;                        // затухание волны
     
     // ===== ОРБИТАЛЬНАЯ СТРУКТУРА =====
     std::vector<Vec3> pos;           // позиция в 3D
@@ -486,6 +624,8 @@ private:
     std::vector<double> orbital_energy; // энергия орбиты
     std::vector<double> time_on_orbit;  // время на текущей орбите
     std::vector<int> promotion_count;   // сколько раз повышался
+    // Для перебалансировки понадобятся вспомогательные методы
+    void rebalanceOrbits();   // вызовется периодически
     
     // ===== СВЯЗИ =====
     std::vector<std::vector<double>> W_intra;      // внутригрупповые веса
@@ -518,10 +658,13 @@ private:
     void applyOrbitalForces();                   // орбитальные силы
     void applyCompetitionForces();               // конкуренция на орбитах
     void updateOrbitLevels();                    // обновление уровней
-    void checkForSingularity(int i);             // проверка падения в сингулярность
+    bool checkForSingularity(int i);             // проверка падения в сингулярность
     void resetNeuron(int i, std::mt19937& rng);  // перерождение нейрона
     void buildSynapsesFromWeights();             // синхронизация весов
     void updateCachedPhi() const;                // обновление кэша
+
+    // НОВЫЙ МЕТОД: проверка на побег за пределы
+    void checkForEscape(int i, std::mt19937& rng);
     
     // Вспомогательные
     double getTangentialVelocity(int i) const;
@@ -548,23 +691,22 @@ private:
         // ЕЩЕ БОЛЕЕ МЯГКИЕ ЛИМИТЫ
         
         // Увеличиваем фактор Шварцшильда еще больше
-        double schwarzschild_limit = r / (mass_limits.schwarzschild_radius_factor * 5.0);
+        double schwarzschild_limit = r / (mass_limits.schwarzschild_radius_factor * 6.0);
         
         double temperature = getNeuronTemperature(neuron_idx);
         // Еще меньше влияния температуры
-        double thermodynamic_limit = mass_limits.max_temperature_mass * 
-                                    (1.0 - temperature * 0.02);  // было 0.05
+        double thermodynamic_limit = mass_limits.max_temperature_mass * 5.0;
         
         double entropy = getLocalEntropy(neuron_idx);
         // Увеличиваем информационный лимит еще больше
-        double info_limit = entropy * 5.0;  // было 2.0
+        double info_limit = entropy * 20.0;  // было 2.0
         
         // Увеличиваем орбитальные лимиты
-        double orbit_limits[] = {2.0, 3.0, 5.0, 7.0, 10.0};  // было {1.0, 2.0, 3.5, 5.0, 7.0}
+        double orbit_limits[] = {5.0, 8.0, 12.0, 15.0, 20.0};  // было {1.0, 2.0, 3.5, 5.0, 7.0}
         double orbit_limit = orbit_limits[orbit];
         
         // Увеличиваем saturation_mass
-        double saturation = mass_limits.saturation_mass * 2.0;  // было 1.5
+        double saturation = mass_limits.saturation_mass * 5.0;  // было 1.5
         
         double mass_cap = std::min({
             schwarzschild_limit,

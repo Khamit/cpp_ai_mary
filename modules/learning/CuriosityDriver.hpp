@@ -40,6 +40,12 @@ private:
     std::mt19937 rng{std::random_device{}()};
     
 public:
+    std::shared_ptr<CuriosityDriver> createCuriosityDriver(
+        NeuralFieldSystem& neural_system,
+        LanguageModule& language,
+        SemanticGraphDatabase& semantic_graph
+    );
+    
     CuriosityDriver(NeuralFieldSystem& ns, LanguageModule& lang, 
                     SemanticGraphDatabase& graph);
     

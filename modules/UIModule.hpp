@@ -88,6 +88,39 @@ public:
     void handleTilt(float delta);
     // chat
     void toggleChat();
+    void setSimulationRunning(bool running) { simulation_running_ = running; }
+
+    // Режим работ
+OperatingMode::Type getCurrentOperatingMode() const {
+    // 1. Если автообучение активно - режим TRAINING
+    if (autoLearningActive) {
+        return OperatingMode::TRAINING;
+    }
+    
+    // 2. Если есть активность пользователя - NORMAL
+    static auto lastActivityTime = std::chrono::steady_clock::now();
+    auto now = std::chrono::steady_clock::now();
+    
+    if (!currentInput.empty() || 
+        sf::Mouse::isButtonPressed(sf::Mouse::Button::Left)) {
+        lastActivityTime = now;
+        return OperatingMode::NORMAL;
+    }
+    
+    // 3. Если прошло больше 5 минут без активности - IDLE
+    if (std::chrono::duration_cast<std::chrono::minutes>(
+            now - lastActivityTime).count() > 5) {
+        return OperatingMode::IDLE;
+    }
+    
+    // 4. Если прошло больше 30 минут - SLEEP
+    if (std::chrono::duration_cast<std::chrono::minutes>(
+            now - lastActivityTime).count() > 30) {
+        return OperatingMode::SLEEP;
+    }
+    
+    return OperatingMode::NORMAL;
+}
 
 private:
     // Добавить поле
@@ -164,4 +197,5 @@ private:
     bool chat_visible = true;  // флаг видимости чата
     sf::RectangleShape toggleChatButton;  // кнопка для переключения
     sf::Text toggleChatText;  // текст на кнопке
+    bool simulation_running_ = false;
 };

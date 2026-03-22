@@ -69,16 +69,27 @@ struct SemanticNode {
     // Вектор для нейросети (32 мерный, будет заполнен позже)
     std::vector<float> signature;            // 32-мерный вектор
     
-    // Конструктор
+    // Конструктор с инициализацией
     SemanticNode(uint32_t _id, const std::string& _name, const std::string& _canonical)
-        : id(_id), name(_name), canonical_form(_canonical) {
+        : id(_id), name(_name), canonical_form(_canonical), creation_step(0) {
         signature.resize(32, 0.0f);
+        last_used_step = 0;
+        usage_count = 0;
+        importance_decay = 1.0f;
+        is_core = false;
     }
     
     // Получить эмоциональную окраску как float для нейросети
     float getEmotionalValue() const {
         return static_cast<float>(emotional_tone) / 2.0f; // от -1.0 до 1.0
     }
+
+        // ===== НОВЫЕ ПОЛЯ ДЛЯ СТАРЕНИЯ =====
+    int last_used_step = 0;           // последний шаг, когда концепт использовался
+    int usage_count = 0;              // сколько раз использовался
+    float importance_decay = 1.0f;    // множитель важности (уменьшается со временем)
+    bool is_core = false;             // флаг "ядерного" концепта (никогда не удаляется)
+    int creation_step = 0;            // шаг создания
 };
 
 /**
@@ -337,7 +348,8 @@ enum class Type {
     CHILD_OF = 195,
     SIBLING_OF = 196,
     MARRIED_TO = 197,
-    HAS_PRONOUN = 198
+    HAS_PRONOUN = 198,
+    REINFORCES = 199,  // для усиления существующих связей
 
 } type;
 
@@ -587,6 +599,8 @@ enum class Type {
             case Type::MARRIED_TO: return "married_to";
             case Type::HAS_PRONOUN: return "has_pronoun";
 
+            case Type::REINFORCES: return "reinforces";
+
             default: return "unknown";
         }
     }
@@ -641,14 +655,37 @@ public:
         buildMathematicalFoundationLayer();
         buildDataStructuresAndPatternsLayer();
         buildOwnershipAndIdentityLayer();
+        buildBasicVocabularyLayer();
         std::cout << "SemanticGraphDatabase initialized with " << nodes.size() 
                   << " nodes and " << countEdges() << " edges" << std::endl;
     }
+
+    void markCoreConcepts();
 
     ~SemanticGraphDatabase() {
         // unique_ptr автоматически удалит nodes
         // но нужно очистить кэш
         explanation_cache.clear();
+    }
+
+    // В SemanticGraphDatabase, в public
+    void markConceptUsed(uint32_t id, int current_step) {
+        auto it = nodes.find(id);
+        if (it != nodes.end()) {
+            it->second->last_used_step = current_step;
+            it->second->usage_count++;
+            
+            // Восстанавливаем важность при использовании
+            it->second->importance_decay = std::min(1.0f, it->second->importance_decay + 0.1f);
+        }
+    }
+
+    // Пометить концепт как ядерный (не удаляемый)
+    void markAsCore(uint32_t id) {
+        auto it = nodes.find(id);
+        if (it != nodes.end()) {
+            it->second->is_core = true;
+        }
     }
 
     // Добавить новую связь на основе диалога
@@ -809,6 +846,67 @@ public:
             explanation_cache.erase(node_id);
         }
     }
+
+    // метод для очистки старых концептов
+    void pruneAgedConcepts(int current_step, int max_age_steps = 10000, float min_importance = 0.1f) {
+    std::vector<uint32_t> to_remove;
+    
+    for (const auto& [id, node] : nodes) {
+        // Ядерные концепты никогда не удаляем
+        if (node->is_core) continue;
+        
+        // Концепты с высокой важностью не удаляем
+        if (node->base_importance > 0.5f) continue;
+        
+        int age = current_step - node->last_used_step;
+        
+        // Вычисляем эффективную важность с учетом старения
+        float effective_importance = node->base_importance * node->importance_decay;
+        
+        // Если концепт слишком старый и неважный
+        if (age > max_age_steps && effective_importance < min_importance) {
+            // Проверяем, есть ли у него важные связи
+            bool has_important_connections = false;
+            auto edges = getEdgesFrom(id);
+            for (const auto& edge : edges) {
+                auto target = getNode(edge.to_id);
+                if (target && (target->is_core || target->base_importance > 0.6f)) {
+                    has_important_connections = true;
+                    break;
+                }
+            }
+            
+            if (!has_important_connections) {
+                to_remove.push_back(id);
+            }
+        }
+        // Постепенно уменьшаем важность неиспользуемых концептов
+        else if (age > max_age_steps / 2) {
+            node->importance_decay *= 0.999f;
+        }
+    }
+    
+    // Удаляем старые концепты
+    for (uint32_t id : to_remove) {
+        std::cout << "  🗑️ Pruning aged concept: " << nodes[id]->name 
+                  << " (age: " << (current_step - nodes[id]->last_used_step) 
+                  << ", importance: " << nodes[id]->base_importance << ")" << std::endl;
+        
+        // Удаляем все связи, связанные с этим узлом
+        edges_from.erase(id);
+        for (auto& [from_id, edges] : edges_from) {
+            edges.erase(std::remove_if(edges.begin(), edges.end(),
+                [id](const SemanticEdge& e) { return e.to_id == id; }),
+                edges.end());
+        }
+        
+        // Удаляем из всех индексов
+        name_to_id.erase(nodes[id]->name);
+        word_to_ids.erase(nodes[id]->canonical_form);
+        
+        nodes.erase(id);
+    }
+}
     
     // ===== ДОБАВЛЕНИЕ СВЯЗЕЙ =====
     
@@ -877,6 +975,44 @@ public:
     }
     
     // ===== ПОЛУЧЕНИЕ ДАННЫХ =====
+    /**
+     * @brief Получить все узлы графа
+     * @return Вектор указателей на все узлы (константные)
+     */
+    std::vector<const SemanticNode*> getAllNodes() const {
+        std::vector<const SemanticNode*> result;
+        result.reserve(nodes.size());
+        for (const auto& [id, node] : nodes) {
+            result.push_back(node.get());
+        }
+        return result;
+    }
+
+    /**
+     * @brief Получить все узлы графа с возможностью модификации
+     * @return Вектор указателей на все узлы (неконстантные)
+     */
+    std::vector<SemanticNode*> getAllNodesMutable() {
+        std::vector<SemanticNode*> result;
+        result.reserve(nodes.size());
+        for (const auto& [id, node] : nodes) {
+            result.push_back(node.get());
+        }
+        return result;
+    }
+
+    /**
+     * @brief Получить все ID узлов
+     * @return Вектор ID всех узлов
+     */
+    std::vector<uint32_t> getAllNodeIds() const {
+        std::vector<uint32_t> result;
+        result.reserve(nodes.size());
+        for (const auto& [id, node] : nodes) {
+            result.push_back(id);
+        }
+        return result;
+    }
     
     uint32_t getNodeId(const std::string& name) const {
         auto it = name_to_id.find(name);
@@ -1491,15 +1627,15 @@ private:
                                         {"denial", "restriction"});
         
         // Коммуникация
-        uint32_t comm_greeting = addNode("greeting", "hello", {"hi", "hey"}, "communication",
+        uint32_t comm_greeting = addNode("greeting", "hello", {"hi", "hey", "hello", "yo", "what`s up"}, "communication",
                                         0.9f, 0.2f, 3, EmotionalTone::VERY_POSITIVE,
                                         {"conversation", "start"});
-        uint32_t comm_farewell = addNode("farewell", "goodbye", {"bye"}, "communication",
+        uint32_t comm_farewell = addNode("farewell", "goodbye", {"bye", "chao", "see you"}, "communication",
                                         0.8f, 0.2f, 3, EmotionalTone::POSITIVE,
                                         {"conversation", "end"});
-        uint32_t comm_question = addNode("question", "what", {"who", "where", "when", "why", "how"}, "communication",
+        uint32_t comm_question = addNode("question", "what", {"who", "where", "which", "when", "why", "how","is", "your",}, "question_word",
                                         0.9f, 0.4f, 5, EmotionalTone::NEUTRAL,
-                                        {"inquiry", "information"});
+                                        {"inquiry", "thing", "object"});
         uint32_t comm_thanks = addNode("thanks", "thanks", {"thank you"}, "communication",
                                     0.8f, 0.2f, 4, EmotionalTone::VERY_POSITIVE,
                                     {"gratitude", "response"});
@@ -1827,6 +1963,107 @@ void buildAllRelationships() {
     addEdge("when", "today", SemanticEdge::Type::USED_FOR, 0.8f);
     addEdge("why", "purpose", SemanticEdge::Type::USED_FOR, 0.9f);
     addEdge("how", "think", SemanticEdge::Type::USED_FOR, 0.8f);
+
+    uint32_t what_id = getNodeId("what");
+    uint32_t your_id = getNodeId("your");
+    uint32_t name_id = getNodeId("name");
+    uint32_t mary_id = getNodeId("mary");
+    uint32_t my_id = getNodeId("my");
+    uint32_t is_id = getNodeId("is");
+
+    if (mary_id != 0 && name_id != 0) {
+        // name → mary
+        addEdge(name_id, mary_id, SemanticEdge::Type::IS_A, 0.9f);
+        
+        // your → my
+        if (your_id != 0 && my_id != 0) {
+            addEdge(your_id, my_id, SemanticEdge::Type::OPPOSITE_OF, 0.8f);
+        }
+        
+        // Создаем фрейм для ответа
+        createFrame("name_response", {
+            {"question_word", "what"},
+            {"possessive", "your"},
+            {"subject", "name"},
+            {"answer", "mary"},
+            {"possessive_answer", "my"}
+        });
+        // Фрейм для приветствия
+        createFrame("greeting_response", {
+            {"greeting", "hello"},
+            {"response", "hello"},
+            {"feeling", "positive"}
+        });
+
+        // Фрейм для вопроса "who are you?"
+        createFrame("who_are_you", {
+            {"question_word", "who"},
+            {"subject", "you"},
+            {"answer", "mary"},
+            {"answer_type", "ai"}
+        });
+
+        // Фрейм для вопроса "how are you?"
+        createFrame("how_are_you", {
+            {"question_word", "how"},
+            {"subject", "you"},
+            {"answer", "good"},
+            {"feeling", "positive"}
+        });
+
+        // Фрейм для вопроса "what can you do?"
+        createFrame("what_can_you_do", {
+            {"question_word", "what"},
+            {"modal", "can"},
+            {"subject", "you"},
+            {"answer", "learn"},
+            {"capability", "talk"}
+        });
+
+        // Фрейм для ответа о создателе
+        createFrame("creator_response", {
+            {"question", "who_created_you"},
+            {"creator", "khamit"},
+            {"platform", "github"},
+            {"project", "cpp_ai_mary"}
+        });
+
+        // Фрейм для вопроса о времени
+        createFrame("time_response", {
+            {"question", "what_time"},
+            {"answer", "now"},
+            {"source", "clock"}
+        });
+
+        // В buildAllRelationships(), после создания фреймов:
+
+        // Связываем фрейм "who_are_you" с конкретными смыслами
+        uint32_t who_are_you_frame = getNodeId("who_are_you");
+        uint32_t who_id = getNodeId("who");
+        uint32_t you_id = getNodeId("you");
+        uint32_t mary_id = getNodeId("mary");
+        uint32_t ai_id = getNodeId("ai");
+
+        if (who_are_you_frame != 0) {
+            if (who_id != 0) addEdge(who_are_you_frame, who_id, SemanticEdge::Type::CONTAINS, 1.0f);
+            if (you_id != 0) addEdge(who_are_you_frame, you_id, SemanticEdge::Type::CONTAINS, 1.0f);
+            if (mary_id != 0) addEdge(who_are_you_frame, mary_id, SemanticEdge::Type::CONTAINS, 1.0f);
+            if (ai_id != 0) addEdge(who_are_you_frame, ai_id, SemanticEdge::Type::CONTAINS, 0.8f);
+        }
+
+        // Связываем фрейм "how_are_you"
+        uint32_t how_are_you_frame = getNodeId("how_are_you");
+        uint32_t how_id = getNodeId("how");
+        uint32_t good_id = getNodeId("good");
+        uint32_t positive_id = getNodeId("positive");
+
+        if (how_are_you_frame != 0) {
+            if (how_id != 0) addEdge(how_are_you_frame, how_id, SemanticEdge::Type::CONTAINS, 1.0f);
+            if (you_id != 0) addEdge(how_are_you_frame, you_id, SemanticEdge::Type::CONTAINS, 1.0f);
+            if (good_id != 0) addEdge(how_are_you_frame, good_id, SemanticEdge::Type::CONTAINS, 1.0f);
+            if (positive_id != 0) addEdge(how_are_you_frame, positive_id, SemanticEdge::Type::CONTAINS, 0.8f);
+        }
+    }
 }
 
 // Добавьте этот метод в класс SemanticGraphDatabase перед buildAbstractConceptLayer()
@@ -6047,7 +6284,322 @@ void buildOwnershipAndIdentityLayer() {
               << "~60 new concepts" << std::endl;
 }
 
+void buildBasicGrammarLayer() {
+    std::cout << "  Building basic grammar layer..." << std::endl;
+    
+    // Глаголы-связки
+    uint32_t verb_be = addNode("be", "be", 
+        {"am", "is", "are", "was", "were"}, 
+        "grammar", 0.9f, 0.2f, 2, EmotionalTone::NEUTRAL,
+        {"copula", "linking_verb", "grammar"});
+    
+    uint32_t verb_have = addNode("have", "have", 
+        {"has", "had", "possess"}, 
+        "grammar", 0.8f, 0.2f, 2, EmotionalTone::NEUTRAL,
+        {"possession", "grammar"});
+    
+    uint32_t verb_do = addNode("do", "do", 
+        {"does", "did", "perform"}, 
+        "grammar", 0.7f, 0.2f, 2, EmotionalTone::NEUTRAL,
+        {"auxiliary", "action"});
+    
+    // Модальные глаголы
+    uint32_t modal_can = addNode("can", "can", 
+        {"could", "able"}, 
+        "modal", 0.8f, 0.3f, 3, EmotionalTone::POSITIVE,
+        {"ability", "possibility"});
+    
+    uint32_t modal_will = addNode("will", "will", 
+        {"would", "shall"}, 
+        "modal", 0.8f, 0.3f, 3, EmotionalTone::POSITIVE,
+        {"future", "intention"});
+    
+    // Создаем узлы для абстрактных понятий, если их нет
+    uint32_t identity_id = getNodeId("identity");
+    if (identity_id == 0) {
+        identity_id = addNode("identity", "identity", 
+            {"who someone is"}, "abstract",
+            0.8f, 0.3f, 4, EmotionalTone::NEUTRAL,
+            {"philosophy", "self"});
+    }
+    
+    uint32_t possession_id = getNodeId("possession");
+    if (possession_id == 0) {
+        possession_id = addNode("possession", "possession", 
+            {"ownership"}, "abstract",
+            0.8f, 0.3f, 3, EmotionalTone::NEUTRAL,
+            {"ownership", "property"});
+    }
+    
+    uint32_t ability_id = getNodeId("ability");
+    if (ability_id == 0) {
+        ability_id = addNode("ability", "ability", 
+            {"capability", "skill"}, "abstract",
+            0.8f, 0.3f, 3, EmotionalTone::POSITIVE,
+            {"capability", "potential"});
+    }
+    
+    // Связи с существующими узлами
+    addEdge(verb_be, identity_id, SemanticEdge::Type::IS_A, 0.9f);
+    addEdge(verb_have, possession_id, SemanticEdge::Type::EXPRESSES, 0.9f);
+    addEdge(modal_can, ability_id, SemanticEdge::Type::EXPRESSES, 0.9f);
+}
+
+void buildPrepositionsLayer() {
+    std::cout << "  Building prepositions layer..." << std::endl;
+    
+    // Предлоги места
+    uint32_t prep_in = addNode("in", "in", 
+        {"inside", "within"}, 
+        "preposition", 0.7f, 0.2f, 2, EmotionalTone::NEUTRAL,
+        {"location", "container"});
+    
+    uint32_t prep_on = addNode("on", "on", 
+        {"upon", "atop"}, 
+        "preposition", 0.7f, 0.2f, 2, EmotionalTone::NEUTRAL,
+        {"surface", "location"});
+    
+    uint32_t prep_at = addNode("at", "at", 
+        {"by", "near"}, 
+        "preposition", 0.7f, 0.2f, 2, EmotionalTone::NEUTRAL,
+        {"location", "position"});
+    
+    uint32_t prep_under = addNode("under", "under", 
+        {"beneath", "below"}, 
+        "preposition", 0.6f, 0.2f, 2, EmotionalTone::NEUTRAL,
+        {"below", "location"});
+    
+    uint32_t prep_over = addNode("over", "over", 
+        {"above", "across"}, 
+        "preposition", 0.6f, 0.2f, 2, EmotionalTone::NEUTRAL,
+        {"above", "location"});
+    
+    uint32_t prep_between = addNode("between", "between", 
+        {"among", "in between"}, 
+        "preposition", 0.7f, 0.3f, 3, EmotionalTone::NEUTRAL,
+        {"middle", "location"});
+    
+    // Предлоги времени
+    uint32_t prep_before = addNode("before", "before", 
+        {"prior to", "earlier"}, 
+        "preposition", 0.7f, 0.2f, 2, EmotionalTone::NEUTRAL,
+        {"temporal", "earlier"});
+    
+    uint32_t prep_after = addNode("after", "after", 
+        {"following", "later"}, 
+        "preposition", 0.7f, 0.2f, 2, EmotionalTone::NEUTRAL,
+        {"temporal", "later"});
+    
+    uint32_t prep_during = addNode("during", "during", 
+        {"while", "throughout"}, 
+        "preposition", 0.7f, 0.3f, 3, EmotionalTone::NEUTRAL,
+        {"duration", "temporal"});
+    
+    uint32_t prep_since = addNode("since", "since", 
+        {"from", "after"}, 
+        "preposition", 0.6f, 0.3f, 3, EmotionalTone::NEUTRAL,
+        {"starting point", "temporal"});
+    
+    // Связи
+    // Используем существующие узлы из пространственных концептов
+    uint32_t inside_id = getNodeId("inside");  // из buildSpatialConceptNetwork
+    uint32_t surface_id = getNodeId("surface");
+    uint32_t before_id = getNodeId("before");
+    uint32_t after_id = getNodeId("after");
+    
+    if (inside_id != 0) {
+        addEdge(prep_in, inside_id, SemanticEdge::Type::SIMILAR_TO, 0.9f);
+    }
+    if (surface_id != 0) {
+        addEdge(prep_on, surface_id, SemanticEdge::Type::RELATES_TO, 0.8f);
+    }
+    if (before_id != 0) {
+        addEdge(prep_before, before_id, SemanticEdge::Type::IS_A, 0.9f);
+    }
+    if (after_id != 0) {
+        addEdge(prep_after, after_id, SemanticEdge::Type::IS_A, 0.9f);
+    }
+}
+
+void buildNumeralsLayer() {
+    std::cout << "  Building numerals layer..." << std::endl;
+    
+    // Числа 1-10
+    uint32_t num_one = addNode("one", "one", {"1"}, "numeral", 0.9f, 0.1f, 1, EmotionalTone::NEUTRAL, {"number"});
+    uint32_t num_two = addNode("two", "two", {"2"}, "numeral", 0.8f, 0.1f, 1, EmotionalTone::NEUTRAL, {"number"});
+    uint32_t num_three = addNode("three", "three", {"3"}, "numeral", 0.7f, 0.1f, 1, EmotionalTone::NEUTRAL, {"number"});
+    uint32_t num_four = addNode("four", "four", {"4"}, "numeral", 0.7f, 0.1f, 1, EmotionalTone::NEUTRAL, {"number"});
+    uint32_t num_five = addNode("five", "five", {"5"}, "numeral", 0.7f, 0.1f, 1, EmotionalTone::NEUTRAL, {"number"});
+    uint32_t num_six = addNode("six", "six", {"6"}, "numeral", 0.6f, 0.1f, 1, EmotionalTone::NEUTRAL, {"number"});
+    uint32_t num_seven = addNode("seven", "seven", {"7"}, "numeral", 0.6f, 0.1f, 1, EmotionalTone::NEUTRAL, {"number"});
+    uint32_t num_eight = addNode("eight", "eight", {"8"}, "numeral", 0.6f, 0.1f, 1, EmotionalTone::NEUTRAL, {"number"});
+    uint32_t num_nine = addNode("nine", "nine", {"9"}, "numeral", 0.6f, 0.1f, 1, EmotionalTone::NEUTRAL, {"number"});
+    uint32_t num_ten = addNode("ten", "ten", {"10"}, "numeral", 0.7f, 0.1f, 1, EmotionalTone::NEUTRAL, {"number"});
+    
+    // Порядковые
+    uint32_t first = addNode("first", "first", {"1st"}, "ordinal", 0.7f, 0.2f, 2, EmotionalTone::NEUTRAL, {"order"});
+    uint32_t second = addNode("second", "second", {"2nd"}, "ordinal", 0.7f, 0.2f, 2, EmotionalTone::NEUTRAL, {"order"});
+    uint32_t third = addNode("third", "third", {"3rd"}, "ordinal", 0.7f, 0.2f, 2, EmotionalTone::NEUTRAL, {"order"});
+    uint32_t last = addNode("last", "last", {"final"}, "ordinal", 0.8f, 0.2f, 2, EmotionalTone::NEUTRAL, {"order"});
+    
+    // Связи
+    addEdge(num_one, first, SemanticEdge::Type::RELATES_TO, 0.8f);
+    addEdge(num_two, second, SemanticEdge::Type::RELATES_TO, 0.8f);
+    addEdge(num_three, third, SemanticEdge::Type::RELATES_TO, 0.8f);
+}
+
+void buildResponsePhrasesLayer() {
+    std::cout << "  Building response phrases layer..." << std::endl;
+    
+    uint32_t response_yes = addNode("yes", "yes", 
+        {"yeah", "yep", "sure", "ok", "okay"}, 
+        "response", 0.9f, 0.2f, 2, EmotionalTone::VERY_POSITIVE,
+        {"affirmative", "agreement"});
+    
+    uint32_t response_no = addNode("no", "no", 
+        {"nope", "nah", "not"}, 
+        "response", 0.8f, 0.2f, 2, EmotionalTone::NEGATIVE,
+        {"negative", "disagreement"});
+    
+    uint32_t response_maybe = addNode("maybe", "maybe", 
+        {"perhaps", "possibly"}, 
+        "response", 0.7f, 0.3f, 3, EmotionalTone::NEUTRAL,
+        {"uncertainty", "possibility"});
+    
+    uint32_t interjection_oh = addNode("oh", "oh", 
+        {"ah", "aha"}, 
+        "interjection", 0.6f, 0.1f, 1, EmotionalTone::POSITIVE,
+        {"realization", "surprise"});
+    
+    uint32_t interjection_wow = addNode("wow", "wow", 
+        {"wow", "amazing"}, 
+        "interjection", 0.8f, 0.1f, 1, EmotionalTone::VERY_POSITIVE,
+        {"amazement", "surprise"});
+    
+    uint32_t interjection_well = addNode("well", "well", 
+        {"hmm", "um"}, 
+        "interjection", 0.5f, 0.1f, 1, EmotionalTone::NEUTRAL,
+        {"hesitation", "filler"});
+    
+    // Используем существующие узлы из buildBaseGraph()
+    uint32_t positive_id = getNodeId("positive");
+    uint32_t negative_id = getNodeId("negative");
+    uint32_t uncertainty_id = getNodeId("uncertainty");
+    
+    if (positive_id != 0) {
+        addEdge(response_yes, positive_id, SemanticEdge::Type::EXPRESSES, 0.9f);
+    }
+    if (negative_id != 0) {
+        addEdge(response_no, negative_id, SemanticEdge::Type::EXPRESSES, 0.9f);
+    }
+    if (uncertainty_id != 0) {
+        addEdge(response_maybe, uncertainty_id, SemanticEdge::Type::EXPRESSES, 0.9f);
+    }
+}
+
+void buildDiscourseMarkersLayer() {
+    std::cout << "  Building discourse markers layer..." << std::endl;
+    
+    uint32_t and_conj = addNode("and", "and", 
+        {"&", "plus"}, 
+        "conjunction", 0.9f, 0.1f, 1, EmotionalTone::NEUTRAL,
+        {"connection", "addition"});
+    
+    uint32_t but_conj = addNode("but", "but", 
+        {"however", "yet"}, 
+        "conjunction", 0.8f, 0.2f, 2, EmotionalTone::NEUTRAL,
+        {"contrast", "exception"});
+    
+    uint32_t or_conj = addNode("or", "or", 
+        {"either", "alternatively"}, 
+        "conjunction", 0.7f, 0.2f, 2, EmotionalTone::NEUTRAL,
+        {"alternative", "choice"});
+    
+    uint32_t so_conj = addNode("so", "so", 
+        {"therefore", "thus"}, 
+        "conjunction", 0.8f, 0.2f, 2, EmotionalTone::NEUTRAL,
+        {"consequence", "result"});
+    
+    uint32_t because_conj = addNode("because", "because", 
+        {"since", "as"}, 
+        "conjunction", 0.9f, 0.2f, 2, EmotionalTone::NEUTRAL,
+        {"reason", "cause"});
+    
+    uint32_t if_conj = addNode("if", "if", 
+        {"whether"}, 
+        "conjunction", 0.8f, 0.3f, 3, EmotionalTone::NEUTRAL,
+        {"condition", "hypothesis"});
+    
+    // Используем существующие узлы
+    uint32_t addition_id = getNodeId("addition");  // из buildMathematicalFoundationLayer
+    uint32_t contrast_id = getNodeId("contrast");
+    uint32_t causality_id = getNodeId("causality");
+    
+    if (addition_id == 0) {
+        addition_id = addNode("addition_concept", "addition", {}, "abstract", 0.7f, 0.2f, 2);
+    }
+    if (contrast_id == 0) {
+        contrast_id = addNode("contrast", "contrast", {"difference"}, "abstract", 0.7f, 0.2f, 2);
+    }
+    if (causality_id == 0) {
+        causality_id = getNodeId("causality");
+    }
+    
+    addEdge(and_conj, addition_id, SemanticEdge::Type::EXPRESSES, 0.9f);
+    addEdge(but_conj, contrast_id, SemanticEdge::Type::EXPRESSES, 0.9f);
+    addEdge(so_conj, causality_id, SemanticEdge::Type::EXPRESSES, 0.9f);
+    addEdge(because_conj, causality_id, SemanticEdge::Type::EXPRESSES, 0.9f);
+}
+
+void buildBasicVocabularyLayer() {
+    std::cout << "  Building basic vocabulary layer..." << std::endl;
+    
+    buildBasicGrammarLayer();
+    buildPrepositionsLayer();
+    buildNumeralsLayer();
+    buildResponsePhrasesLayer();
+    buildDiscourseMarkersLayer();
+    
+    // Добавляем алиасы к существующим узлам вопросительных слов
+    auto what_node = getNodeId("what");  // это question_what из buildRelationships
+    if (what_node != 0) {
+        addAlias(what_node, "what's");
+        addAlias(what_node, "what is");
+    }
+    
+    auto who_node = getNodeId("who");
+    if (who_node != 0) {
+        addAlias(who_node, "who's");
+        addAlias(who_node, "who is");
+    }
+    
+    auto where_node = getNodeId("where");
+    if (where_node != 0) {
+        addAlias(where_node, "where's");
+        addAlias(where_node, "where is");
+    }
+    
+    auto when_node = getNodeId("when");
+    if (when_node != 0) {
+        addAlias(when_node, "when's");
+        addAlias(when_node, "when is");
+    }
+    
+    auto why_node = getNodeId("why");
+    if (why_node != 0) {
+        addAlias(why_node, "why's");
+        addAlias(why_node, "why is");
+    }
+    
+    auto how_node = getNodeId("how");
+    if (how_node != 0) {
+        addAlias(how_node, "how's");
+        addAlias(how_node, "how is");
+    }
+}
+
     // ===== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ =====
+
     
     SemanticEdge::Type stringToRoleType(const std::string& role) {
         static const std::map<std::string, SemanticEdge::Type> role_map = {
@@ -6114,3 +6666,33 @@ void buildOwnershipAndIdentityLayer() {
         return str;
     }
 };
+    inline void SemanticGraphDatabase::markCoreConcepts() {
+        int marked_count = 0;
+        
+        // Ядерные концепты (никогда не удаляются)
+        std::vector<std::string> core_names = {
+            "mary", "khamit", "creator", "name", "ai", "system",
+            "i", "you", "hello", "goodbye", "thanks", "help",
+            "what", "who", "where", "when", "why", "how",
+            "yes", "no", "good", "bad", "think", "know", "learn"
+        };
+        
+        for (const auto& name : core_names) {
+            uint32_t id = getNodeId(name);
+            if (id != 0) {
+                markAsCore(id);
+                marked_count++;
+                std::cout << "  Core concept: " << name << " (ID: " << id << ")" << std::endl;
+            }
+        }
+        
+        // Также помечаем как ядерные концепты с высокой базовой важностью
+        for (const auto& [id, node] : nodes) {
+            if (node->base_importance > 0.8f && !node->is_core) {
+                node->is_core = true;
+                marked_count++;
+                std::cout << "  Auto-core concept: " << node->name << " (importance: " 
+                        << node->base_importance << ")" << std::endl;
+            }
+        }
+    }

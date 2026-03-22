@@ -8,6 +8,8 @@
 #include <cmath>
 #include "EventSystem.hpp"
 #include "core/INeuralGroupAccess.hpp"
+#include "DynamicParams.hpp"
+#include <mutex>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -131,8 +133,6 @@ public:
     NeuralFieldSystem(const NeuralFieldSystem&) = delete;
     NeuralFieldSystem& operator=(const NeuralFieldSystem&) = delete;
 
-    OperatingMode::Type determineOperatingMode();
-
     /**
      * Основной шаг симуляции с трехуровневой архитектурой
      * @param globalReward - глобальный сигнал награды
@@ -194,11 +194,12 @@ public:
     void applyRicciFlow();
 
     // Доступ к группам
-    std::vector<NeuralGroup>& getGroups() { return groups; }
+    std::vector<NeuralGroup>& getGroupsNonConst() { return groups; }
     const std::vector<NeuralGroup>& getGroups() const { return groups; }
 
     // LOG
     void logOrbitalHealth();
+    void setOperatingMode(OperatingMode::Type mode);
 
     // УДАЛЕНО: старые методы предсказателя
     // void initializePredictor(size_t input_dim, size_t latent_dim, std::mt19937& rng);
@@ -267,9 +268,24 @@ public:
         }
     }
 
+    void lock() { system_mutex_.lock(); }
+    void unlock() { system_mutex_.unlock(); }
+    std::mutex& getMutex() { return system_mutex_; }
+    
+    // Или используйте RAII
+    class ScopedLock {
+        NeuralFieldSystem& system_;
+    public:
+        ScopedLock(NeuralFieldSystem& system) : system_(system) { system_.lock(); }
+        ~ScopedLock() { system_.unlock(); }
+    };
+
 private:
+    mutable std::mutex system_mutex_;  // добавить
+
     AttentionMechanism attention;
     EventSystem& events;
+    OperatingMode::Type current_mode_ = OperatingMode::NORMAL;
 
     // НОВОЕ: вектор индексов групп-хабов
     std::vector<int> hubIndices;

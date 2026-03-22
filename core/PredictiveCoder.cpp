@@ -105,7 +105,7 @@ void PredictiveCoder::learn(const std::vector<float>& predicted,
 
     for (int g = 16; g <= 21; ++g) {
 
-        auto& group = neural_system_.getGroups()[g];
+        auto& group = neural_system_.getGroupsNonConst()[g];
 
         float reward = 1.0f - std::tanh(error * 5.0f);
 
@@ -119,7 +119,7 @@ void PredictiveCoder::modulateLearning(float error, int step)
 
     for (int g = 16; g <= 21; ++g) {
 
-        auto& group = neural_system_.getGroups()[g];
+        auto& group = neural_system_.getGroupsNonConst()[g];
 
         group.learnSTDP(reward, step);
     }

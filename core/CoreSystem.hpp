@@ -16,6 +16,11 @@
 #include "IAuthorization.hpp"
 #include "EnterpriseAuth.hpp"
 #include "PersonalAuth.hpp"
+#include "data/SemanticGraphDatabase.hpp"
+// ДОБАВЛЕНО: предварительные объявления
+class EvolutionModule;
+class LearningOrchestrator;
+class MetaCognitiveModule;
 /*
 График загрузки нейронов
 text
@@ -69,6 +74,9 @@ private:
 
     // ВМЕСТО конкретного AccessManager:
     std::unique_ptr<IAuthorization> auth;
+
+    // ДОБАВЛЕНО
+    SemanticGraphDatabase semantic_graph;
 public:
     CoreSystem();
     ~CoreSystem();
@@ -83,7 +91,15 @@ public:
 
     // активное восприятие
     void activePerception();
+    void initializeSemanticGraph();
     
+    // Метод для проверки, инициализирован ли граф
+    bool isSemanticGraphInitialized() const { 
+        return !semantic_graph.getAllNodes().empty(); 
+    }
+    SemanticGraphDatabase& getSemanticGraph() { return semantic_graph; }
+    const SemanticGraphDatabase& getSemanticGraph() const { return semantic_graph; }
+
     // Регистрация компонентов
     template<typename T, typename... Args>
     T* registerComponent(const std::string& name, Args&&... args) {

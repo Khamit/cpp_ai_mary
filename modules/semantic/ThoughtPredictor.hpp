@@ -25,31 +25,48 @@ public:
         // 1. Проецируем входные смыслы в нейросеть
         semantic_manager.projectToSystem(input_meanings);
         
-        // 2. Даем нейросети время "подумать" (несколько шагов)
-        for (int i = 0; i < 5; i++) {
+        // 2. Даем нейросети время "подумать"
+        for (int i = 0; i < 8; i++) {  // увеличил количество шагов для стабилизации
             neural_system.step(0.0f, i);
         }
         
-        // 3. Извлекаем результирующие смыслы
-        auto output_meanings = semantic_manager.extractMeaningsFromSystem();
+        // 3. Извлекаем результирующий ПУТЬ (а не набор)
+        auto output_path = semantic_manager.extractMeaningPath(5);  // максимум 5 смыслов в пути
         
         // 4. Предсказываем следующий смысл (причина -> следствие)
-        auto predicted = semantic_manager.predictNextMeanings(output_meanings);
+        auto predicted = semantic_manager.predictNextMeanings(output_path);
         
         // 5. Сохраняем в историю
-        thought_history.push_back(output_meanings);
+        thought_history.push_back(output_path);
         if (thought_history.size() > MAX_HISTORY) {
             thought_history.pop_front();
         }
         
-        // 6. Если предсказание сильное, добавляем его
+        // 6. Если предсказание сильное, добавляем его в конец пути
         if (!predicted.empty()) {
-            output_meanings.insert(output_meanings.end(), 
-                                  predicted.begin(), 
-                                  predicted.end());
+            // Добавляем только если предсказание связано с последним элементом пути
+            uint32_t last = output_path.back();
+            for (uint32_t pred : predicted) {
+                // Проверяем связь через граф
+                auto edges = semantic_manager.getSemanticGraph()->getEdgesFrom(last);
+                bool has_relation = false;
+                for (const auto& edge : edges) {
+                    if (edge.to_id == pred) {
+                        has_relation = true;
+                        break;
+                    }
+                }
+                if (has_relation) {
+                    output_path.push_back(pred);
+                    break;  // добавляем только одно предсказание
+                }
+            }
         }
         
-        return output_meanings;
+        // Очищаем кэш отношений пути
+        semantic_manager.clearPathRelations();
+        
+        return output_path;
     }
     
     // Обучение на правильной последовательности

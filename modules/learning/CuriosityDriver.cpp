@@ -9,6 +9,14 @@ CuriosityDriver::CuriosityDriver(NeuralFieldSystem& ns, LanguageModule& lang,
                                  SemanticGraphDatabase& graph)
     : neural_system(ns), language_module(lang), semantic_graph(graph) {}
 
+    std::shared_ptr<CuriosityDriver> createCuriosityDriver(
+    NeuralFieldSystem& neural_system,
+    LanguageModule& language,
+    SemanticGraphDatabase& semantic_graph
+) {
+    return std::make_shared<CuriosityDriver>(neural_system, language, semantic_graph);
+}
+
 std::vector<CuriosityQuestion> CuriosityDriver::generateQuestions() {
     std::vector<CuriosityQuestion> questions;
     

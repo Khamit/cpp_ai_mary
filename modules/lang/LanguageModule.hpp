@@ -6,7 +6,11 @@
 #include <random>
 #include <memory>
 #include <deque>
-#include <thread> 
+#include <thread>
+#include <unordered_map>
+#include <mutex>      
+#include <chrono>     
+#include <iostream>   
 #include "../../core/Component.hpp"
 #include "../../core/NeuralFieldSystem.hpp"
 #include "../semantic/SemanticManager.hpp"
@@ -14,12 +18,13 @@
 #include "../../core/ImmutableCore.hpp"
 #include "../../core/IAuthorization.hpp"
 #include "../../data/SemanticGraphDatabase.hpp"
-#include "EffectiveLearning_fwd.hpp" 
+//#include "EffectiveLearning_fwd.hpp" 
 
 // Forward declaration
 class CuriosityDriver;
 
-class EffectiveLearning; 
+//class EffectiveLearning;
+class LearningOrchestrator;  // forward declaration
 
 // Структура для хранения состояния диалога
 struct DialogueState {
@@ -42,7 +47,11 @@ private:
     std::unique_ptr<SemanticManager> semantic_manager;
     std::unique_ptr<ThoughtPredictor> thought_predictor;
 
-    SemanticGraphDatabase* semantic_graph_ = nullptr; // ДОБАВИТЬ
+    SemanticGraphDatabase* semantic_graph_ = nullptr;
+
+    int process_step_counter_ = 0;
+
+    //std::unique_ptr<NeuralTrainer> neural_trainer_;
 
     std::thread learning_thread_;  // нужно join в деструкторе!
     std::atomic<bool> learning_active_{false};
@@ -63,10 +72,17 @@ private:
     std::string default_user_ = "user";
     bool enforce_commands_ = false;
     bool emotional_responses_ = true;
+
+    // в private секцию
+    bool dictionary_initialized_ = false;
+    std::mutex dict_mutex_;
     
     // История последних смыслов для анализа
     std::deque<uint32_t> recent_meanings_;
     static constexpr size_t MAX_RECENT_MEANINGS = 50;
+
+    // словарь для быстрого поиска слов -> смыслы
+    std::unordered_map<std::string, std::vector<uint32_t>> word_to_meaning;
     
     // Приватные методы
     std::vector<std::string> split(const std::string& text);
@@ -85,11 +101,17 @@ private:
 public:
     explicit LanguageModule(NeuralFieldSystem& system, 
                            ImmutableCore& core,
-                           IAuthorization& auth, SemanticGraphDatabase* graph);
+                           IAuthorization& auth, SemanticGraphDatabase* graph = nullptr);
     
     ~LanguageModule();
 
-    SemanticManager& getSemanticManager() { return *semantic_manager; }
+    SemanticManager& getSemanticManager() { 
+        if (!semantic_manager) {
+            throw std::runtime_error("semantic_manager is null in getSemanticManager()");
+        }
+        return *semantic_manager; 
+    }
+
 
     std::string getName() const override { return "LanguageModule"; }
     bool initialize(const Config& config) override;
@@ -98,6 +120,8 @@ public:
     void saveState(MemoryManager& memory) override;
     void loadState(MemoryManager& memory) override;
 
+    std::shared_ptr<CuriosityDriver> createCuriosityDriver();
+    bool hasCuriosityDriver() const { return curiosity_driver_ != nullptr; }
     // Основной метод обработки с учетом пользователя (возвращает ответ)
     std::string process(const std::string& input, const std::string& user_name = "guest");
     // НОВЫЕ МЕТОДЫ ДЛЯ ДИАЛОГОВОГО ОБУЧЕНИЯ
@@ -128,13 +152,13 @@ public:
     double getLanguageFitness() const;
 
     // Методы для UI (совместимость)
-    void runAutoLearning(int steps, EffectiveLearning* learning = nullptr);
+    void runAutoLearning(int steps, LearningOrchestrator* orchestrator);
 
     void stopAutoLearning();
     bool isAutoLearningActive() const { return auto_learning_active_; }
     
     void saveAll() {}  // заглушка
-    int getLearnedWordsCount() const { return 0; }
+    int getLearnedWordsCount() const { return word_to_meaning.size(); } 
 
     void addExternalFeedback(float rating) {
         external_feedback_sum_ += rating;
@@ -148,6 +172,7 @@ public:
 
     void setSemanticGraph(SemanticGraphDatabase& graph) {
         semantic_graph_ = &graph;
+        initializeWordDictionary();
     }
 
     // Установка режима работы
@@ -172,4 +197,8 @@ public:
     std::vector<uint32_t> getRecentMeanings() const {
         return std::vector<uint32_t>(recent_meanings_.begin(), recent_meanings_.end());
     }
+    void initializeWordDictionary();
+
+    int getProcessStepCounter() const { return process_step_counter_; }
+    void incrementProcessStepCounter() { process_step_counter_++; }
 };

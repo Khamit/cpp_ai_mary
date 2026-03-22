@@ -516,48 +516,87 @@ private:
                 for (int j = i + 1; j < groupSize; ++j) {
                     if (synIndex < synapses.size()) {
                         float weight = synapses[synIndex].weight;
+                        float abs_weight = std::abs(weight);
                         
-                        if (std::abs(weight) > config.connection_threshold) {
-                            // Проецируем позиции нейронов
-                            sf::Vector2f pos_i = project3DTo2D(
-                                positions[i].x, positions[i].y, positions[i].z,
-                                rot_rad, tilt_rad, cos_tilt, sin_tilt
-                            );
-                            
-                            sf::Vector2f pos_j = project3DTo2D(
-                                positions[j].x, positions[j].y, positions[j].z,
-                                rot_rad, tilt_rad, cos_tilt, sin_tilt
-                            );
-                            
-                            // Масштабируем
-                            pos_i.x = centerX + config.pan_x + pos_i.x * config.orbit_scale;
-                            pos_i.y = centerY + config.pan_y + pos_i.y * config.orbit_scale;
-                            pos_j.x = centerX + config.pan_x + pos_j.x * config.orbit_scale;
-                            pos_j.y = centerY + config.pan_y + pos_j.y * config.orbit_scale;
-                            
-                            sf::Color lineColor;
-                            if (weight > 0) {
-                                std::uint8_t alpha = static_cast<std::uint8_t>(std::min(std::abs(weight) * 255.0f, 200.0f));
-                                lineColor = sf::Color(255, 100, 100, alpha);
+                        // Пропускаем очень слабые связи
+                        if (abs_weight < 0.05f) {
+                            synIndex++;
+                            continue;
+                        }
+                        
+                        // Проецируем позиции нейронов
+                        sf::Vector2f pos_i = project3DTo2D(
+                            positions[i].x, positions[i].y, positions[i].z,
+                            rot_rad, tilt_rad, cos_tilt, sin_tilt
+                        );
+                        
+                        sf::Vector2f pos_j = project3DTo2D(
+                            positions[j].x, positions[j].y, positions[j].z,
+                            rot_rad, tilt_rad, cos_tilt, sin_tilt
+                        );
+                        
+                        // Масштабируем
+                        pos_i.x = centerX + config.pan_x + pos_i.x * config.orbit_scale;
+                        pos_i.y = centerY + config.pan_y + pos_i.y * config.orbit_scale;
+                        pos_j.x = centerX + config.pan_x + pos_j.x * config.orbit_scale;
+                        pos_j.y = centerY + config.pan_y + pos_j.y * config.orbit_scale;
+                        
+                        // Цвет и толщина зависят от силы связи
+                        sf::Color lineColor;
+                        float thickness = 1.0f;
+                        
+                        if (weight > 0) {
+                            // Положительные связи - красные/оранжевые
+                            if (abs_weight > 0.5f) {
+                                lineColor = sf::Color(255, 50, 50, 255);  // ярко-красный
+                                thickness = 3.0f;
+                            } else if (abs_weight > 0.2f) {
+                                lineColor = sf::Color(255, 100, 100, 200); // красный
+                                thickness = 2.0f;
                             } else {
-                                std::uint8_t alpha = static_cast<std::uint8_t>(std::min(std::abs(weight) * 255.0f, 200.0f));
-                                lineColor = sf::Color(100, 100, 255, alpha);
+                                lineColor = sf::Color(255, 150, 150, 150); // бледно-красный
+                                thickness = 1.0f;
                             }
-                            
+                        } else {
+                            // Отрицательные связи - синие/голубые
+                            if (abs_weight > 0.5f) {
+                                lineColor = sf::Color(50, 50, 255, 255);  // ярко-синий
+                                thickness = 3.0f;
+                            } else if (abs_weight > 0.2f) {
+                                lineColor = sf::Color(100, 100, 255, 200); // синий
+                                thickness = 2.0f;
+                            } else {
+                                lineColor = sf::Color(150, 150, 255, 150); // бледно-синий
+                                thickness = 1.0f;
+                            }
+                        }
+                        
+                        // Рисуем линию с заданной толщиной
+                        // SFML не поддерживает толщину линий напрямую, но можно нарисовать несколько линий
+                        for (float t = -thickness/2; t <= thickness/2; t += 0.5f) {
                             sf::Vertex line[2];
-                            line[0].position = pos_i;
+                            // Смещаем линию перпендикулярно для имитации толщины
+                            sf::Vector2f dir = pos_j - pos_i;
+                            float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+                            if (len > 0.01f) {
+                                sf::Vector2f perp(-dir.y / len, dir.x / len);
+                                line[0].position = pos_i + perp * t;
+                                line[1].position = pos_j + perp * t;
+                            } else {
+                                line[0].position = pos_i;
+                                line[1].position = pos_j;
+                            }
                             line[0].color = lineColor;
-                            line[1].position = pos_j;
                             line[1].color = lineColor;
                             window.draw(line, 2, sf::PrimitiveType::Lines);
                         }
+                        
                         synIndex++;
                     }
                 }
             }
         }
     }
-    
     VisualizationConfig config;
     int numGroups, groupSize;
     int width, height;

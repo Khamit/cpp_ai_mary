@@ -21,9 +21,9 @@
 #include "modules/ResourceMonitor.hpp"
 #include "modules/ConfigStructs.hpp"
 #include "modules/MetaCognitiveModule.hpp"
-#include "modules/lang/LanguageModule.hpp"  // Добавлено!
-#include "modules/lang/EffectiveLearning.hpp"
+#include "modules/lang/LanguageModule.hpp" 
 #include "core/CoreHub.hpp"
+#include "modules/learning/CuriosityDriver.hpp" 
 //#include "core/MemoryManager.hpp"
 //#include "core/Component.hpp"
 #include <signal.h>
@@ -33,6 +33,7 @@
 #include <atomic>
 
 std::atomic<bool> handling_signal(false);
+std::atomic<bool> system_busy{false};
 
 void handler(int sig) {
     // Защита от рекурсивных вызовов
@@ -228,7 +229,6 @@ int main() {
             selectedLimits = systemConfig.getIdleLimits();
             break;
     }
-    
 
     // Параметры системы
     double dt = 0.001;
@@ -256,7 +256,16 @@ int main() {
     // Запускаем предобучение (только при первом запуске)
     // core.runInitialTraining();
     
-    // Получаем доступ к компонентам ядра
+    // Получаем доступ к компонентам
+    EvolutionModule* evolution = core.getComponent<EvolutionModule>("evolution");
+    LanguageModule* language = core.getComponent<LanguageModule>("language");
+    MetaCognitiveModule* metacog = core.getComponent<MetaCognitiveModule>("metacognition");
+
+    // Инициализируем словарь слов
+    if (language) {
+        language->initializeWordDictionary();  // ДОБАВИТЬ
+    }
+
     NeuralFieldSystem& neuralSystem = core.getNeuralSystem();
     MemoryManager& memoryManager = core.getMemory();
     ImmutableCore& immutable_core = core.getImmutableCore();
@@ -270,8 +279,9 @@ int main() {
         static PersonnelDatabase enterprise_db;
         personnel_db = &enterprise_db;
     }
-    // ИСПРАВЛЕНИЕ: создаем семантический граф один раз
-    SemanticGraphDatabase semantic_graph;
+
+    // создаем семантический граф один раз из CoreSystem
+    SemanticGraphDatabase& semantic_graph = core.getSemanticGraph();
     // Создаем менеджеры
     MasterKeyManager master_key_mgr;
 
@@ -284,47 +294,36 @@ int main() {
     CoreHub coreHub(3);
     coreHub.connectToGroups(neuralSystem);
 
-    // Регистрируем модули в CoreSystem
-    auto* evolution = core.registerComponent<EvolutionModule>(
-        "evolution",
-        immutable_core, 
-        evolConfig, 
-        memoryManager);
+    // ПОЛУЧАЕМ LearningOrchestrator из CoreSystem (НОВОЕ)
+    auto* learning_orchestrator = core.getComponent<LearningOrchestrator>("learning");
+    if (learning_orchestrator) {
+        std::cout << "LearningOrchestrator found, stats: " << std::endl;
+        std::cout << learning_orchestrator->getStats() << std::endl;
+        
+        // Подключаем ConceptMasteryEvaluator к EvolutionModule
+        if (evolution && !evolution->getMasteryEvaluator()) {
+            evolution->setMasteryEvaluator(&learning_orchestrator->getMasteryEvaluator());
+            std::cout << "Connected ConceptMasteryEvaluator to EvolutionModule" << std::endl;
+        }
+    }
 
-    auto* language = core.registerComponent<LanguageModule>(
-        "language", 
-        neuralSystem, 
-        immutable_core,
-        auth,
-        &semantic_graph  // SemanticGraphDatabase* graph = nullptr
-    );
-
-    auto* metacog = core.registerComponent<MetaCognitiveModule>(
-        "metacognition", neuralSystem
-    );
-
-    // ИСПРАВЛЕНИЕ: создаем EffectiveLearning с правильным порядком параметров
-    auto semantic_learning = std::make_unique<EffectiveLearning>(
-        neuralSystem,
-        *language,
-        language->getSemanticManager(),
-        memoryManager,
-        personnel_db,  // указатель (может быть nullptr)
-        auth,
-        deviceInfo,
-        semantic_graph
-    );
     // Связываем MetaCognitiveModule с EvolutionModule
-    metacog->setEvolutionModule(evolution);
+    if (metacog && evolution) {
+        metacog->setEvolutionModule(evolution);
+    }
 
-    // Инициализируем любопытство
-    auto curiosity = std::make_shared<CuriosityDriver>(
-        neuralSystem,
-        *language, 
-        semantic_graph
-    );
-    language->setCuriosityDriver(curiosity);
-    semantic_learning->initializeCuriosity();
+    // Инициализируем любопытство (НОВОЕ - используем learning_orchestrator)
+    if (language && learning_orchestrator) {
+        auto curiosity = std::make_shared<CuriosityDriver>(
+            neuralSystem,
+            *language, 
+            semantic_graph
+        );
+        language->setCuriosityDriver(curiosity);
+        
+        // Инициализируем любопытство в оркестраторе, если есть такой метод
+        // learning_orchestrator->initializeCuriosity(); // если добавите
+    }
 
     // При первом запуске показываем мастер-ключ
     if (!std::filesystem::exists("dump/semantic_trained.bin")) {
@@ -348,11 +347,9 @@ int main() {
     // ИНИЦИАЛИЗАЦИЯ НЕЙРОСИСТЕМЫ С ВЫБРАННЫМИ ПАРАМЕТРАМИ
     std::mt19937 rng(std::random_device{}());
     neuralSystem.initializeWithLimits(rng, initialLimits);
-    
-    // УСТАНАВЛИВАЕМ РЕЖИМ
-    neuralSystem.setTrainingMode(startupMode == OperatingMode::TRAINING);
     neuralSystem.initializePredictiveCoder(memoryManager);
-    
+    neuralSystem.setOperatingMode(startupMode);
+    std::cout << "Initial operating mode: " << OperatingMode::toString(startupMode) << std::endl;
     // Создаем остальные модули
     ResourceMonitor resources(resConfig);
 
@@ -393,7 +390,7 @@ int main() {
     stats_collector.setEvolution(evolution);
     stats_collector.setLanguage(language);
     stats_collector.setMetaCognitive(metacog);
-    stats_collector.setEffectiveLearning(semantic_learning.get());
+    stats_collector.setLearning(learning_orchestrator); 
 
     // Подключаем к StatisticsModule
     statistics.setStatsCollector(&stats_collector);
@@ -485,34 +482,30 @@ int main() {
             }
         }
         resources.update();
-        /*
-        if (!system_in_stasis && resources.checkAndTriggerOverload()) {
-            std::cout << "⚠️ System overload detected! Reducing memory activity..." << std::endl;
-        }
-        */
-        // Проверяем состояние автообучения
-        static bool lastAutoLearningState = false;
-        if (ui.isAutoLearningActive() != lastAutoLearningState) {
-            if (ui.isAutoLearningActive()) {
-                language->runAutoLearning(10000, semantic_learning.get());
-                std::cout << "Auto-learning started" << std::endl;
-            } else {
-                language->stopAutoLearning();
-                semantic_learning->stopTraining();  // останавливаем обучение
-                std::cout << "Auto-learning stopped" << std::endl;
-            }
-            lastAutoLearningState = ui.isAutoLearningActive();
-        }
 
         if (simulation_running) {
-
+            ui.setSimulationRunning(true);
             // Интеграция хабов перед шагом нейросистемы
             coreHub.integrate(neuralSystem);
 
             auto start_time = std::chrono::high_resolution_clock::now();
 
             // ===== ЕДИНСТВЕННЫЙ ВЫЗОВ НЕЙРОСИСТЕМЫ =====
+                // Получаем режим из UI (единственный источник истины)
+            OperatingMode::Type current_mode = ui.getCurrentOperatingMode();
+            
+            // Устанавливаем режим в нейросистему
+            neuralSystem.setOperatingMode(current_mode);
+            
+            // Также можно установить во все группы, если нужно
+            // (но neuralSystem может сама передать своим группам)
+            
+            // Интеграция хабов...
+            coreHub.integrate(neuralSystem);
+            
+            // Шаг нейросистемы - она уже знает режим из setOperatingMode
             neuralSystem.step(lastReward, step);
+    
             // Передаем текущий шаг в обучение (если нужно)
             // semantic_learning->setCurrentStep(step);  // если добавите такой метод
             // Обучение хабов
@@ -606,7 +599,12 @@ int main() {
                 if (step % 10000 == 0 && step > 0) {
                     memoryManager.saveAll();
                     statistics.saveToFile("dump/simulation_statistics.csv");
-                    std::cout << semantic_learning->getStats() << std::endl;
+                    
+                    // ИСПРАВЛЕНО: вместо semantic_learning->getStats()
+                    if (learning_orchestrator) {
+                        std::cout << learning_orchestrator->getStats() << std::endl;
+                    }
+                    
                     std::cout << "\nCheckpoint saved at step " << step << std::endl;
                 }
                 
@@ -654,6 +652,8 @@ int main() {
                     std::cout.flush();
                 }
             step++;
+        } else {
+            ui.setSimulationRunning(false);
         }
 
         // ВИЗУАЛИЗАЦИЯ
