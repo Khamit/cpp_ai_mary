@@ -57,67 +57,6 @@ private:
     uint32_t next_id = 1;
 
     std::map<size_t, SemanticEdge::Type> path_relations_;
-
-    int getGroupForConcept(uint32_t id) const {
-        if (!semantic_graph_) return (id % NUM_SEMANTIC_GROUPS);
-        auto node = semantic_graph_->getNode(id);
-        if (!node) return (id % NUM_SEMANTIC_GROUPS);
-        
-        // Маппинг категорий на группы (0-5 соответствуют группам 16-21)
-        const std::string& cat = node->primary_category;
-        
-        // Группа 0 (группа 16): Физические объекты и устройства
-        if (cat == "device" || cat == "sensor" || cat == "object" || 
-            cat == "tool" || cat == "file" || cat == "shape" || cat == "shape_3d") {
-            return 0;
-        }
-        
-        // Группа 1 (группа 17): Действия и процессы
-        if (cat == "action" || cat == "action_file" || cat == "action_control" ||
-            cat == "action_modify" || cat == "function" || cat == "process" ||
-            cat == "operation" || cat == "command") {
-            return 1;
-        }
-        
-        // Группа 2 (группа 18): Состояния и результаты
-        if (cat == "state" || cat == "result" || cat == "property" ||
-            cat == "attribute" || cat == "measurement" || cat == "quantity" ||
-            cat == "duration" || cat == "frequency" || cat == "time_unit") {
-            return 2;
-        }
-        
-        // Группа 3 (группа 19): Логика и абстракции
-        if (cat == "logic" || cat == "causality" || cat == "modality" ||
-            cat == "abstract" || cat == "mathematics" || cat == "statistics" ||
-            cat == "quantifier" || cat == "comparative" || cat == "math_operation") {
-            return 3;
-        }
-        
-        // Группа 4 (группа 20): Коммуникация и социальное
-        if (cat == "communication" || cat == "social" || cat == "linguistic" ||
-            cat == "pronoun" || cat == "question_word" || cat == "rhetorical" ||
-            cat == "greeting" || cat == "insult" || cat == "praise") {
-            return 4;
-        }
-        
-        // Группа 5 (группа 21): Метафизика и высшие абстракции
-        if (cat == "metaphysical" || cat == "value" || cat == "ethics" ||
-            cat == "identity" || cat == "metacognition" || cat == "semantic_role" ||
-            cat == "visualization" || cat == "affect" || cat == "behavioral" ||
-            cat == "physiological" || cat == "evaluation" || cat == "security" ||
-            cat == "frame" || cat == "data_structure" || cat == "pattern") {
-            return 5;
-        }
-        
-        // Категории по умолчанию
-        if (cat == "general" || cat == "temporal" || cat == "space" || cat == "time" ||
-            cat == "place" || cat == "weather" || cat == "color" || cat == "light") {
-            return 3; // абстракции по умолчанию
-        }
-        
-        // fallback
-        return (id % NUM_SEMANTIC_GROUPS); // fallback
-    }
     
 public:
      // ===== НОВЫЙ КОНСТРУКТОР с графом =====
@@ -182,6 +121,67 @@ public:
         if (granules.count(81) && granules.count(83)) {
             granules[81]->addAssociation(83);
         }
+    }
+
+    int getGroupForConcept(uint32_t id) const {
+        if (!semantic_graph_) return (id % NUM_SEMANTIC_GROUPS);
+        auto node = semantic_graph_->getNode(id);
+        if (!node) return (id % NUM_SEMANTIC_GROUPS);
+        
+        // Маппинг категорий на группы (0-5 соответствуют группам 16-21)
+        const std::string& cat = node->primary_category;
+        
+        // Группа 0 (группа 16): Физические объекты и устройства
+        if (cat == "device" || cat == "sensor" || cat == "object" || 
+            cat == "tool" || cat == "file" || cat == "shape" || cat == "shape_3d") {
+            return 0;
+        }
+        
+        // Группа 1 (группа 17): Действия и процессы
+        if (cat == "action" || cat == "action_file" || cat == "action_control" ||
+            cat == "action_modify" || cat == "function" || cat == "process" ||
+            cat == "operation" || cat == "command") {
+            return 1;
+        }
+        
+        // Группа 2 (группа 18): Состояния и результаты
+        if (cat == "state" || cat == "result" || cat == "property" ||
+            cat == "attribute" || cat == "measurement" || cat == "quantity" ||
+            cat == "duration" || cat == "frequency" || cat == "time_unit") {
+            return 2;
+        }
+        
+        // Группа 3 (группа 19): Логика и абстракции
+        if (cat == "logic" || cat == "causality" || cat == "modality" ||
+            cat == "abstract" || cat == "mathematics" || cat == "statistics" ||
+            cat == "quantifier" || cat == "comparative" || cat == "math_operation") {
+            return 3;
+        }
+        
+        // Группа 4 (группа 20): Коммуникация и социальное
+        if (cat == "communication" || cat == "social" || cat == "linguistic" ||
+            cat == "pronoun" || cat == "question_word" || cat == "rhetorical" ||
+            cat == "greeting" || cat == "insult" || cat == "praise") {
+            return 4;
+        }
+        
+        // Группа 5 (группа 21): Метафизика и высшие абстракции
+        if (cat == "metaphysical" || cat == "value" || cat == "ethics" ||
+            cat == "identity" || cat == "metacognition" || cat == "semantic_role" ||
+            cat == "visualization" || cat == "affect" || cat == "behavioral" ||
+            cat == "physiological" || cat == "evaluation" || cat == "security" ||
+            cat == "frame" || cat == "data_structure" || cat == "pattern") {
+            return 5;
+        }
+        
+        // Категории по умолчанию
+        if (cat == "general" || cat == "temporal" || cat == "space" || cat == "time" ||
+            cat == "place" || cat == "weather" || cat == "color" || cat == "light") {
+            return 3; // абстракции по умолчанию
+        }
+        
+        // fallback
+        return (id % NUM_SEMANTIC_GROUPS); // fallback
     }
 
     bool hasGranule(uint32_t id) const {
@@ -346,7 +346,7 @@ std::vector<uint32_t> extractMeaningPath(int max_length = 5) {
         float importance_bonus = node ? node->base_importance : 0.5f;
         float score = activation * (0.7f + 0.3f * importance_bonus);
         
-        if (score > 0.3f) {  // порог для рассмотрения
+        if (score > 0.6f) {  // порог для рассмотрения
             candidates.push_back({id, score});
         }
     }
@@ -465,14 +465,7 @@ std::vector<uint32_t> extractMeaningPath(int max_length = 5) {
             // (можно сохранить в отдельный мап)
             path_relations_[path.size() - 1] = best_relation;
         } else {
-            // Если не нашли связанных, берем самый активированный из оставшихся
-            for (const auto& [cand_id, base_score] : candidates) {
-                if (!used.count(cand_id)) {
-                    path.push_back(cand_id);
-                    used.insert(cand_id);
-                    break;
-                }
-            }
+            break;  // не добавляем несвязанные смыслы
         }
     }
     
@@ -560,34 +553,62 @@ std::vector<uint32_t> extractMeaningsFromSystem() {
 }
     
     // Проецирование смыслов в нейросеть (только одна копия!)
-    void projectToSystem(const std::vector<uint32_t>& meanings) {
-        // Очищаем группы
-        for (int g = 0; g < NUM_SEMANTIC_GROUPS; g++) {
-            auto& group = neural_system.getGroupsNonConst()[SEMANTIC_GROUPS_START + g];
-            auto& phi = group.getPhiNonConst();
-            std::fill(phi.begin(), phi.end(), 0.0);
+void projectToSystem(const std::vector<uint32_t>& meanings) {
+    // Очищаем только семантические группы
+    for (int g = 0; g < NUM_SEMANTIC_GROUPS; g++) {
+        auto& group = neural_system.getGroupsNonConst()[SEMANTIC_GROUPS_START + g];
+        auto& phi = group.getPhiNonConst();
+        std::fill(phi.begin(), phi.end(), 0.0);
+    }
+    
+    // НОВОЕ: активируем смыслы с весами, зависящими от контекста
+    // Используем граф для определения важности каждого смысла в данном контексте
+    
+    // Вычисляем контекстный вектор (усредненная активация входной группы)
+    std::vector<float> context_vector(32, 0.0f);
+    const auto& group0 = neural_system.getGroups()[0].getPhi();
+    for (int i = 0; i < 32; i++) {
+        context_vector[i] = group0[i];
+    }
+    
+    for (uint32_t id : meanings) {
+        int group_idx = getGroupForConcept(id);
+        auto& group = neural_system.getGroupsNonConst()[SEMANTIC_GROUPS_START + group_idx];
+        auto& phi = group.getPhiNonConst();
+        
+        auto it = granules.find(id);
+        if (it == granules.end()) continue;
+        
+        const auto& sig = it->second->getSignature();
+        
+        // ВЫЧИСЛЯЕМ ВЕС АКТИВАЦИИ НА ОСНОВЕ КОНТЕКСТА
+        float activation_weight = 1.0f;
+        
+        // Если есть граф, проверяем, насколько этот смысл релевантен контексту
+        if (semantic_graph_) {
+            auto node = semantic_graph_->getNode(id);
+            if (node) {
+                // Проверяем связи с другими смыслами в контексте
+                float relevance = 0.0f;
+                for (uint32_t other_id : meanings) {
+                    if (other_id == id) continue;
+                    auto edges = semantic_graph_->getEdgesFrom(id);
+                    for (const auto& edge : edges) {
+                        if (edge.to_id == other_id) {
+                            relevance += edge.weight * edge.trust_level;
+                        }
+                    }
+                }
+                activation_weight = 0.5f + relevance * 0.5f;
+            }
         }
         
-        // Активируем смыслы
-        for (uint32_t id : meanings) {
-            int group_idx = getGroupForConcept(id);  // ← ВАЖНО: используем group_idx
-            auto& group = neural_system.getGroupsNonConst()[SEMANTIC_GROUPS_START + group_idx];
-            auto& phi = group.getPhiNonConst();
-            
-            // Проверяем существование гранулы
-            auto it = granules.find(id);
-            if (it == granules.end()) {
-                std::cerr << "ERROR: Granule not found for id " << id << std::endl;
-                continue;
-            }
-            
-            const auto& sig = it->second->getSignature();
-            
-            for (int i = 0; i < 32; i++) {
-                phi[i] = std::max(phi[i], static_cast<double>(sig[i]));
-            }
+        // Активируем с весом
+        for (int i = 0; i < 32; i++) {
+            phi[i] = std::max(phi[i], static_cast<double>(sig[i] * activation_weight));
         }
     }
+}
 
     // Предсказание следующего смысла (причина-следствие)
     std::vector<uint32_t> predictNextMeanings(const std::vector<uint32_t>& current) {
@@ -649,92 +670,84 @@ std::vector<uint32_t> extractMeaningsFromSystem() {
  * @return Строковое представление мысли
  */
 std::string meaningsToText(const std::vector<uint32_t>& meanings) {
-    if (meanings.empty()) return "I'm thinking...";
+    if (meanings.empty()) {
+        std::cout << "meaningsToText: empty meanings" << std::endl;
+        return "";
+    }
+    
+    std::cout << "meaningsToText: processing " << meanings.size() << " meanings" << std::endl;
+    
+    for (uint32_t id : meanings) {
+        auto it = granule_to_canonical.find(id);
+        if (it == granule_to_canonical.end()) {
+            std::cout << " Unknown meaning ID: " << id << std::endl;
+        } else {
+            std::cout << "  ✓ Meaning " << id << " -> \"" << it->second << "\"" << std::endl;
+        }
+    }
+
+    if (meanings.empty()) {
+        return "";
+    }
     
     std::string result;
     
     for (size_t i = 0; i < meanings.size(); i++) {
         uint32_t id = meanings[i];
-        
-        // Получаем каноническую форму
         auto it = granule_to_canonical.find(id);
-        std::string word = (it != granule_to_canonical.end()) ? it->second : "something";
         
-        // Для первого элемента просто добавляем слово
+        if (it == granule_to_canonical.end()) {
+            continue;
+        }
+        
+        std::string word = it->second;
+        
         if (i == 0) {
             result += word;
             continue;
         }
         
-        // Для последующих элементов добавляем связку
+        // Находим отношение между смыслами
         uint32_t prev_id = meanings[i-1];
-        
-        // Пытаемся найти отношение в графе
-        std::string relation_word = "and";
+        std::string relation_word = "";
         bool found_relation = false;
         
         if (semantic_graph_) {
-            // Ищем прямую связь
             auto edges = semantic_graph_->getEdgesFrom(prev_id);
             for (const auto& edge : edges) {
                 if (edge.to_id == id) {
-                    relation_word = SemanticEdge::typeToString(edge.type);
-                    found_relation = true;
-                    break;
-                }
-            }
-            
-            // Если не нашли, ищем обратную связь
-            if (!found_relation) {
-                auto rev_edges = semantic_graph_->getEdgesFrom(id);
-                for (const auto& edge : rev_edges) {
-                    if (edge.to_id == prev_id) {
-                        relation_word = std::string(SemanticEdge::typeToString(edge.type)) + " (reverse)";
-                        found_relation = true;
-                        break;
+                    // ВМЕСТО typeToString — ищем узел-связку в графе
+                    uint32_t relation_node_id = semantic_graph_->getNodeIdForEdgeType(edge.type);
+                    if (relation_node_id != 0) {
+                        auto rel_it = granule_to_canonical.find(relation_node_id);
+                        if (rel_it != granule_to_canonical.end()) {
+                            relation_word = rel_it->second;
+                            found_relation = true;
+                            break;
+                        }
                     }
                 }
             }
         }
         
-        // Если не нашли в графе, проверяем ассоциации в SemanticGranule
+        // Если не нашли связку в графе — просто пробел
         if (!found_relation) {
-            auto granule_it = granules.find(prev_id);
-            if (granule_it != granules.end()) {
-                for (uint32_t assoc : granule_it->second->getAssociations()) {
-                    if (assoc == id) {
-                        relation_word = "because";
-                        found_relation = true;
-                        break;
-                    }
-                }
-            }
-        }
-        
-        // Форматируем связку
-        if (relation_word == "because" || relation_word == "therefore" || 
-            relation_word == "so" || relation_word == "thus") {
-            result += " " + relation_word + " " + word;
-        } else if (relation_word == "before") {
-            result += " then " + word;
-        } else if (relation_word == "after") {
-            result += " after " + word;
-        } else if (relation_word == "causes" || relation_word == "leads_to") {
-            result += " causes " + word;
+            result += " " + word;
         } else {
             result += " " + relation_word + " " + word;
         }
     }
     
-    // Капитализация первой буквы
-    if (!result.empty()) {
-        result[0] = std::toupper(result[0]);
+    // Если не сформировали ни одного слова — пустая строка
+    if (result.empty()) {
+        return "";
     }
-    result += ".";
+    
+    // Капитализация первой буквы
+    result[0] = std::toupper(result[0]);
     
     return result;
 }
-
     // Получить ID смысла по канонической форме
     uint32_t getMeaningId(const std::string& canonical) const {
         for (const auto& [id, form] : granule_to_canonical) {

@@ -205,6 +205,13 @@ struct OrbitalParams {
     
 };
 
+struct KnowledgeRelay {
+    int source_neuron;        // от кого учимся
+    int target_neuron;        // кто учится
+    double confidence;        // уверенность источника
+    double timestamp;         // время обучения
+};
+
 /**
  * @struct HomeostasisParams
  * @brief Параметры гомеостатической регуляции энтропии
@@ -294,6 +301,10 @@ public:
     int getOrbitLevel(int i) const { return orbit_level[i]; }
     double getOrbitRadius(int level) const;
     double getNeuronEnergy(int i) const;
+
+    // Новый метод:
+    void relayLearning(int learner_idx, float reward, int step);
+    void propagateKnowledgeFromHigherOrbits();
 
     // Новые методы для вычисления компонентов важности
     double computeConnectivity(int i) const;    // связность нейрона i
@@ -415,8 +426,6 @@ public:
     //
     void syncSynapsesFromWeights();
     void syncWeightsFromSynapses();
-    void computeGradients(const std::vector<double>& target);
-    void applyGradients();
     void learnHebbian(double globalReward);
 
         // НОВЫЙ МЕТОД
@@ -674,12 +683,6 @@ private:
         double energy_stability = 1.0 / (1.0 + std::abs(orbital_energy[i] - target_radius[i]));
         return 0.7 * time_factor + 0.3 * energy_stability;
     }
-    
-    // Для градиентного спуска
-    std::vector<std::vector<double>> weight_gradients;
-    std::vector<std::vector<double>> gd_velocity;
-    double gd_learning_rate = 0.001;
-    double gd_momentum = 0.9;
 
     // методы баланса масс
     double computeMassCap(int neuron_idx) {

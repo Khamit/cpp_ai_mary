@@ -25,50 +25,43 @@ public:
         // 1. Проецируем входные смыслы в нейросеть
         semantic_manager.projectToSystem(input_meanings);
         
-        // 2. Даем нейросети время "подумать"
-        for (int i = 0; i < 8; i++) {  // увеличил количество шагов для стабилизации
+        // 2. НОВОЕ: применяем "интенцию" — bias в динамике
+        if (!input_meanings.empty()) {
+            // Вычисляем "целевой" вектор на основе входных смыслов
+            std::vector<float> target_pattern(192, 0.0f); // 6 групп * 32 нейрона
+            
+            for (uint32_t mid : input_meanings) {
+                auto node = semantic_manager.getGranule(mid);
+                if (node) {
+                    int group_idx = semantic_manager.getGroupForConcept(mid);
+                    const auto& sig = node->getSignature();
+                    for (int i = 0; i < 32; i++) {
+                        target_pattern[group_idx * 32 + i] += sig[i];
+                    }
+                }
+            }
+            
+            // Нормализуем target_pattern
+            float max_val = *std::max_element(target_pattern.begin(), target_pattern.end());
+            if (max_val > 0) {
+                for (auto& v : target_pattern) v /= max_val;
+            }
+            
+            // ПРИМЕНЯЕМ ЦЕЛЕВОЙ ПАТТЕРН К НЕЙРОСЕТИ
+            neural_system.applyTargetPattern(target_pattern);
+        }
+        
+        // 3. Даем нейросети время "подумать"
+        for (int i = 0; i < 8; i++) {
             neural_system.step(0.0f, i);
         }
         
-        // 3. Извлекаем результирующий ПУТЬ (а не набор)
-        auto output_path = semantic_manager.extractMeaningPath(5);  // максимум 5 смыслов в пути
-        
-        // 4. Предсказываем следующий смысл (причина -> следствие)
-        auto predicted = semantic_manager.predictNextMeanings(output_path);
-        
-        // 5. Сохраняем в историю
-        thought_history.push_back(output_path);
-        if (thought_history.size() > MAX_HISTORY) {
-            thought_history.pop_front();
-        }
-        
-        // 6. Если предсказание сильное, добавляем его в конец пути
-        if (!predicted.empty()) {
-            // Добавляем только если предсказание связано с последним элементом пути
-            uint32_t last = output_path.back();
-            for (uint32_t pred : predicted) {
-                // Проверяем связь через граф
-                auto edges = semantic_manager.getSemanticGraph()->getEdgesFrom(last);
-                bool has_relation = false;
-                for (const auto& edge : edges) {
-                    if (edge.to_id == pred) {
-                        has_relation = true;
-                        break;
-                    }
-                }
-                if (has_relation) {
-                    output_path.push_back(pred);
-                    break;  // добавляем только одно предсказание
-                }
-            }
-        }
-        
-        // Очищаем кэш отношений пути
-        semantic_manager.clearPathRelations();
+        // 4. Извлекаем результирующий путь
+        auto output_path = semantic_manager.extractMeaningPath(5);
         
         return output_path;
     }
-    
+        
     // Обучение на правильной последовательности
     void learnFromSequence(const std::vector<std::vector<uint32_t>>& sequence) {
         for (const auto& step : sequence) {

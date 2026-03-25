@@ -45,10 +45,6 @@ std::vector<CuriosityQuestion> CuriosityDriver::generateQuestions() {
             questions.push_back(q);
         }
     }
-    
-    auto self_questions = generateSelfQuestions();
-    questions.insert(questions.end(), self_questions.begin(), self_questions.end());
-    
     return questions;
 }
 
@@ -144,36 +140,6 @@ std::vector<std::pair<uint32_t, uint32_t>> CuriosityDriver::explorePotentialRela
     }
     
     return potential;
-}
-
-std::vector<CuriosityQuestion> CuriosityDriver::generateSelfQuestions() {
-    std::vector<CuriosityQuestion> questions;
-    
-    std::vector<std::string> self_topics = {
-        "Who am I?",
-        "What can I do?",
-        "How do I learn?",
-        "What is my purpose?",
-        "Do I have feelings?"
-    };
-    
-    for (const auto& topic : self_topics) {
-        CuriosityQuestion q;
-        q.question = topic;
-        q.importance = 0.9f;
-        
-        if (topic.find("Who am I") != std::string::npos) {
-            q.target_meanings = {1};
-        } else if (topic.find("What can I do") != std::string::npos) {
-            q.target_meanings = {2, 81, 82};
-        } else if (topic.find("How do I learn") != std::string::npos) {
-            q.target_meanings = {4, 91};
-        }
-        
-        questions.push_back(q);
-    }
-    
-    return questions;
 }
 
 float CuriosityDriver::calculateUnderstandingReward(const std::vector<uint32_t>& answer,

@@ -504,7 +504,7 @@ int main() {
             coreHub.integrate(neuralSystem);
             
             // Шаг нейросистемы - она уже знает режим из setOperatingMode
-            neuralSystem.step(lastReward, step);
+            neuralSystem.step(lastReward, step); // lastReward вычисляется локально
     
             // Передаем текущий шаг в обучение (если нужно)
             // semantic_learning->setCurrentStep(step);  // если добавите такой метод

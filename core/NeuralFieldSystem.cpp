@@ -176,6 +176,43 @@ void NeuralFieldSystem::applyReentry(int iterations) {
     }
 }
 
+void NeuralFieldSystem::applyLateralInhibition() {
+    // Торможение между семантическими группами (16-21)
+    const int NUM_SEMANTIC_GROUPS = 6;
+    const int SEMANTIC_START = 16;
+    
+    std::vector<double> group_activity(NUM_GROUPS, 0.0);
+    
+    // Вычисляем активность каждой группы
+    for (int g = 0; g < NUM_GROUPS; g++) {
+        double sum = 0.0;
+        const auto& phi = groups[g].getPhi();
+        for (int i = 0; i < GROUP_SIZE; i++) {
+            sum += phi[i];
+        }
+        group_activity[g] = sum / GROUP_SIZE;
+    }
+    
+    // Торможение: уменьшаем активность групп, которые конкурируют
+    const double INHIBITION_STRENGTH = 0.1;
+    
+    for (int g = SEMANTIC_START; g < SEMANTIC_START + NUM_SEMANTIC_GROUPS; g++) {
+        double total_inhibition = 0.0;
+        for (int other = SEMANTIC_START; other < SEMANTIC_START + NUM_SEMANTIC_GROUPS; other++) {
+            if (other != g) {
+                total_inhibition += group_activity[other];
+            }
+        }
+        
+        // Применяем торможение
+        double inhibition = INHIBITION_STRENGTH * total_inhibition;
+        auto& phi = groups[g].getPhiNonConst();
+        for (int i = 0; i < GROUP_SIZE; i++) {
+            phi[i] = std::max(0.0, phi[i] - inhibition);
+        }
+    }
+}
+
 void NeuralFieldSystem::maintainCriticality() {
     double entropy = computeSystemEntropy();
     double target = 2.5;
@@ -220,53 +257,32 @@ void NeuralFieldSystem::setOperatingMode(OperatingMode::Type mode) {
 void NeuralFieldSystem::step(float globalReward, int stepNumber) {
     stepCounter = stepNumber;
     
-    // Сохраняем состояние ДО обновления
-    std::vector<double> state_before = getFeaturesDouble();
-    
-    // УРОВЕНЬ 1: каждый шаг
+    // ===== 1. ЭВОЛЮЦИЯ (всегда) =====
     for (auto& group : groups) {
         group.evolve();
-        group.maintainActivity(current_mode_);  // используем сохраненный режим
+        group.maintainActivity(current_mode_);
     }
     
-    // Поток Риччи реже в обычном режиме
+    // ===== 2. ГЕОМЕТРИЧЕСКИЕ ОПЕРАЦИИ (периодически) =====
     int ricci_interval = (current_mode_ == OperatingMode::TRAINING) ? 10 : 50;
     if (stepNumber % ricci_interval == 0) {
         applyRicciFlow();
     }
     
-    // Меньше итераций reentry в обычном режиме
+    // ===== 3. REENTRY (периодически) =====
     int reentry_iter = (current_mode_ == OperatingMode::TRAINING) ? 3 : 1;
     applyReentry(reentry_iter);
     
-    // В обычном режиме STDP отключено или очень слабое
-    float stdp_factor = (current_mode_ == OperatingMode::TRAINING) ? 
-                        globalReward : globalReward * 0.1f;
+    // ===== 4. ОБУЧЕНИЕ С РАСПРЕДЕЛЁННЫМ REWARD =====
+    // ВНИМАНИЕ: globalReward НЕ передаётся напрямую в learnSTDP!
+    // Вместо этого каждая группа получает reward из своих источников
     
-    for (auto& group : groups) {
-        group.learnSTDP(stdp_factor, stepNumber);
-        group.updateElevationFast(globalReward, group.getAverageActivity());
-    }
-
-    applyReentry(3);
-    
-    for (auto& group : groups) {
-        group.learnSTDP(globalReward, stepNumber);
-        group.updateElevationFast(globalReward, group.getAverageActivity());
-    }
-
-    // Получаем состояние ПОСЛЕ обновления
-    std::vector<double> state_after = getFeaturesDouble();
-    
-    // НОВОЕ: вызываем предсказательный кодер (вместо старого predictor)
-    float modulated_reward = globalReward;
+    // 4.1. Предсказательный кодер вычисляет ошибку для семантических групп
+    float semantic_reward = 0.0f;
     if (predictive_coder) {
         float pred_error = predictive_coder->step(stepNumber);
+        semantic_reward = 1.0f - std::tanh(pred_error);
         
-        // Модулируем глобальную награду ошибкой предсказания
-        modulated_reward = globalReward * (1.0f - std::tanh(pred_error));
-        
-        // Если ошибка высокая, генерируем событие
         if (pred_error > 0.3) {
             Event anomaly_event;
             anomaly_event.type = EventType::ANOMALY_DETECTED;
@@ -276,25 +292,42 @@ void NeuralFieldSystem::step(float globalReward, int stepNumber) {
             events.emit(anomaly_event);
         }
     }
+
+    float base_survival_reward = 0.02f;
     
-    // Сохраняем историю энтропии
-    double current_entropy = computeSystemEntropy();
-    entropy_history.push_back(current_entropy);
-    if (entropy_history.size() > HISTORY_SIZE) {
-        entropy_history.pop_front();
-    }
-    // частоту вывода энтропии
-    static int last_entropy_step = 0;
-    if (stepNumber - last_entropy_step > 200) {  // каждые 200 шагов
-        std::cout << "System entropy: " << current_entropy << std::endl;
-        last_entropy_step = stepNumber;
-    }
+    // 4.2. Обучение для разных групп с разными reward
+    for (int g = 0; g < NUM_GROUPS; ++g) {
+        float group_reward = base_survival_reward;
         
-    // УРОВЕНЬ 2: редко (раз в 100 шагов)
+        if (g >= 16 && g <= 21) {
+            // Семантические группы — получают reward от предсказательного кодера
+            // и от LanguageModule (через отдельный механизм)
+            group_reward = semantic_reward;
+            
+            // Добавляем бонус от LanguageModule, если есть
+            // (через отдельный метод, не глобальный reward)
+        } else if (g == 0) {
+            // Входная группа — получает reward от успешного распознавания
+            // через LearningOrchestrator
+            group_reward = 0.1f;  // базовая поддержка
+        } else {
+            // Сенсорные и моторные группы — минимальный reward
+            group_reward = 0.05f;
+        }
+        
+        // Только одно обучение за шаг!
+        groups[g].learnSTDP(group_reward, stepNumber);
+        groups[g].updateElevationFast(group_reward, groups[g].getAverageActivity());
+    }
+    
+    // ===== 5. ЭСТАФЕТНОЕ ОБУЧЕНИЕ (отдельно) =====
+    // НЕ зависит от globalReward!
+    applyReentry(3);  // повторный reentry для закрепления
+    
+    // ===== 6. КОНСОЛИДАЦИЯ (периодически) =====
     if (stepNumber % CONSOLIDATION_INTERVAL == 0) {
         float globalImportance = computeGlobalImportance();
         
-        // Добавляем важность на основе ошибки предсказания
         if (predictive_coder) {
             globalImportance += predictive_coder->getLastError() * 2.0f;
         }
@@ -306,16 +339,23 @@ void NeuralFieldSystem::step(float globalReward, int stepNumber) {
         consolidateInterWeights();
         applyPruningByElevation();
     }
-
-    // НОВОЕ: логирование орбитального здоровья
+    
+    // ===== 7. ЛОГИРОВАНИЕ =====
     if (stepNumber % 1000 == 0) {
         logOrbitalHealth();
     }
-
-    // УРОВЕНЬ 3: очень редко (раз в 5000 шагов)
+    
+    if (stepNumber % 200 == 0) {
+        double current_entropy = computeSystemEntropy();
+        std::cout << "System entropy: " << current_entropy << std::endl;
+    }
+    
+    // ===== 8. ЭВОЛЮЦИЯ (очень редко) =====
     if (stepNumber % EVOLUTION_INTERVAL == 0) {
         pendingEvolutionRequest_ = true;
     }
+
+    applyLateralInhibition();
     
     flatDirty = true;
 }
@@ -532,6 +572,25 @@ void NeuralFieldSystem::applyRicciFlow() {
             // Ограничиваем веса
             interWeights[i][j] = std::clamp(interWeights[i][j], -0.5, 0.5);
             interWeights[j][i] = interWeights[i][j];
+        }
+    }
+}
+
+void NeuralFieldSystem::applyTargetPattern(const std::vector<float>& target_pattern) {
+    // target_pattern размером 192 (6 групп × 32 нейрона)
+    const int NUM_SEMANTIC_GROUPS = 6;
+    const int SEMANTIC_START = 16;
+    
+    for (int g = 0; g < NUM_SEMANTIC_GROUPS; g++) {
+        int group_idx = SEMANTIC_START + g;
+        auto& phi = groups[group_idx].getPhiNonConst();
+        
+        for (int i = 0; i < GROUP_SIZE; i++) {
+            float target = target_pattern[g * 32 + i];
+            float diff = target - phi[i];
+            // Добавляем силу, тянущую к цели (0.1 — сила притяжения)
+            phi[i] += diff * 0.1;
+            phi[i] = std::clamp(phi[i], 0.0, 1.0);
         }
     }
 }

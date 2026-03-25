@@ -96,6 +96,7 @@ struct SemanticNode {
  * @struct SemanticEdge
  * @brief Ребро графа (связь между смыслами)
  */
+
 struct SemanticEdge {
     uint32_t from_id;
     uint32_t to_id;
@@ -222,7 +223,7 @@ enum class Type {
     DETERMINES = 99,
     DEPENDS_ON = 100,
     CONTRIBUTES_TO = 101,
-    GIVES_MEANING_TO = 102,
+    GIVES_MEANING_TO = 102, // - ERROR???
     FOLLOWS_FROM = 103,
     LEADS_TO = 104,
 
@@ -730,12 +731,37 @@ public:
             {"conflicts with", SemanticEdge::Type::CONFLICTS_WITH}
         };
         
+        
         auto it = type_map.find(relation_type);
         if (it != type_map.end()) {
             type = it->second;
         }
         
         addEdge(id1, id2, type, 0.9f, 0.8f, 85, {"dialogue"});
+    }
+
+    // В public секцию SemanticGraphDatabase
+    uint32_t getNodeIdForEdgeType(SemanticEdge::Type type) const {
+        // Маппинг типов связей на ID смыслов в графе
+        static const std::map<SemanticEdge::Type, uint32_t> type_to_node = {
+            {SemanticEdge::Type::IS_A, getNodeId("is_a")},           // если есть узел "is_a"
+            {SemanticEdge::Type::CAUSES, getNodeId("causes")},       // если есть узел "causes"
+            {SemanticEdge::Type::OPPOSITE_OF, getNodeId("opposite")}, // если есть узел "opposite"
+            {SemanticEdge::Type::SIMILAR_TO, getNodeId("similar")},   // если есть узел "similar"
+            {SemanticEdge::Type::PART_OF, getNodeId("part_of")},      // если есть узел "part_of"
+            {SemanticEdge::Type::EMOTIONAL_LINK, getNodeId("feels")}, // если есть узел "feels"
+            {SemanticEdge::Type::EXPRESSES, getNodeId("expresses")},  // если есть узел "expresses"
+            {SemanticEdge::Type::LEADS_TO, getNodeId("leads_to")},    // если есть узел "leads_to"
+            {SemanticEdge::Type::RELATED_TO, getNodeId("related")},    // если есть узел "related"
+            {SemanticEdge::Type::AFTER, getNodeId("after")},          // если есть узел "after"
+            {SemanticEdge::Type::BEFORE, getNodeId("before")},        // если есть узел "before"
+        };
+        
+        auto it = type_to_node.find(type);
+        if (it != type_to_node.end()) {
+            return it->second;
+        }
+        return 0;  // нет узла для этого типа
     }
     
     // Получить объяснение для смысла (с кэшированием)
@@ -1979,7 +2005,7 @@ void buildAllRelationships() {
         if (your_id != 0 && my_id != 0) {
             addEdge(your_id, my_id, SemanticEdge::Type::OPPOSITE_OF, 0.8f);
         }
-        
+        /*
         // Создаем фрейм для ответа
         createFrame("name_response", {
             {"question_word", "what"},
@@ -2034,6 +2060,7 @@ void buildAllRelationships() {
             {"answer", "now"},
             {"source", "clock"}
         });
+        */
 
         // В buildAllRelationships(), после создания фреймов:
 
@@ -2065,6 +2092,7 @@ void buildAllRelationships() {
         }
     }
 }
+
 
 // Добавьте этот метод в класс SemanticGraphDatabase перед buildAbstractConceptLayer()
 

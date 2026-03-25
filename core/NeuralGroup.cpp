@@ -74,9 +74,6 @@ NeuralGroup::NeuralGroup(int size, double dt, std::mt19937& rng,
     
     buildSynapsesFromWeights();
     
-    weight_gradients.resize(size, std::vector<double>(size, 0.0));
-    gd_velocity.resize(size, std::vector<double>(size, 0.0));
-    
     for (int i = 0; i < size; i++) {
         metric_tensor[i][i] = 1.0;
     }
@@ -144,6 +141,11 @@ void NeuralGroup::evolve() {
     // Метрический тензор обновляем реже (раз в 100 шагов)
     if (step_counter_ % 100 == 0) {
         updateMetricTensor();
+    }
+
+    // Периодическая пропаганда знаний
+    if (step_counter_ % 100 == 0) {
+        propagateKnowledgeFromHigherOrbits();
     }
     
     // Лог массы (раз в 1000 шагов)
@@ -251,15 +253,14 @@ void NeuralGroup::checkForEscape(int i, std::mt19937& rng) {
         syncSynapsesFromWeights();
     }
 }
-// ============================================================================
-// ОРБИТАЛЬНЫЕ СИЛЫ
-// ============================================================================
 
 // ============================================================================
 // ОРБИТАЛЬНЫЕ СИЛЫ - ИСПРАВЛЕННАЯ ВЕРСИЯ
 // ============================================================================
 
 void NeuralGroup::computeDerivatives() {
+    static constexpr int SEMANTIC_GROUPS_START = 16;
+    static constexpr int NUM_SEMANTIC_GROUPS = 6;
     // УБИРАЕМ глобальное ограничение скорости
     // const double MAX_SPEED = 0.5; - УДАЛЯЕМ
     
@@ -598,6 +599,10 @@ void NeuralGroup::updateOrbitLevels() {
                                         uniqueness * 0.2 + 
                                         homeostatic_value * 0.2 + 
                                         adaptability * 0.2);
+
+        if (functional_importance < 0.01) {
+            functional_importance = 0.05;  // минимальная базовая важность
+        }
         
         // ===== 2. ВЫЧИСЛЯЕМ ЦЕЛЕВУЮ ОРБИТУ НА ОСНОВЕ ФУНКЦИОНАЛЬНОЙ ВАЖНОСТИ =====
         // Важные нейроны поднимаются выше
@@ -1320,6 +1325,129 @@ double NeuralGroup::getAdaptiveNoiseLevel() const {
     double noise_level = homeo.base_noise_level + std::abs(entropy_error) * 0.1;
     
     return std::clamp(noise_level, 0.01, 0.5);
+} 
+
+// Знания передача по орбите 
+
+void NeuralGroup::relayLearning(int learner_idx, float reward, int step) {
+    if (learner_idx < 0 || learner_idx >= size) return;
+    
+    // 1. Проверяем, нуждается ли нейрон в обучении
+    double learner_activity = pos[learner_idx].norm();
+    double learner_confidence = getNeuronEnergy(learner_idx);
+    
+    if (orbit_level[learner_idx] >= 2 && learner_confidence > 1.0) {
+        return;
+    }
+    
+    // 2. Ищем "учителей" на более высоких орбитах
+    std::vector<std::pair<int, double>> teachers;
+    
+    for (int teacher = 0; teacher < size; ++teacher) {
+        if (teacher == learner_idx) continue;
+        if (orbit_level[teacher] <= orbit_level[learner_idx]) continue;
+        
+        double teacher_activity = pos[teacher].norm();
+        double teacher_confidence = getNeuronEnergy(teacher);
+        
+        if (teacher_activity > 0.5 && teacher_confidence > 0.8) {
+            double quality = (orbit_level[teacher] + 1) * teacher_activity * teacher_confidence;
+            teachers.push_back({teacher, quality});
+        }
+    }
+    
+    if (teachers.empty()) return;
+    
+    // 3. Выбираем лучшего учителя
+    auto best_teacher = std::max_element(teachers.begin(), teachers.end(),
+        [](const auto& a, const auto& b) { return a.second < b.second; });
+    
+    int teacher_idx = best_teacher->first;
+    
+    // 4. Копируем "знания" — усиливаем связь с учителем
+    double current_weight = std::abs(W_intra[learner_idx][teacher_idx]);
+    double target_weight = std::min(1.0, current_weight + 0.1 * reward);
+    double orbit_gap = orbit_level[teacher_idx] - orbit_level[learner_idx];
+    double plasticity = std::min(1.0, orbit_gap * 0.3);
+    double weight_change = (target_weight - current_weight) * plasticity;
+    
+    W_intra[learner_idx][teacher_idx] += weight_change;
+    W_intra[teacher_idx][learner_idx] += weight_change;
+    
+    // 5. Ограничиваем веса (ИСПРАВЛЕНО)
+    double maxW = static_cast<double>(params.maxWeight);
+    W_intra[learner_idx][teacher_idx] = std::clamp(W_intra[learner_idx][teacher_idx], -maxW, maxW);
+    W_intra[teacher_idx][learner_idx] = W_intra[learner_idx][teacher_idx];
+    
+    // 6. Если обучение успешно — повышаем шанс на повышение орбиты
+    if (reward > 0.5f && orbit_level[learner_idx] < 4) {
+        promotion_count[learner_idx]++;
+        
+        if (promotion_count[learner_idx] > 10 && time_on_orbit[learner_idx] > 20.0) {
+            orbit_level[learner_idx]++;
+            target_radius[learner_idx] = getOrbitRadius(orbit_level[learner_idx]);
+            time_on_orbit[learner_idx] = 0;
+            promotion_count[learner_idx] = 0;
+            std::cout << " ⬆ Neuron " << learner_idx << " PROMOTED via relay learning!" << std::endl;
+        }
+    }
+    
+    recordConnectionUsage(learner_idx, teacher_idx, reward > 0);
+    syncSynapsesFromWeights();
+}
+
+// Эстафета
+void NeuralGroup::propagateKnowledgeFromHigherOrbits() {
+    // Раз в 100 шагов: знания с высоких орбит спускаются вниз
+    if (step_counter_ % 100 != 0) return;
+    
+    // Собираем "знания" с высоких орбит (3-4)
+    std::vector<double> high_orbit_patterns;
+    std::vector<int> high_orbit_neurons;
+    
+    for (int i = 0; i < size; ++i) {
+        if (orbit_level[i] >= 3 && getNeuronEnergy(i) > 0.5) {
+            high_orbit_neurons.push_back(i);
+            high_orbit_patterns.push_back(pos[i].norm());  // их активность
+        }
+    }
+    
+    if (high_orbit_neurons.empty()) return;
+    
+    // Передаём знания на нижние орбиты
+    for (int learner = 0; learner < size; ++learner) {
+        if (orbit_level[learner] >= 2) continue;  // только нижние орбиты
+        
+        // Находим ближайшего учителя
+        int best_teacher = -1;
+        double best_similarity = -1.0;
+        
+        for (size_t t = 0; t < high_orbit_neurons.size(); ++t) {
+            int teacher = high_orbit_neurons[t];
+            double similarity = 1.0 - std::abs(pos[learner].norm() - high_orbit_patterns[t]);
+            
+            if (similarity > best_similarity) {
+                best_similarity = similarity;
+                best_teacher = teacher;
+            }
+        }
+        
+        if (best_teacher != -1 && best_similarity > 0.2) {  // было 0.3
+            // Проверяем, не слишком ли много связей у учителя
+            int teacher_connections = 0;
+            for (int j = 0; j < size; ++j) {
+                if (std::abs(W_intra[best_teacher][j]) > 0.1) teacher_connections++;
+            }
+            
+            if (teacher_connections < size / 2) {
+                W_intra[learner][best_teacher] = std::min(1.0, 
+                    W_intra[learner][best_teacher] + 0.03);  // было 0.05
+                W_intra[best_teacher][learner] = W_intra[learner][best_teacher];
+            }
+        }
+    }
+    
+    syncSynapsesFromWeights();
 }
 
 // ============================================================================
@@ -1331,6 +1459,7 @@ void NeuralGroup::learnSTDP(float reward, int currentStep) {
     double current_entropy = computeEntropy();
     double target_entropy = computeEntropyTarget();
     double entropy_error = target_entropy - current_entropy;
+    
 
     for (int i = 0; i < size; ++i) {
         for (int j = i + 1; j < size; ++j) {
@@ -1392,9 +1521,12 @@ void NeuralGroup::learnSTDP(float reward, int currentStep) {
             syn.eligibility = std::clamp(syn.eligibility, -0.1f, 0.1f);  // ← ДОБАВИТЬ
             
             float weight_change = 0.0f;
-            
+            float normalized_reward = std::min(1.0f, reward);
+            // Базовая награда за активность (чтобы не умирали)
             if (isActive) {
-                weight_change = params.stdpRate * reward * syn.eligibility * 
+                float survival_reward = 0.01f;  // маленькая, но постоянная
+                // добавляем к основному reward
+                weight_change = params.stdpRate * normalized_reward * syn.eligibility * 
                                elevation_factor * entropy_factor * orbit_factor * mass_factor;
                 syn.weight += weight_change;
                 
@@ -1471,6 +1603,23 @@ void NeuralGroup::learnSTDP(float reward, int currentStep) {
                 }
             }
             syncSynapsesFromWeights();
+        }
+    }
+    // НОВОЕ: эстафетное обучение для слабых нейронов
+    if (reward > 0.2f) {  // только при положительном подкреплении
+        for (int i = 0; i < size; ++i) {
+            double activity = pos[i].norm();
+            double energy = getNeuronEnergy(i);
+            
+            // Нейроны на низких орбитах с низкой уверенностью
+            if (orbit_level[i] <= 1 && energy < 0.5 && activity < 0.3) {
+                relayLearning(i, reward, currentStep);
+            }
+            
+            // Также учим нейроны, которые недавно переродились
+            if (time_on_orbit[i] < 50 && orbit_level[i] <= 2) {
+                relayLearning(i, reward, currentStep);
+            }
         }
     }
 }
@@ -1823,48 +1972,6 @@ void NeuralGroup::consolidateEligibility(float globalImportance) {
             }
         }
     }
-}
-// ============================================================================
-// МЕТОДЫ ДЛЯ ГРАДИЕНТНОГО СПУСКА (обратная совместимость)
-// ============================================================================
-
-void NeuralGroup::computeGradients(const std::vector<double>& target) {
-    if (target.size() != size) return;
-    
-    double current_entropy = computeEntropy();
-    double target_entropy = computeEntropyTarget();
-    double entropy_gradient = target_entropy - current_entropy;
-
-    for (int i = 0; i < size; ++i) {
-        double activity = pos[i].norm();
-        double error_i = (activity - 0.5) * entropy_gradient * 0.1;
-        
-        for (int j = 0; j < size; ++j) {
-            double activity_j = pos[j].norm();
-            weight_gradients[i][j] = error_i * activity_j;
-        }
-    }
-}
-
-void NeuralGroup::applyGradients() {
-    for (int i = 0; i < size; ++i) {
-        for (int j = i + 1; j < size; ++j) {
-            gd_velocity[i][j] = gd_momentum * gd_velocity[i][j]
-                               - gd_learning_rate * weight_gradients[i][j];
-
-            W_intra[i][j] += gd_velocity[i][j];
-            W_intra[j][i] = W_intra[i][j];
-
-            W_intra[i][j] = std::clamp(
-                W_intra[i][j],
-                -static_cast<double>(params.maxWeight),
-                static_cast<double>(params.maxWeight)
-            );
-            W_intra[j][i] = W_intra[i][j];
-        }
-    }
-    
-    syncSynapsesFromWeights();
 }
 
 void NeuralGroup::learnHebbian(double globalReward) {
@@ -2229,7 +2336,7 @@ void NeuralGroup::generateCuriosityConnections() {
                     W_intra[elite][exp] = new_weight;
                     W_intra[exp][elite] = new_weight;
                     new_connections++;
-                    std::cout << "  🔬 Curiosity: new connection created between elite " 
+                    std::cout << "Curiosity: new connection created between elite " 
                               << elite << " and explorer " << exp << std::endl;
                 }
             }

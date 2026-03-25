@@ -627,11 +627,25 @@ public:
                 std::cout << "Lowering success threshold due to low entropy" << std::endl;
             }
             
-            if (activation_score > success_threshold) {
-                success = true;
-                reward = 5.0f;
-                
-                std::cout << "✓ SUCCESS! Word: '" << input_word 
+        if (activation_score > success_threshold) {
+            success = true;
+            
+            // НЕ глобальный reward, а специфичный для этого концепта
+            float concept_reward = 1.0f;
+            
+            // Усиливаем группу, представляющую этот концепт
+            for (uint32_t exp_id : example.expected_meanings) {
+                int group_idx = 16 + getGroupForConcept(exp_id);
+                groups[group_idx].learnSTDP(concept_reward, total_steps_);
+            }
+            
+            // Также усиливаем связь между группой 0 и семантической группой
+            for (uint32_t exp_id : example.expected_meanings) {
+                int group_idx = 16 + getGroupForConcept(exp_id);
+                neural_system.strengthenInterConnection(0, group_idx, 0.1f);
+            }
+            
+              std::cout << "✓ SUCCESS! Word: '" << input_word 
                         << "', score: " << activation_score << std::endl;
             }
             else {
@@ -646,7 +660,7 @@ public:
             }
             
             // ===== 8. ПРИМЕНЯЕМ НАГРАДУ =====
-            for (int g = 16; g <= 21; g++) {
+            for (int g = 0; g < 32; g++) {
                 groups[g].learnSTDP(reward, total_steps_);
             }
             

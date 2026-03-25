@@ -220,6 +220,9 @@ public:
         external_inputs_.clear();
     }
 
+    void applyLateralInhibition();
+    void applyTargetPattern(const std::vector<float>& target_patter);
+
     // РЕАЛИЗАЦИЯ ИНТЕРФЕЙСА
     std::vector<NeuralGroup*>& getHubGroups() override {
         // Ленивое заполнение вектора указателей

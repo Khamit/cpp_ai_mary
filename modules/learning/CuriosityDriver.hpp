@@ -56,7 +56,6 @@ public:
 private:
     std::vector<uint32_t> findUncertainMeanings();
     std::vector<std::pair<uint32_t, uint32_t>> explorePotentialRelations();
-    std::vector<CuriosityQuestion> generateSelfQuestions();
     float calculateUnderstandingReward(const std::vector<uint32_t>& answer,
                                        const std::vector<uint32_t>& target);
 };

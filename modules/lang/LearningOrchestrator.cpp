@@ -55,6 +55,14 @@ void LearningOrchestrator::loadCurriculum() {
     
     // Вариант 2: проходим по всем ID от 1 до максимального
     std::cout << "  Generating examples from existing nodes..." << std::endl;
+
+    for (uint32_t id = 1; id <= 614; id++) {
+    auto node = semantic_graph_.getNode(id);
+        if (node && !semantic_manager_.hasGranule(id)) {
+            semantic_manager_.addConcept(id, node->canonical_form, 
+                                        node->aliases, node->canonical_form);
+        }
+    }
     
     // Проходим по ID от 1 до 614 (максимальный ID в графе)
     for (uint32_t id = 1; id <= 614; id++) {

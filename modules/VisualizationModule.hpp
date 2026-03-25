@@ -394,7 +394,6 @@ private:
         ss << "Orbit 1: " << orbit_counts[1] << "\n";
         ss << "Orbit 0: " << orbit_counts[0] << "\n";
         
-        // Добавляем проценты
         if (neuron_count > 0) {
             ss << "\nPercentages:\n";
             ss << "Orbit 4: " << std::fixed << std::setprecision(1) << (orbit_counts[4] * 100.0 / neuron_count) << "%\n";
@@ -409,10 +408,15 @@ private:
         text.setString(ss.str());
         text.setCharacterSize(14);
         text.setFillColor(sf::Color::White);
-        text.setPosition(sf::Vector2f(width - 300, 10));
+        
+        // ===== ИСПРАВЛЕНО: смещаем вправо в 2 раза =====
+        // Было: width - 300 (300 пикселей от правого края)
+        // Теперь: width - 600 (600 пикселей от правого края, то есть левее)
+        // Или если хочешь ещё правее, можно width - 800
+        text.setPosition(sf::Vector2f(width - 400, 10));
+        
         window.draw(text);
     }
-    
     
     sf::Color getOrbitColor(int level, float intensity) {
         switch(level) {

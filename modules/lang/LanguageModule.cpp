@@ -135,38 +135,35 @@ void LanguageModule::stopAutoLearning() {
 
 // ========== ОСНОВНОЙ МЕТОД ==========
 std::string LanguageModule::process(const std::string& input, const std::string& user_name) {
-    // ← ДОБАВЛЕНО: проверка на пустой ввод
     if (input.empty()) {
-        return "";
+        return "";  // Пустой ввод → пустой ответ (ничего не говорим)
     }
     
     std::string effective_user = (system_mode_ == "personal") ? default_user_ : user_name;
     
     if (!auth.authorize(effective_user)) {
-        return "Access denied";
+        return "";  // Нет доступа → молчим, никаких "Access denied"
     }
 
-    // Обработка специальных команд
+    // Обработка специальных команд (только если есть драйвер)
     std::string special_output;
     if (isSpecialCommand(input) && handleSpecialCommand(input, special_output)) {
-        return special_output;
+        return special_output;  // команды оставляем, они нужны для управления
     }
     
-    // ← ДОБАВЛЕНО: проверка, что семантический граф доступен
     if (!semantic_graph_) {
-        std::cerr << "ERROR: semantic_graph_ is null in LanguageModule::process!" << std::endl;
-        return "I'm having trouble understanding right now.";
+        std::cerr << "ERROR: semantic_graph_ is null" << std::endl;
+        return "";  // Ошибка → молчим
     }
     
     // Преобразуем в смыслы
     auto input_meanings = textToMeanings(input);
 
-    // После получения input_meanings:
     for (uint32_t mid : input_meanings) {
         semantic_graph_->markConceptUsed(mid, process_step_counter_);
     }
     
-    // Определяем эмоциональный тон входа
+    // Определяем эмоциональный тон входа (только для внутреннего использования)
     EmotionalTone input_tone = EmotionalTone::NEUTRAL;
     if (semantic_graph_) {
         float emotional_sum = 0.0f;
@@ -195,22 +192,12 @@ std::string LanguageModule::process(const std::string& input, const std::string&
         }
     }
     
-    // Если смыслов нет - система не понимает
+    // ===== ВАЖНО: если смыслов нет, НЕ используем шаблоны =====
     if (input_meanings.empty()) {
-        if (curiosity_driver_) {
-            return "I don't understand. " + curiosity_driver_->getNextQuestion();
-        }
-        // ← ИСПРАВЛЕНО: защита от nullptr
-        if (semantic_graph_) {
-            auto confused_id = semantic_graph_->getNodeId("confused");
-            if (confused_id != 0 && semantic_manager) {
-                return semantic_manager->meaningsToText({confused_id});
-            }
-        }
-        return "I'm not sure I understand.";
+        return "...";  // ← молчание
     }
 
-    // Проверка команд только в enterprise режиме
+    // Проверка команд (оставляем, это не шаблоны, а системные действия)
     if (system_mode_ == "enterprise") {
         std::string lower_input = input;
         std::transform(lower_input.begin(), lower_input.end(), lower_input.begin(), ::tolower);
@@ -235,103 +222,70 @@ std::string LanguageModule::process(const std::string& input, const std::string&
         for (const auto& cmd : commands) {
             if (lower_input.find(cmd.keyword) != std::string::npos) {
                 if (!canExecuteCommand(effective_user, cmd.keyword, cmd.required_level)) {
-                    std::string result = "Access denied. This command requires ";
-                    result += accessLevelToString(cmd.required_level);
-                    result += " level.";
-                    return result;
+                    return "";  // Нет прав — молчим, без "Access denied"
                 }
                 break;
             }
         }
-    } else {
-        std::cout << "Personal mode: commands are informational only" << std::endl;
     }
     
-    // Думаем — даём системе время на формирование устойчивого состояния
+    // Генерируем ответ через нейросеть
     std::vector<uint32_t> output_meanings;
-
-    // После получения output_meanings:
-    for (uint32_t mid : output_meanings) {
-        semantic_graph_->markConceptUsed(mid, process_step_counter_);
-    }
     
     if (thought_predictor) {
         output_meanings = thought_predictor->think(input_meanings);
         
-        // ===== Дополнительные шаги для формирования связного ответа =====
+        // Даём системе время на стабилизацию
         for (int i = 0; i < 5; i++) {
             neural_system.step(0.0f, process_step_counter_++);
         }
     }
     
-    // ===== ИСПРАВЛЕНО: если нет output_meanings, используем улучшенное извлечение =====
+    // Если нет выходных смыслов, извлекаем из текущего состояния
     if (output_meanings.empty() && semantic_manager) {
         output_meanings = semantic_manager->extractMeaningPath(5);
     }
-
-    // Добавляем эмоциональный отклик
+    
+    // Добавляем эмоциональный отклик (только если есть соответствующие смыслы)
     if (input_tone != EmotionalTone::NEUTRAL && semantic_graph_) {
         auto emotion_nodes = semantic_graph_->getNodesByEmotion(input_tone);
         if (!emotion_nodes.empty()) {
-            output_meanings.push_back(emotion_nodes[0]);
-        }
-    }
-    
-    // Проверяем самооценку
-    if (thought_predictor) {
-        auto self_assessment = thought_predictor->getSelfAssessment();
-        if (!self_assessment.empty()) {
-            output_meanings.insert(output_meanings.end(), 
-                                  self_assessment.begin(), 
-                                  self_assessment.end());
-        }
-    }
-    
-    // Проверяем уверенность
-    float confidence = calculateConfidence(output_meanings);
-    
-    // Если низкая уверенность и есть драйвер любопытства - задаем вопрос
-    if (confidence < 0.5f && curiosity_driver_) {
-        // ← ИСПРАВЛЕНО: защита от nullptr
-        if (semantic_graph_) {
-            auto thinking_id = semantic_graph_->getNodeId("think");
-            auto question = curiosity_driver_->getNextQuestion();
-            if (thinking_id != 0 && semantic_manager) {
-                return semantic_manager->meaningsToText({thinking_id}) + " " + question;
+            // Проверяем, не дублируем ли уже существующие смыслы
+            bool already_has = false;
+            for (uint32_t existing : output_meanings) {
+                if (existing == emotion_nodes[0]) {
+                    already_has = true;
+                    break;
+                }
+            }
+            if (!already_has) {
+                output_meanings.push_back(emotion_nodes[0]);
             }
         }
-        return "Let me ask: " + curiosity_driver_->getNextQuestion();
     }
     
-    // Преобразуем в ответ
+    // Эмоциональные маркеры УБРАНЫ — никаких (+2), (=), (...)
+    // Только чистый ответ
+    
     std::string response;
-    if (semantic_manager) {
+    if (semantic_manager && !output_meanings.empty()) {
         response = semantic_manager->meaningsToText(output_meanings);
-    } else if (!output_meanings.empty()) {
-        response = "I understand something...";
-    } else {
-        response = "I'm thinking...";
-    }
-    
-    // Эмоциональные маркеры
-    if (emotional_responses_ && !response.empty()) {
-        if (input_tone == EmotionalTone::VERY_POSITIVE) {
-            response += " (+2)";
-        } else if (input_tone == EmotionalTone::POSITIVE) {
-            response += " (+1)";
-        } else if (input_tone == EmotionalTone::VERY_NEGATIVE) {
-            response += " (-2)";
-        } else if (input_tone == EmotionalTone::NEGATIVE) {
-            response += " (-1)";
-        } else if (confidence > 0.8f) {
-            response += " (=)";
-        } else if (confidence < 0.3f) {
-            response += " (...)";
+        
+        // ДОБАВИТЬ ОТЛАДКУ
+        std::cout << "output_meanings: ";
+        for (uint32_t id : output_meanings) {
+            std::cout << id << " ";
         }
+        std::cout << std::endl;
+        std::cout << "response before: \"" << response << "\"" << std::endl;
     }
     
-    std::cout << "Response: \"" << response << "\" (confidence: " << confidence 
-              << ", tone: " << emotionalToneToString(input_tone) << ")" << std::endl;
+    if (response.empty()) {
+        std::cout << "Empty response generated. output_meanings size: " << output_meanings.size() << std::endl;
+        return "";
+    }
+    
+    std::cout << "Response: \"" << response << "\"" << std::endl;
     return response;
 }
 
@@ -536,41 +490,15 @@ std::vector<uint32_t> LanguageModule::textToMeanings(const std::string& text) {
 // ========== КОНВЕРТАЦИЯ СМЫСЛЫ -> ТЕКСТ ==========
 std::string LanguageModule::meaningsToText(const std::vector<uint32_t>& meanings) {
     if (meanings.empty()) {
-        return (system_mode_ == "personal") ? "Hmm, let me think..." : "I'm thinking...";
-    }
-
-    std::vector<uint32_t> top_meanings = meanings;
-    if (top_meanings.size() > 3) {
-        top_meanings.resize(3);
+        return "";  // ← УБРАТЬ все шаблоны
     }
     
-    // ← ИСПРАВЛЕНО: проверка на nullptr
     std::string response;
     if (semantic_manager) {
         response = semantic_manager->meaningsToText(meanings);
-    } else {
-        response = "I understand something...";
     }
     
-    if (semantic_graph_ && meanings.size() >= 2) {
-        for (uint32_t mid : meanings) {
-            auto node = semantic_graph_->getNode(mid);
-            if (node && !node->frame_roles.empty()) {
-                std::string frame_response = buildFrameResponse(mid, meanings);
-                if (!frame_response.empty()) {
-                    response = frame_response;
-                    break;
-                }
-            }
-        }
-    }
-    
-    if (system_mode_ == "personal" && !response.empty()) {
-        if (response.back() != '.' && response.back() != '!' && response.back() != '?') {
-            response += ".";
-        }
-    }
-    
+    // ← УБРАТЬ добавление точки в конце
     return response;
 }
 
@@ -661,9 +589,6 @@ void LanguageModule::giveFeedback(float rating, bool autoFeedback) {
         std::vector<uint32_t> recent_meanings_vec = getRecentMeanings();
         
         if (!recent_meanings_vec.empty()) {
-            // ❌ УДАЛЯЕМ старую логику многократного ослабления
-            // ✅ НОВАЯ ЛОГИКА: ограниченное ослабление
-            
             // Ослабляем только последнюю связь (не всю цепочку)
             if (recent_meanings_vec.size() >= 2) {
                 uint32_t last = recent_meanings_vec.back();
@@ -691,33 +616,35 @@ void LanguageModule::giveFeedback(float rating, bool autoFeedback) {
         }
     }
     
-    // ===== Положительный фидбек (оставляем как есть) =====
-    if (rating > 0.5f && semantic_manager && semantic_graph_) {
-        std::vector<uint32_t> recent_meanings_vec = getRecentMeanings();
-        
-        if (!recent_meanings_vec.empty()) {
-            for (size_t i = 0; i < recent_meanings_vec.size() - 1; ++i) {
-                uint32_t from = recent_meanings_vec[i];
-                uint32_t to = recent_meanings_vec[i + 1];
-                
-                auto edges = semantic_graph_->getEdgesFrom(from);
-                bool has_edge = false;
-                for (const auto& edge : edges) {
-                    if (edge.to_id == to) {
-                        has_edge = true;
-                        break;
-                    }
-                }
-                
-                if (has_edge) {
-                    semantic_graph_->addEdge(from, to, SemanticEdge::Type::LEADS_TO, 0.25f);
-                } else {
-                    semantic_graph_->addEdge(from, to, SemanticEdge::Type::LEADS_TO, 0.5f);
+    // НОВОЕ: передаём reward только в семантические группы
+    if (rating > 0.5f) {
+        // Положительный фидбек — усиливаем последнюю мысль
+        auto last_meanings = getRecentMeanings();
+        if (!last_meanings.empty()) {
+            uint32_t last_id = last_meanings.back();
+            int group_idx = 16 + (last_id % 6);
+            
+            // Усиливаем связь между семантическими группами
+            for (int g = 16; g <= 21; g++) {
+                if (g != group_idx) {
+                    neural_system.strengthenInterConnection(group_idx, g, 0.05f);
                 }
             }
+            
+            // Высокая награда для нейронов, представляющих этот смысл
+            float semantic_reward = 1.0f;
+            for (int g = 16; g <= 21; g++) {
+                neural_system.getGroupsNonConst()[g].learnSTDP(semantic_reward, 0);
+            }
+        }
+    } else {
+        // Отрицательный фидбек — уменьшаем активность
+        float negative_reward = -0.1f;
+        for (int g = 16; g <= 21; g++) {
+            neural_system.getGroupsNonConst()[g].learnSTDP(negative_reward, 0);
         }
     }
-    
+
     // ===== УДАЛЯЕМ или сильно ограничиваем pattern_frequency =====
     /*
     static std::map<std::vector<uint32_t>, int> pattern_frequency;
@@ -757,7 +684,7 @@ void LanguageModule::giveFeedback(float rating, bool autoFeedback) {
     // Сохраняем только каждый 5-й фидбек (вместо каждого)
     if (feedback_counter % 5 == 0 && semantic_graph_) {
         semantic_graph_->saveToFile("semantic_graph.bin");
-        std::cout << "💾 Graph saved (feedback #" << feedback_counter << ")" << std::endl;
+        std::cout << "Graph saved (feedback #" << feedback_counter << ")" << std::endl;
     }
     
     // ===== УМЕНЬШАЕМ DECAY =====
