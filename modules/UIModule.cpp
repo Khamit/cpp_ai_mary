@@ -493,7 +493,23 @@ void UIModule::handleMouseClick(const sf::Event::MouseButtonPressed& event, Neur
         resetView();
         return;
     }
+
+    // ===== НОВЫЕ КНОПКИ ДЛЯ МЕТОДА ТЬЮРИНГА =====
+    float y_offset = buttonY + 180;
     
+    // Кнопка отображения диффузии
+    sf::FloatRect diffusionRect(sf::Vector2f(startX, y_offset), sf::Vector2f(buttonWidth, buttonHeight));
+    if (diffusionRect.contains(mousePos)) {
+        toggleDiffusion();
+        return;
+    }
+    
+    // Кнопка отображения ингибитора
+    sf::FloatRect inhibitorRect(sf::Vector2f(startX, y_offset + 30), sf::Vector2f(buttonWidth, buttonHeight));
+    if (inhibitorRect.contains(mousePos)) {
+        toggleInhibitor();
+        return;
+    }
     
     // Проверка клика по кнопке режима (ДОБАВИТЬ)
     sf::FloatRect modeButtonRect(
@@ -886,6 +902,35 @@ void UIModule::drawControlPanel(sf::RenderWindow& window, const StatisticsModule
     resetViewText.setFillColor(TEXT_MAIN);
     resetViewText.setPosition(sf::Vector2f(startX + 15, buttonY + 155));
     window.draw(resetViewText);
+
+        // ===== НОВЫЕ КНОПКИ ДЛЯ МЕТОДА ТЬЮРИНГА =====
+    float y_offset = buttonY + 180; // ниже кнопки Reset View
+    
+    // Кнопка отображения диффузии
+    sf::RectangleShape diffusionBtn(sf::Vector2f(buttonWidth, buttonHeight));
+    diffusionBtn.setPosition(sf::Vector2f(startX, y_offset));
+    diffusionBtn.setFillColor(visualizer && visualizer->getConfig().show_diffusion ? BTN_ACTIVE : BTN_BG);
+    window.draw(diffusionBtn);
+    
+    sf::Text diffusionText(font);
+    diffusionText.setString("Show Diffusion: " + std::string(visualizer && visualizer->getConfig().show_diffusion ? "ON" : "OFF"));
+    diffusionText.setCharacterSize(12);
+    diffusionText.setFillColor(TEXT_MAIN);
+    diffusionText.setPosition(sf::Vector2f(startX + 15, y_offset + 5));
+    window.draw(diffusionText);
+    
+    // Кнопка отображения ингибитора
+    sf::RectangleShape inhibitorBtn(sf::Vector2f(buttonWidth, buttonHeight));
+    inhibitorBtn.setPosition(sf::Vector2f(startX, y_offset + 30));
+    inhibitorBtn.setFillColor(visualizer && visualizer->getConfig().show_inhibitor ? BTN_ACTIVE : BTN_BG);
+    window.draw(inhibitorBtn);
+    
+    sf::Text inhibitorText(font);
+    inhibitorText.setString("Show Inhibitor: " + std::string(visualizer && visualizer->getConfig().show_inhibitor ? "ON" : "OFF"));
+    inhibitorText.setCharacterSize(12);
+    inhibitorText.setFillColor(TEXT_MAIN);
+    inhibitorText.setPosition(sf::Vector2f(startX + 15, y_offset + 35));
+    window.draw(inhibitorText);
 }
 // Reflection draw
 // ИСПРАВЛЕНО: добавляем параметр sf::RenderWindow& window
@@ -1359,5 +1404,21 @@ void UIModule::handleRotate(float delta) {
 void UIModule::handleTilt(float delta) {
     if (visualizer) {
         visualizer->handleTilt(delta);
+    }
+}
+
+void UIModule::toggleDiffusion() {
+    if (visualizer) {
+        auto& cfg = visualizer->getConfig();
+        cfg.show_diffusion = !cfg.show_diffusion;
+        std::cout << "Diffusion visualization: " << (cfg.show_diffusion ? "ON" : "OFF") << std::endl;
+    }
+}
+
+void UIModule::toggleInhibitor() {
+    if (visualizer) {
+        auto& cfg = visualizer->getConfig();
+        cfg.show_inhibitor = !cfg.show_inhibitor;
+        std::cout << "Inhibitor visualization: " << (cfg.show_inhibitor ? "ON" : "OFF") << std::endl;
     }
 }

@@ -42,6 +42,14 @@ NeuralGroup::NeuralGroup(int size, double dt, std::mt19937& rng,
       wave_phase(size, 0.0),
       wave_amplitude(size, 1.0)
 {
+    // Инициализация ингибиторного поля
+    inhibitor.resize(size, 0.0);
+    // Небольшой случайный шум для инициализации паттернов
+    for (int i = 0; i < size; ++i) {
+        // цель: задать начальное нарушение симметрии
+        inhibitor[i] = 0.3 + 0.4 * ((rng() % 100) / 100.0);
+    }
+
     neuron_specialization.resize(size, "reserve");
 
     // Инициализация счетчиков использования
@@ -313,6 +321,62 @@ void NeuralGroup::computeDerivatives() {
             force[i] += yukawa_force * w_factor * 0.3 * sign;
         }
     }
+
+        // ===== НОВОЕ: ДИФФУЗИЯ ПО ГРАФУ =====
+    // Вычисляем диффузионный вклад для каждого нейрона
+    std::vector<Vec3> diffusion_forces(size, Vec3(0,0,0));
+    for (int i = 0; i < size; ++i) {
+        Vec3 diffusion_sum(0,0,0);
+        int neighbor_count = 0;
+        
+        // Ищем соседей на основе синаптических связей (граф)
+        for (int j = 0; j < size; ++j) {
+            if (i != j && std::abs(W_intra[i][j]) > 0.05) { // Если есть значимая связь
+                // Диффузия: стремление к среднему положению соседей
+                diffusion_sum += pos[j];
+                neighbor_count++;
+            }
+        }
+        
+        if (neighbor_count > 0) {
+            Vec3 target_center = diffusion_sum / static_cast<double>(neighbor_count);
+            // Сила, тянущая нейрон к центру масс его соседей
+            Vec3 diffusion_force = (target_center - pos[i]) * diffusion_strength;
+            diffusion_forces[i] = diffusion_force;
+        }
+    }
+
+    // ===== НОВОЕ: ИНГИБИТОРНОЕ ПОЛЕ =====
+    // Обновляем ингибиторное поле и добавляем его влияние на силу
+    for (int i = 0; i < size; ++i) {
+        // 1. Ингибитор затухает
+        inhibitor[i] *= inhibitor_decay;
+        
+        // 2. Ингибитор производится активностью нейрона (расстояние от центра)
+        double activity = pos[i].norm();
+        inhibitor[i] += activity * inhibitor_production * dt;
+        
+        // 3. Ограничиваем ингибитор разумными пределами
+        inhibitor[i] = std::clamp(inhibitor[i], 0.0, 2.0);
+        
+        // 4. Сила отталкивания от ингибитора (радиально наружу, если ингибитор велик)
+        Vec3 radial_dir = pos[i].normalized();
+        // Защита от нулевого вектора
+        if (pos[i].norm() < 1e-6) {
+            static std::mt19937 local_rng(std::random_device{}());  // ← создаем локальный rng
+            radial_dir = Vec3::randomOnSphere(local_rng);
+        }
+        
+        double inhibition_strength = inhibitor[i] * inhibitor_influence;
+        
+        // Сила, выталкивающая нейрон наружу, пропорциональная ингибитору
+        // Это создает конкуренцию и предотвращает скопление всех в одном месте
+        Vec3 inhibition_force = radial_dir * inhibition_strength;
+        
+        // Добавляем обе новые силы
+        force[i] += diffusion_forces[i] + inhibition_force;
+    }
+    
     
     // 5. ИСПРАВЛЕННОЕ ТРЕНИЕ - уменьшаем вблизи центра
     for (int i = 0; i < size; ++i) {

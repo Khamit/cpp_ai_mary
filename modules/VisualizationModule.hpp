@@ -37,6 +37,11 @@ struct VisualizationConfig {
     float rotation_angle = 0.0f;
     float tilt_angle = 30.0f;
     bool auto_rotate = false;
+
+    // НОВЫЕ ПАРАМЕТРЫ ДЛЯ МЕТОДА ТЬЮРИНГА
+    bool show_diffusion = true;      // показывать диффузионные связи
+    bool show_inhibitor = true;      // показывать ингибиторное поле
+    float inhibitor_alpha = 0.3f;    // прозрачность ингибитора
     
     // НОВЫЕ ПАРАМЕТРЫ ДЛЯ ОРБИТ
     bool show_orbit_spheres = true;           // показывать сферы орбит
@@ -168,6 +173,85 @@ public:
         config.tilt_angle = 30.0f;
         initializeOrbitSpheres();
     }
+
+void drawDiffusionConnections(sf::RenderWindow& window, const NeuralFieldSystem& system,
+                                                   float rot_rad, float tilt_rad, float cos_tilt, float sin_tilt) {
+    const auto& groups = system.getGroups();
+    
+    for (int g = 0; g < numGroups && g < groups.size(); ++g) {
+        const auto& group = groups[g];
+        const auto& positions = group.getPositions();
+        
+        for (int i = 0; i < groupSize; ++i) {
+            sf::Vector2f pos_i = project3DTo2D(
+                positions[i].x, positions[i].y, positions[i].z,
+                rot_rad, tilt_rad, cos_tilt, sin_tilt
+            );
+            pos_i.x = centerX + config.pan_x + pos_i.x * config.orbit_scale;
+            pos_i.y = centerY + config.pan_y + pos_i.y * config.orbit_scale;
+            
+            for (int j = i + 1; j < groupSize; ++j) {
+                double weight = group.getWeight(i, j);
+                if (std::abs(weight) > 0.1) {
+                    sf::Vector2f pos_j = project3DTo2D(
+                        positions[j].x, positions[j].y, positions[j].z,
+                        rot_rad, tilt_rad, cos_tilt, sin_tilt
+                    );
+                    pos_j.x = centerX + config.pan_x + pos_j.x * config.orbit_scale;
+                    pos_j.y = centerY + config.pan_y + pos_j.y * config.orbit_scale;
+                    
+                    sf::Color lineColor(100, 255, 100, static_cast<std::uint8_t>(std::abs(weight) * 150));
+                    
+                    sf::Vertex line[2];
+                    line[0].position = pos_i;
+                    line[0].color = lineColor;
+                    line[1].position = pos_j;
+                    line[1].color = lineColor;
+                    
+                    window.draw(line, 2, sf::PrimitiveType::Lines);
+                }
+            }
+        }
+    }
+}
+
+void drawInhibitorField(sf::RenderWindow& window, const NeuralFieldSystem& system,
+                                             float rot_rad, float tilt_rad, float cos_tilt, float sin_tilt) {
+    const auto& groups = system.getGroups();
+    
+    for (int g = 0; g < numGroups && g < groups.size(); ++g) {
+        const auto& group = groups[g];
+        const auto& positions = group.getPositions();
+        const auto& inhibitor = group.getInhibitor(); // нужно добавить геттер в NeuralGroup
+        
+        for (int i = 0; i < groupSize; ++i) {
+            // Проецируем позицию нейрона
+            sf::Vector2f pos = project3DTo2D(
+                positions[i].x, positions[i].y, positions[i].z,
+                rot_rad, tilt_rad, cos_tilt, sin_tilt
+            );
+            pos.x = centerX + config.pan_x + pos.x * config.orbit_scale;
+            pos.y = centerY + config.pan_y + pos.y * config.orbit_scale;
+            
+            // Получаем значение ингибитора (0-1)
+            float inhibitor_value = static_cast<float>(std::min(1.0, inhibitor[i] / 2.0));
+            
+            // Создаем "ореол" вокруг нейрона, показывающий силу ингибитора
+            float radius = config.neuron_radius * (1.0f + inhibitor_value * 2.0f);
+            sf::CircleShape halo(radius);
+            halo.setOrigin(sf::Vector2f(radius, radius));
+            halo.setPosition(pos);
+            
+            // Цвет: от желтого (слабый) к красному (сильный)
+            std::uint8_t r = static_cast<std::uint8_t>(200 + inhibitor_value * 55);
+            std::uint8_t g = static_cast<std::uint8_t>(200 - inhibitor_value * 150);
+            std::uint8_t b = static_cast<std::uint8_t>(100 - inhibitor_value * 80);
+            
+            halo.setFillColor(sf::Color(r, g, b, static_cast<std::uint8_t>(config.inhibitor_alpha * 255)));
+            window.draw(halo);
+        }
+    }
+}
     
     void draw(sf::RenderWindow& window, const NeuralFieldSystem& system) {
         if (!config.enabled) return;
@@ -224,6 +308,16 @@ public:
         // 4. Рисуем внутригрупповые связи
         if (config.show_intra_connections) {
             drawIntraGroupConnections3D(window, system, rot_rad, tilt_rad, cos_tilt, sin_tilt);
+        }
+
+        // 5.5. Рисуем диффузионные связи (если включено)
+        if (config.show_diffusion) {
+            drawDiffusionConnections(window, system, rot_rad, tilt_rad, cos_tilt, sin_tilt);
+        }
+        
+        // 5.6. Рисуем ингибиторное поле (если включено)
+        if (config.show_inhibitor) {
+            drawInhibitorField(window, system, rot_rad, tilt_rad, cos_tilt, sin_tilt);
         }
         
         // 5. Рисуем нейроны на их орбитах

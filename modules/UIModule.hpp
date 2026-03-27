@@ -122,6 +122,9 @@ OperatingMode::Type getCurrentOperatingMode() const {
     return OperatingMode::NORMAL;
 }
 
+   void toggleDiffusion();      // переключение отображения диффузии
+    void toggleInhibitor();      // переключение отображения ингибитора
+
 private:
     // Добавить поле
     NeuralFieldSystem* neural_system = nullptr;

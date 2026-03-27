@@ -288,6 +288,15 @@ public:
             default: return std::max(1, (int)(size * 0.20));
         }
     }
+
+    // ===== НОВЫЕ ПОЛЯ ДЛЯ МЕТОДА ТЬЮРИНГА =====
+    std::vector<double> inhibitor;          // Ингибиторное поле (второй компонент)
+    double diffusion_strength = 0.02;       // Коэффициент диффузии (D)
+    double inhibitor_decay = 0.995;         // Затухание ингибитора
+    double inhibitor_influence = 0.5;       // Влияние ингибитора на активность
+    double inhibitor_production = 0.05;     // Скорость производства ингибитора активностью
+
+    const std::vector<double>& getInhibitor() const { return inhibitor; }
     
     // ===== ОСНОВНЫЕ МЕТОДЫ =====
     void evolve();                                      // эволюция группы
