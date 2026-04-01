@@ -25,7 +25,9 @@ LanguageModule::LanguageModule(NeuralFieldSystem& system,
     , auth(auth)
     , semantic_graph_(graph)
     , rng_(std::random_device{}())
-    , dialogue_state_() {
+    , dialogue_state_()
+    , orchestrator_(nullptr) 
+     {
 
         // ===== НОВОЕ: ЗАГРУЖАЕМ СОХРАНЕННЫЙ ГРАФ =====
     if (semantic_graph_) {
@@ -76,11 +78,19 @@ void LanguageModule::shutdown() {
 void LanguageModule::update(float dt) {
     static int cleanup_counter = 0;
     cleanup_counter++;
+    static int dream_counter = 0;
+    dream_counter++;
     
     // Каждые 1000 шагов очищаем старые концепты
     if (cleanup_counter >= 1000 && semantic_graph_) {
         cleanup_counter = 0;
         semantic_graph_->pruneAgedConcepts(process_step_counter_, 5000, 0.15f);
+    }
+        // Каждые 5000 шагов — сессия "мечтательности"
+    if (dream_counter > 5050 && orchestrator_) {
+        dream_counter = 0;
+        std::cout << "Dreaming session..." << std::endl;
+        orchestrator_->runExploratoryLearning(200);
     }
 }
 
@@ -795,7 +805,15 @@ bool LanguageModule::handleSpecialCommand(const std::string& input, std::string&
         return true;
     }
     else if (input == "learn") {
-        output = "📚 Learning mode activated. I'll be more curious!";
+        // Запускаем исследовательское обучение
+        if (orchestrator_) {
+            output = "Starting exploratory learning mode...\n";
+            orchestrator_->runExploratoryLearning(500);  // 500 шагов
+            output += "Exploratory learning completed!";
+        } else {
+            output = "Learning mode activated. I'll be more curious!\n";
+            output += "(Note: Orchestrator not available for deep learning)";
+        }
         return true;
     }
     else if (input.find("answer:") == 0) {

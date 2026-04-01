@@ -33,6 +33,10 @@ void NeuralFieldSystem::initializeWithLimits(std::mt19937& rng, const MassLimits
         std::cerr << "ERROR: Groups not properly initialized!" << std::endl;
         return;
     }
+
+    for (auto& group : groups) {
+        group.setMemoryManager(memory_manager);  // нужно добавить этот метод
+    }
     
     // Инициализация межгрупповых связей
     interWeights.resize(NUM_GROUPS, std::vector<double>(NUM_GROUPS, 0.0));
@@ -56,6 +60,7 @@ void NeuralFieldSystem::initializeWithLimits(std::mt19937& rng, const MassLimits
             }
         }
     }
+
     
     flatDirty = true;
 }

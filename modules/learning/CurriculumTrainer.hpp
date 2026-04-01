@@ -151,21 +151,29 @@ void trainAbstractionLevel(int min_abs, int max_abs, int steps) {
         }
     }
     
-    void runFullTraining() {
-        std::cout << "\n" << std::string(60, '=') << std::endl;
-        std::cout << "STARTING FULL SEMANTIC TRAINING" << std::endl;
-        std::cout << std::string(60, '=') << std::endl;
-        
-        training_active_ = true;
-        auto start_time = std::chrono::steady_clock::now();
-        
-        trainer.healStuckNeurons();
-        trainer.preventStagnation();
-        
-        std::cout << "\nPhase 1: Concrete concepts (abstraction 1-3)" << std::endl;
-        trainAbstractionLevel(1, 3, 2000);
-        trainer.healStuckNeurons();
-        
+void runFullTraining() {
+    std::cout << "\n" << std::string(60, '=') << std::endl;
+    std::cout << "STARTING FULL SEMANTIC TRAINING" << std::endl;
+    std::cout << std::string(60, '=') << std::endl;
+    
+    training_active_ = true;
+    auto start_time = std::chrono::steady_clock::now();
+    
+    trainer.healStuckNeurons();
+    trainer.preventStagnation();
+    
+    // ===== НОВАЯ ФАЗА 0: ИССЛЕДОВАТЕЛЬСКОЕ ОБУЧЕНИЕ =====
+    std::cout << "\nPhase 0: Exploratory learning (self-discovery)" << std::endl;
+    // Нужно передать LearningOrchestrator в CurriculumTrainer или вызвать через него
+    // Пока оставим заглушку, но в реальности нужно иметь доступ к LearningOrchestrator
+    
+    // ВАРИАНТ: добавить параметр в конструктор CurriculumTrainer
+    // и вызвать orchestrator.runExploratoryLearning(1000);
+    
+    std::cout << "\nPhase 1: Concrete concepts (abstraction 1-3)" << std::endl;
+    trainAbstractionLevel(1, 3, 2000);
+    trainer.healStuckNeurons();
+
         std::cout << "\nPhase 2: Actions and relations (abstraction 3-5)" << std::endl;
         trainAbstractionLevel(3, 5, 3000);
         trainer.healStuckNeurons();

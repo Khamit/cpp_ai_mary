@@ -9,6 +9,7 @@
 #include "EventSystem.hpp"
 #include "core/INeuralGroupAccess.hpp"
 #include "DynamicParams.hpp"
+#include "core/MemoryManager.hpp"
 #include <mutex>
 
 #ifndef M_PI
@@ -115,7 +116,7 @@ public:
     static constexpr int GROUP_SIZE = 32;       ///< 32 нейрона в группе
     static constexpr int TOTAL_NEURONS = NUM_GROUPS * GROUP_SIZE; // 1024
     static constexpr int SYSTEM_ENTROPY_BINS = 20;  // можно оставить 20 для системы
-
+    
     /**
      * @param dt Глобальный шаг интегрирования
      */
@@ -223,6 +224,9 @@ public:
     void applyLateralInhibition();
     void applyTargetPattern(const std::vector<float>& target_patter);
 
+    void setMemoryManager(MemoryManager* mm) { memory_manager = mm; };
+
+
     // РЕАЛИЗАЦИЯ ИНТЕРФЕЙСА
     std::vector<NeuralGroup*>& getHubGroups() override {
         // Ленивое заполнение вектора указателей
@@ -289,6 +293,7 @@ private:
     AttentionMechanism attention;
     EventSystem& events;
     OperatingMode::Type current_mode_ = OperatingMode::NORMAL;
+    MemoryManager* memory_manager = nullptr;
 
     // НОВОЕ: вектор индексов групп-хабов
     std::vector<int> hubIndices;

@@ -41,6 +41,11 @@ private:
     SemanticGraphDatabase& semantic_graph_;
     
     std::mt19937 rng_;
+
+    bool training_active_ = false;      // <-- ДОБАВИТЬ
+    int total_steps_ = 0;               // <-- ДОБАВИТЬ
+
+    void registerWithLanguageModule();
     
     void loadCurriculum();
 
@@ -142,6 +147,10 @@ public:
     void loadState(MemoryManager& memory) override {
         // TODO: загружать состояние обучения
     }
+
+    // новый 
+    void runExploratoryLearning(int steps);
+    float detectNovelPatterns();
     
     // Высокоуровневое обучение
     void runTraining(int hours);

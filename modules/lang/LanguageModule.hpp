@@ -48,6 +48,7 @@ private:
     std::unique_ptr<ThoughtPredictor> thought_predictor;
 
     SemanticGraphDatabase* semantic_graph_ = nullptr;
+    LearningOrchestrator* orchestrator_ = nullptr;  // <-- ДОБАВИТЬ
 
     int process_step_counter_ = 0;
 
@@ -119,6 +120,8 @@ public:
     void update(float dt) override;
     void saveState(MemoryManager& memory) override;
     void loadState(MemoryManager& memory) override;
+
+    void setOrchestrator(LearningOrchestrator* orchestrator) { orchestrator_ = orchestrator; }
 
     std::shared_ptr<CuriosityDriver> createCuriosityDriver();
     bool hasCuriosityDriver() const { return curiosity_driver_ != nullptr; }

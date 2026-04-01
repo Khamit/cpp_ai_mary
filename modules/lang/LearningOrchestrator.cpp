@@ -352,3 +352,94 @@ std::string LearningOrchestrator::getStats() const {
     ss << "Mastered concepts: " << mastery_evaluator_->getMasteredConceptsCount() << "\n";
     return ss.str();
 }
+
+void LearningOrchestrator::registerWithLanguageModule() {
+    language_module_.setOrchestrator(this);
+}
+
+// НОВОЕ ОБУЧЕНИЕ
+void LearningOrchestrator::runExploratoryLearning(int steps) {
+    std::cout << "=== EXPLORATORY LEARNING MODE ===\n";
+    std::cout << "Neural system will explore and discover patterns on its own\n";
+    
+    training_active_ = true;
+    
+    for (int step = 0; step < steps && training_active_; step++) {
+        auto& groups = neural_system_.getGroupsNonConst();
+        
+        // Активируем случайные нейроны на низких орбитах (эксперименты)
+        std::uniform_int_distribution<> group_dist(0, 31);
+        std::uniform_int_distribution<> neuron_dist(0, 31);
+        
+        for (int exp = 0; exp < 5; exp++) {
+            int g = group_dist(rng_);
+            int n = neuron_dist(rng_);
+            
+            if (groups[g].getOrbitLevel(n) <= 1) {
+                // Низкая орбита = эксперимент
+                groups[g].getPhiNonConst()[n] += 0.3f;
+            }
+        }
+        
+        // Даем системе эволюционировать
+        for (int evolve = 0; evolve < 10; evolve++) {
+            neural_system_.step(0.0f, total_steps_ + evolve);
+        }
+        
+        // Награждаем за обнаружение новых стабильных паттернов
+        float novelty_reward = detectNovelPatterns();
+        
+        // Применяем награду
+        for (int g = 16; g <= 21; g++) {
+            groups[g].learnSTDP(novelty_reward, total_steps_);
+        }
+        
+        total_steps_++;
+        
+        if (step % 100 == 0) {
+            std::cout << "Exploration step " << step 
+                      << ", novelty reward: " << novelty_reward << std::endl;
+            neural_system_.logOrbitalHealth();
+        }
+    }
+    
+    training_active_ = false;
+}
+
+// patterns
+float LearningOrchestrator::detectNovelPatterns() {
+    auto& groups = neural_system_.getGroups();
+    float novelty = 0.0f;
+    int novel_count = 0;
+    
+    // Проверяем элитные нейроны (орбита 4) на новые стабильные паттерны
+    for (int g = 16; g <= 21; g++) {
+        for (int i = 0; i < 32; i++) {
+            if (groups[g].getOrbitLevel(i) >= 3) {
+                // Проверяем, соответствует ли этот паттерн известному концепту
+                bool matches_known = false;
+                
+                for (uint32_t concept_id = 1; concept_id <= 614; concept_id++) {
+                    auto node = semantic_graph_.getNode(concept_id);
+                    if (node) {
+                        // Используем mastery_evaluator_ (уже unique_ptr)
+                        float affinity = mastery_evaluator_->getNeuronAffinityToConcept(g, i, concept_id);
+                        if (affinity > 0.7f) {
+                            matches_known = true;
+                            break;
+                        }
+                    }
+                }
+                
+                if (!matches_known) {
+                    // Новый паттерн!
+                    novelty += groups[g].getNeuronEnergy(i);
+                    novel_count++;
+                }
+            }
+        }
+    }
+    
+    // Награда пропорциональна количеству новых паттернов
+    return novel_count > 0 ? std::min(1.0f, novelty / novel_count) : 0.0f;
+}

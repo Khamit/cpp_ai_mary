@@ -18,6 +18,7 @@ struct SemanticEdge;  // Добавляем forward declaration
 struct CuriosityQuestion {
     std::string question;
     std::vector<uint32_t> target_meanings;
+    std::vector<std::pair<int, int>> target_neurons;  // <-- ДОБАВИТЬ
     float importance;
     bool asked = false;
     std::string user_answer;

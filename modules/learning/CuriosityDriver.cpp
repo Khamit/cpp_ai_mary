@@ -17,49 +17,93 @@ CuriosityDriver::CuriosityDriver(NeuralFieldSystem& ns, LanguageModule& lang,
     return std::make_shared<CuriosityDriver>(neural_system, language, semantic_graph);
 }
 
+// В CuriosityDriver.cpp
 std::vector<CuriosityQuestion> CuriosityDriver::generateQuestions() {
     std::vector<CuriosityQuestion> questions;
     
-    auto uncertain_meanings = findUncertainMeanings();
-    for (auto id : uncertain_meanings) {
-        auto node = semantic_graph.getNode(id);
-        if (node) {
-            CuriosityQuestion q;
-            q.question = "What does '" + node->canonical_form + "' mean?";
-            q.target_meanings = {id};
-            q.importance = 1.0f - node->base_importance;
-            questions.push_back(q);
+    // НЕ спрашиваем про uncertain meanings из графа
+    // Вместо этого спрашиваем про паттерны, которые система сама нашла
+    
+    auto& groups = neural_system.getGroups();
+    
+    // Находим элитные нейроны с высокой энергией, но без привязки к графу
+    for (int g = 16; g <= 21; g++) {
+        for (int i = 0; i < 32; i++) {
+            if (groups[g].getOrbitLevel(i) >= 3) {
+                float energy = groups[g].getNeuronEnergy(i);
+                
+                // Проверяем, связан ли этот нейрон с известным концептом
+                bool known = false;
+                for (uint32_t concept_id = 1; concept_id <= 614; concept_id++) {
+                    auto node = semantic_graph.getNode(concept_id);
+                    if (node) {
+                        float affinity = 0.0f;
+                        int group_idx = (concept_id % 6);
+                        if (group_idx == (g - 16)) {
+                            for (int j = 0; j < 32; j++) {
+                                affinity += node->signature[j + group_idx * 32] * 
+                                           groups[g].getPhi()[j];
+                            }
+                        }
+                        if (affinity > 0.7f) {
+                            known = true;
+                            break;
+                        }
+                    }
+                }
+                
+                if (!known && energy > 1.0f) {
+                    CuriosityQuestion q;
+                    q.question = "What pattern is this neuron representing? (neuron " 
+                               + std::to_string(i) + " in group " + std::to_string(g) + ")";
+                    q.target_neurons.push_back({g, i});
+                    q.importance = energy / 5.0f;
+                    questions.push_back(q);
+                }
+            }
         }
     }
     
-    auto potential_relations = explorePotentialRelations();
-    for (const auto& [from_id, to_id] : potential_relations) {
-        auto from_node = semantic_graph.getNode(from_id);
-        auto to_node = semantic_graph.getNode(to_id);
-        if (from_node && to_node) {
-            CuriosityQuestion q;
-            q.question = "Is " + from_node->canonical_form + 
-                        " related to " + to_node->canonical_form + "?";
-            q.target_meanings = {from_id, to_id};
-            q.importance = 0.8f;
-            questions.push_back(q);
-        }
-    }
     return questions;
 }
 
+// обработка target_neurons
 void CuriosityDriver::processAnswer(const std::string& question, const std::string& answer) {
     for (auto& q : question_queue) {
         if (q.question == question && !q.asked) {
             q.asked = true;
             q.user_answer = answer;
             
+            // Обработка target_meanings (существующая логика)
             auto answer_meanings = language_module.textToMeanings(answer);
             
             for (uint32_t target : q.target_meanings) {
                 for (uint32_t ans : answer_meanings) {
-                    // Здесь нужно будет добавить правильный тип ребра
-                    // semantic_graph.addEdge(target, ans, ...);
+                    // Добавляем связь в граф
+                    semantic_graph.addEdge(target, ans, SemanticEdge::Type::RELATED_TO, 0.5f);
+                }
+            }
+            
+            // НОВОЕ: обработка target_neurons (для эмерджентных паттернов)
+            if (!q.target_neurons.empty()) {
+                auto& groups = neural_system.getGroupsNonConst();
+                
+                for (const auto& [group_idx, neuron_idx] : q.target_neurons) {
+                    // Повышаем орбиту нейрона, если ответ был полезным
+                    if (!answer_meanings.empty()) {
+                        // Повышаем орбиту
+                        if (groups[group_idx].getOrbitLevel(neuron_idx) < 4) {
+                            groups[group_idx].publicPromoteToBaseOrbit(neuron_idx);
+                            std::cout << "  Promoted neuron (" << group_idx << "," 
+                                      << neuron_idx << ") based on user answer" << std::endl;
+                        }
+                        
+                        // Усиливаем связи с семантическими группами
+                        for (uint32_t meaning_id : answer_meanings) {
+                            int semantic_group = 16 + (meaning_id % 6);
+                            neural_system.strengthenInterConnection(group_idx, semantic_group, 0.1f);
+                        }
+                    }
                 }
             }
             
@@ -68,7 +112,7 @@ void CuriosityDriver::processAnswer(const std::string& question, const std::stri
             
             q.understanding_score = reward;
             
-            std::cout << "🎯 Understanding score: " << reward << std::endl;
+            std::cout << "Understanding score: " << reward << std::endl;
             break;
         }
     }

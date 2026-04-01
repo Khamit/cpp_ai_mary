@@ -13,6 +13,8 @@
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+#include "Component.hpp"
+#include "core/MemoryManager.hpp"
 
 // Структура 3D вектора
 struct Vec3 {
@@ -314,6 +316,12 @@ public:
     // Новый метод:
     void relayLearning(int learner_idx, float reward, int step);
     void propagateKnowledgeFromHigherOrbits();
+    void promoteNovelPatternsFromLowerOrbits();
+    double computeNovelty(int i) const;  // вычисление новизны нейрона
+    int selectBestNovelPattern(const std::vector<int>& novel_neurons);  // выбор лучшего паттерна
+    void applyEliteCoordination();
+    void eliteCommandLowerOrbits();
+    void performExperiments();
 
     // Новые методы для вычисления компонентов важности
     double computeConnectivity(int i) const;    // связность нейрона i
@@ -558,6 +566,8 @@ public:
     void setCurrentMode(OperatingMode::Type mode) {
         current_mode_ = mode;
     }
+
+    void setMemoryManager(MemoryManager* mm) { memory_manager = mm; }
     
     // Добавить метод promoteToBaseOrbit если его нет
     void promoteToBaseOrbit(int i) {
@@ -605,6 +615,8 @@ public:
 private:
     MassLimits mass_limits;
     OperatingMode::Type current_mode_ = OperatingMode::NORMAL;
+    MemoryManager* memory_manager = nullptr; 
+
     // ===== ФУНДАМЕНТАЛЬНЫЕ ПАРАМЕТРЫ =====
     int size;                       // количество нейронов
     double dt;                      // шаг времени
