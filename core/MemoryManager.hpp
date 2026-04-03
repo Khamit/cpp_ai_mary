@@ -67,6 +67,10 @@ private:
     // Ленивое сохранение
     int writeCooldown = 0;
     const int WRITE_INTERVAL = 100;
+
+    // Флаг для защиты от рекурсии
+    static std::atomic<bool> consolidating_;
+    static std::atomic<int> store_depth_;
     
     // Вспомогательные методы
     void saveToFile(const std::string& filename, const std::vector<MemoryRecord>& data);

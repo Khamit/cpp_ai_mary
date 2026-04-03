@@ -1,43 +1,53 @@
 #pragma once
-#include "../core/NeuralFieldSystem.hpp"
-#include <vector>
-#include <fstream>
 
-struct Statistics {
-    double total_energy = 0.0;
-    double avg_phi = 0.0;
-    double avg_pi = 0.0;
-    int step = 0;
-    double dt = 0.0;
-    double simulation_time = 0.0;
+#include <vector>
+#include <chrono>
+#include <string>
+
+#include "UnifiedStatsCollector.hpp"
+
+class NeuralFieldSystem;
+
+struct SystemSnapshot {
+    int step;
+    double dt;
+    double total_energy;
+    double avg_phi;
+    double avg_pi;
+    double system_entropy;
+    double fitness;
+    size_t memory_records;
+    double timestamp;
 };
 
 class StatisticsModule {
-public:
-    StatisticsModule() : historySize(1000) {}
+private:
+    std::vector<SystemSnapshot> history;
 
-    // ===== Управление симуляцией =====
+    std::chrono::steady_clock::time_point start_time;
+    std::chrono::steady_clock::time_point last_step_time;
+
+    bool timer_running;
+
+    UnifiedStatsCollector* stats_collector;
+
+public:
+    StatisticsModule();
+
+    void setStatsCollector(UnifiedStatsCollector* collector);
+
     void startTimer();
     void stopTimer();
+
     void reset();
 
-    bool isRunning() const { return timer_running; }
-
-    // ===== Обновление =====
     void update(const NeuralFieldSystem& system, int step, double dt);
 
-    // ===== Доступ =====
-    const std::vector<Statistics>& getHistory() const { return history; }
-    const Statistics& getCurrentStats() const { return current_stats; }
+    void updateFromCollector();
+
+    const SystemSnapshot& getCurrentStats() const;
+
+    const std::vector<SystemSnapshot>& getHistory() const;
 
     void saveToFile(const std::string& filename) const;
-
-private:
-    Statistics current_stats;
-    std::vector<Statistics> history;
-    size_t historySize;
-
-    // ===== Таймер =====
-    bool timer_running = false;
-    double elapsed_time = 0.0;
 };

@@ -2,6 +2,9 @@
 #include <iostream>
 #include <filesystem>
 #include <ctime>
+#include <atomic>
+#include <chrono>
+#include <thread>
 
 // Конструктор
 MemoryManager::MemoryManager() {
@@ -20,6 +23,9 @@ MemoryManager::MemoryManager() {
 const std::map<std::string, std::vector<MemoryRecord>>& MemoryManager::getLongTermMemory() const {
     return longTermMemory;
 }
+
+std::atomic<bool> MemoryManager::consolidating_{false};
+std::atomic<int> MemoryManager::store_depth_{0};
 
 size_t MemoryManager::getDumpSize() const {
     return sizeof(size_t) + sizeof(double) * 5 + sizeof(uint64_t);
@@ -57,22 +63,38 @@ void MemoryManager::store(const std::string& component, const std::string& type,
                          const std::vector<float>& data, 
                          float importance,
                          const std::map<std::string, std::string>& metadata) {
-    // Кажется здесь он не уместен и не правильно 
-    if (++writeCooldown >= WRITE_INTERVAL) {
-        writeCooldown = 0;
-        saveAll();
+    
+    // Защита от рекурсии
+    store_depth_++;
+    if (store_depth_ > 5) {
+        std::cerr << "Слишком глубокая рекурсия в store()" << std::endl;
+        store_depth_--;
+        return;
     }
     
     // Проверяем размер данных (не больше 1KB на запись)
     if (data.size() > 256) {  // 256 floats = 1KB
-        std::cerr << "⚠️ Запись слишком большая: " << data.size() << " floats" << std::endl;
+        std::cerr << "Запись слишком большая: " << data.size() << " floats" << std::endl;
+        store_depth_--;
         return;
     }
 
-    std::vector<float> cleaned = data;
-    pruneVector(cleaned);
-    
-    
+    // Проверка на валидность данных
+    if (data.empty()) {
+        std::cerr << "Попытка сохранить пустые данные" << std::endl;
+        store_depth_--;
+        return;
+    }
+
+    // Проверка на NaN/Inf
+    for (size_t i = 0; i < std::min(data.size(), size_t(10)); i++) {
+        if (!std::isfinite(data[i])) {
+            std::cerr << "Невалидные данные в store()" << std::endl;
+            store_depth_--;
+            return;
+        }
+    }
+
     MemoryRecord record;
     record.timestamp = std::time(nullptr);
     record.component = component;
@@ -80,8 +102,10 @@ void MemoryManager::store(const std::string& component, const std::string& type,
     record.data = data;
     record.metadata = metadata;
     record.importance = importance;
-    record.data = std::move(cleaned);
     
+    // ИСПРАВЛЕНИЕ: обрезаем копию, а не оригинал
+    pruneVector(record.data);
+
     // Добавляем в кратковременную память
     shortTermMemory.push_back(record);
     
@@ -93,14 +117,15 @@ void MemoryManager::store(const std::string& component, const std::string& type,
         if (longTermMemory[component].size() > maxLongTermPerComponent) {
             longTermMemory[component].erase(
                 longTermMemory[component].begin(),
-                longTermMemory[component].begin() + 10  // удаляем 10 самых старых
+                longTermMemory[component].begin() + 10
             );
         }
     }
     
-    // Автоматическая очистка при достижении порога
-    if (shortTermMemory.size() > maxShortTermMemory * cleanupThreshold) {
-        consolidate(0.5f);  // понижаем порог для автоочистки
+    // Автоматическая очистка при достижении порога - НО БЕЗ РЕКУРСИИ!
+    if (shortTermMemory.size() > maxShortTermMemory * cleanupThreshold && 
+        !consolidating_ && store_depth_ == 1) {
+        consolidate(0.5f);
     }
     
     // Ограничиваем размер кратковременной памяти
@@ -114,6 +139,8 @@ void MemoryManager::store(const std::string& component, const std::string& type,
             std::vector<MemoryRecord>(shortTermMemory).swap(shortTermMemory);
         }
     }
+    
+    store_depth_--;
 }
 
 // Специализированное сохранение для эволюционных данных
@@ -287,7 +314,7 @@ void MemoryManager::loadFromFile(const std::string& filename, std::vector<Memory
     
     // Защита от слишком больших файлов
     if (size > 10000) {
-        std::cerr << "⚠️ Файл " << filename << " слишком большой: " << size << " записей" << std::endl;
+        std::cerr << "Файл " << filename << " слишком большой: " << size << " записей" << std::endl;
         return;
     }
     
@@ -304,7 +331,7 @@ void MemoryManager::loadFromFile(const std::string& filename, std::vector<Memory
         size_t comp_len;
         file.read(reinterpret_cast<char*>(&comp_len), sizeof(comp_len));
         if (comp_len > 256) {  // защита от поврежденных данных
-            std::cerr << "⚠️ Поврежденные данные в " << filename << std::endl;
+            std::cerr << "Поврежденные данные в " << filename << std::endl;
             return;
         }
         record.component.resize(comp_len);
@@ -314,7 +341,7 @@ void MemoryManager::loadFromFile(const std::string& filename, std::vector<Memory
         size_t type_len;
         file.read(reinterpret_cast<char*>(&type_len), sizeof(type_len));
         if (type_len > 256) {
-            std::cerr << "⚠️ Поврежденные данные в " << filename << std::endl;
+            std::cerr << "Поврежденные данные в " << filename << std::endl;
             return;
         }
         record.type.resize(type_len);
@@ -324,7 +351,7 @@ void MemoryManager::loadFromFile(const std::string& filename, std::vector<Memory
         size_t data_size;
         file.read(reinterpret_cast<char*>(&data_size), sizeof(data_size));
         if (data_size > 1024) {  // защита от слишком больших векторов
-            std::cerr << "⚠️ Поврежденные данные в " << filename << std::endl;
+            std::cerr << "Поврежденные данные в " << filename << std::endl;
             return;
         }
         record.data.resize(data_size);
@@ -339,7 +366,7 @@ void MemoryManager::loadFromFile(const std::string& filename, std::vector<Memory
         size_t meta_size;
         file.read(reinterpret_cast<char*>(&meta_size), sizeof(meta_size));
         if (meta_size > 100) {  // защита от слишком большого количества метаданных
-            std::cerr << "⚠️ Поврежденные данные в " << filename << std::endl;
+            std::cerr << "Поврежденные данные в " << filename << std::endl;
             return;
         }
         
@@ -349,7 +376,7 @@ void MemoryManager::loadFromFile(const std::string& filename, std::vector<Memory
             
             file.read(reinterpret_cast<char*>(&key_len), sizeof(key_len));
             if (key_len > 256) {
-                std::cerr << "⚠️ Поврежденные данные в " << filename << std::endl;
+                std::cerr << "Поврежденные данные в " << filename << std::endl;
                 return;
             }
             key.resize(key_len);
@@ -357,7 +384,7 @@ void MemoryManager::loadFromFile(const std::string& filename, std::vector<Memory
             
             file.read(reinterpret_cast<char*>(&value_len), sizeof(value_len));
             if (value_len > 256) {
-                std::cerr << "⚠️ Поврежденные данные в " << filename << std::endl;
+                std::cerr << "Поврежденные данные в " << filename << std::endl;
                 return;
             }
             value.resize(value_len);
@@ -386,7 +413,7 @@ void MemoryManager::saveAll() {
         }
     }
     
-    std::cout << "💾 All memory saved to " << dumpPath << std::endl;
+    std::cout << "All memory saved to " << dumpPath << std::endl;
 }
 
 // Загрузка из файлов
@@ -401,64 +428,81 @@ void MemoryManager::loadAll() {
                              (shortTermMemory.size() - maxShortTermMemory));
     }
     
-    std::cout << "📂 Loaded short-term memory from " << dumpPath << std::endl;
+    std::cout << "Loaded short-term memory from " << dumpPath << std::endl;
 }
 
 // Консолидация кратковременной памяти в долговременную
 void MemoryManager::consolidate(float threshold) {
-    if (shortTermMemory.empty()) return;
+    // Защита от рекурсии
+    if (consolidating_.exchange(true)) {
+        std::cerr << "Рекурсивный вызов consolidate предотвращен" << std::endl;
+        return;
+    }
     
-    size_t consolidated = 0;
+    // Защита от слишком частых вызовов
+    static auto last_call = std::chrono::steady_clock::now();
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_call).count();
     
-    // Сортируем по важности (наименее важные вперед)
-    std::sort(shortTermMemory.begin(), shortTermMemory.end(),
-              [](const MemoryRecord& a, const MemoryRecord& b) {
-                  return a.importance < b.importance;
-              });
+    if (elapsed < 100) {  // минимум 100ms между вызовами
+        std::cerr << "consolidate вызывается слишком часто" << std::endl;
+        consolidating_ = false;
+        return;
+    }
+    last_call = now;
+    
+    if (shortTermMemory.empty()) {
+        consolidating_ = false;
+        return;
+    }
+    
+    try {
+        size_t consolidated = 0;
+        
+        // Сортируем по важности
+        std::sort(shortTermMemory.begin(), shortTermMemory.end(),
+                  [](const MemoryRecord& a, const MemoryRecord& b) {
+                      return a.importance < b.importance;
+                  });
 
-    // Проходим по всем записям кратковременной памяти
-    for (auto& record : shortTermMemory) {
-        if (record.importance < threshold) {
-            // Применяем пороговое обнуление мелких значений
-            pruneVector(record.data);
-            
-            // Квантование для экономии памяти
-            auto compressed = quantize(record.data);
-            
-            // Сохраняем сжатые данные в долговременную память
-            longTermMemory[record.component].push_back(record);
-            consolidated++;
-            
-            // Ограничиваем размер долговременной памяти по компоненту
-            if (longTermMemory[record.component].size() > maxLongTermPerComponent) {
-                size_t removeCount = longTermMemory[record.component].size() - maxLongTermPerComponent;
-                longTermMemory[record.component].erase(
-                    longTermMemory[record.component].begin(),
-                    longTermMemory[record.component].begin() + removeCount
-                );
-                std::vector<MemoryRecord>(longTermMemory[record.component]).swap(longTermMemory[record.component]);
+        // Проходим по записям
+        for (auto& record : shortTermMemory) {
+            if (record.importance < threshold) {
+                // Применяем пороговое обнуление
+                pruneVector(record.data);
+                
+                // Сохраняем в долговременную память
+                longTermMemory[record.component].push_back(record);
+                consolidated++;
+                
+                // Ограничиваем размер
+                if (longTermMemory[record.component].size() > maxLongTermPerComponent) {
+                    size_t removeCount = longTermMemory[record.component].size() - maxLongTermPerComponent;
+                    longTermMemory[record.component].erase(
+                        longTermMemory[record.component].begin(),
+                        longTermMemory[record.component].begin() + removeCount
+                    );
+                    std::vector<MemoryRecord>(longTermMemory[record.component]).swap(longTermMemory[record.component]);
+                }
             }
         }
+        
+        // Очищаем кратковременную память
+        shortTermMemory.clear();
+        std::vector<MemoryRecord>().swap(shortTermMemory);
+        
+        // Очистка старых записей
+        cleanupOldRecords();
+        
+        std::cout << "Memory consolidated: " << consolidated 
+                  << " records (threshold: " << threshold << ")" << std::endl;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Ошибка в consolidate: " << e.what() << std::endl;
     }
     
-    // Очищаем кратковременную память после консолидации
-    shortTermMemory.clear();
-    std::vector<MemoryRecord>().swap(shortTermMemory);
-    
-    // Дополнительная очистка старых записей
-    cleanupOldRecords();
-    
-    std::cout << "💾 Memory consolidated: " << consolidated 
-              << " records (threshold: " << threshold << ")" << std::endl;
-    
-    // Проверка лимита кратковременной памяти (10% от maxShortTermMemory)
-    if (shortTermMemory.size() > maxShortTermMemory) {
-        size_t removeCount = shortTermMemory.size() - maxShortTermMemory;
-        shortTermMemory.erase(shortTermMemory.begin(), shortTermMemory.begin() + removeCount);
-        std::vector<MemoryRecord>(shortTermMemory).swap(shortTermMemory);
-    }
+    consolidating_ = false;
 }
-
 // Сохранить веса нейросети
 void MemoryManager::saveWeights(const std::string& component, 
                                const std::vector<std::vector<double>>& weights,

@@ -3,24 +3,30 @@
 
 #include "../core/NeuralFieldSystem.hpp"
 #include "../core/Component.hpp" 
+#include "EvolutionModule.hpp"  // Добавляем для доступа к fitness
 #include <string>
 #include <vector>
 #include <fstream>
 #include <random>
 #include <filesystem>
-//используется, но его реализация примитивна. Можно оставить как задел.
-class MetaCognitiveModule : public Component {  // <- Наследуем Component
+#include <memory>  // для std::unique_ptr
+
+class MetaCognitiveModule : public Component {
 private:
     NeuralFieldSystem& neural_system;
+    EvolutionModule* evolution;  // простой указатель, не unique_ptr!
     std::vector<std::string> insights;
     std::vector<float> insight_quality;
     std::mt19937 rng;
     
 public:
     MetaCognitiveModule(NeuralFieldSystem& ns) 
-        : neural_system(ns), rng(std::random_device{}()) {}
+        : neural_system(ns), rng(std::random_device{}()), evolution(nullptr) {}
     
-    // Реализация методов Component
+    void setEvolutionModule(EvolutionModule* ev) {
+        evolution = ev;  // просто сохраняем указатель, не владеем
+    }
+    
     std::string getName() const override { return "MetaCognitiveModule"; }
     
     bool initialize(const Config& config) override {
@@ -33,7 +39,6 @@ public:
     }
     
     void update(float dt) override {
-        // Вызываем think каждый шаг обновления
         think();
     }
     
@@ -52,52 +57,60 @@ public:
         // Загрузка состояния - можно реализовать позже
     }
     
-    // Специфические методы
-    void think() {
-        // Получаем состояние рефлексии
-        auto state = neural_system.getReflectionState();
-        
+    // ИСПРАВЛЕННЫЙ МЕТОД think
+void think() {
+    auto state = neural_system.getReflectionState();
+    
+    // Реально влиять на систему
+    if (evolution) {
+        float current_fitness = evolution->getOverallFitness();
+        // НЕ ВЛИЯЕМ НА FITNESS, ТОЛЬКО НА ОБУЧЕНИЕ
+        if (current_fitness < 0.3f) {
+            neural_system.setGoal("improve_learning");
+            // Увеличить активность в группах 16-21 (семантических)
+            for (int i = 16; i <= 21; i++) {
+                neural_system.strengthenInterConnection(31, i, 0.01);
+            }
+        }
+    }
         // Если система в замешательстве
-        if (state.confusion > 0.7) {
+        if (state.confusion > 0.7f) {
             tryNewStrategy();
         }
         
         // Если любопытство высокое
-        if (state.curiosity > 0.6) {
+        if (state.curiosity > 0.6f) {
             explore();
         }
         
         // Если удовлетворенность высокая
-        if (state.satisfaction > 0.8) {
+        if (state.satisfaction > 0.8f) {
             std::string insight = generateInsight();
             insights.push_back(insight);
             insight_quality.push_back(state.satisfaction);
             
-            if (insight_quality.back() > 0.9) {
+            if (insight_quality.back() > 0.9f) {
                 saveInsight(insight);
             }
         }
         
         // Ставим новую цель на основе рефлексии
-        if (state.confidence < 0.3) {
+        if (state.confidence < 0.3f) {
             neural_system.setGoal("understand_self");
-        } else if (state.curiosity > 0.5) {
+        } else if (state.curiosity > 0.5f) {
             neural_system.setGoal("explore_new");
         }
     }
     
 private:
     void tryNewStrategy() {
-        // В новой архитектуре группы 16-23 - семантические
         for (int i = 16; i < 24; i += 2) {
-            // Влияем через межгрупповые связи
             double new_value = (rng() % 100) / 100.0;
             neural_system.strengthenInterConnection(31, i, new_value * 0.1);
         }
     }
     
     void explore() {
-        // Активируем случайные группы для исследования
         std::uniform_int_distribution<> dist(0, 31);
         for (int i = 0; i < 5; i++) {
             int idx = dist(rng);
@@ -109,12 +122,12 @@ private:
         auto state = neural_system.getReflectionState();
         
         std::string insight = "I feel ";
-        if (state.confidence > 0.7) insight += "confident";
-        else if (state.confidence > 0.4) insight += "uncertain";
+        if (state.confidence > 0.7f) insight += "confident";
+        else if (state.confidence > 0.4f) insight += "uncertain";
         else insight += "confused";
         
         insight += " and ";
-        if (state.curiosity > 0.6) insight += "curious";
+        if (state.curiosity > 0.6f) insight += "curious";
         else insight += "satisfied";
         
         return insight;

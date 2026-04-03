@@ -8,6 +8,8 @@
 #include "EvolutionModule.hpp"
 #include <string>
 #include "lang/LanguageModule.hpp"
+#include "UnifiedStatsCollector.hpp"
+#include "VisualizationModule.hpp"
 
 // Forward declaration
 class MemoryManager; 
@@ -44,10 +46,6 @@ public:
             - static_cast<int>(chatAreaHeight)
             - bottom_panel_height;
     }
-    // !!!
-    // Добавить метод для переключения отладки
-    void toggleDebug() { show_debug = !show_debug; }
-    bool isDebugVisible() const { return show_debug; }
 
     // вызываю в мэйн по тому должно быть публичным
     void handleTextEntered(const sf::Event::TextEntered& event);
@@ -71,9 +69,67 @@ public:
       // Скроллинг
     void handleMouseWheel(const sf::Event::MouseWheelScrolled& event);
 
+    void setStatsCollector(UnifiedStatsCollector* collector) { stats_collector = collector; }
+    void cycleDisplayMode() { current_display_mode = (current_display_mode + 1) % 6; }
+    void drawUnifiedStats(sf::RenderWindow& window);
+
+    // Добавить сеттер
+    void setSemanticGraph(SemanticGraphDatabase* graph) { semantic_graph_ = graph; }
+    // VisualizationModule
+    void setVisualizer(VisualizationModule* vis) { visualizer = vis; }
+    void toggleOrbits();
+    void toggleInterConnections();
+    void toggleIntraConnections();
+    void toggleNeurons();
+    // 3D управление:
+    void toggleAutoRotate();
+    void resetView();
+    void handleRotate(float delta);
+    void handleTilt(float delta);
+    // chat
+    void toggleChat();
+    void setSimulationRunning(bool running) { simulation_running_ = running; }
+
+    // Режим работ
+OperatingMode::Type getCurrentOperatingMode() const {
+    // 1. Если автообучение активно - режим TRAINING
+    if (autoLearningActive) {
+        return OperatingMode::TRAINING;
+    }
+    
+    // 2. Если есть активность пользователя - NORMAL
+    static auto lastActivityTime = std::chrono::steady_clock::now();
+    auto now = std::chrono::steady_clock::now();
+    
+    if (!currentInput.empty() || 
+        sf::Mouse::isButtonPressed(sf::Mouse::Button::Left)) {
+        lastActivityTime = now;
+        return OperatingMode::NORMAL;
+    }
+    
+    // 3. Если прошло больше 5 минут без активности - IDLE
+    if (std::chrono::duration_cast<std::chrono::minutes>(
+            now - lastActivityTime).count() > 5) {
+        return OperatingMode::IDLE;
+    }
+    
+    // 4. Если прошло больше 30 минут - SLEEP
+    if (std::chrono::duration_cast<std::chrono::minutes>(
+            now - lastActivityTime).count() > 30) {
+        return OperatingMode::SLEEP;
+    }
+    
+    return OperatingMode::NORMAL;
+}
+
+   void toggleDiffusion();      // переключение отображения диффузии
+    void toggleInhibitor();      // переключение отображения ингибитора
+
 private:
     // Добавить поле
     NeuralFieldSystem* neural_system = nullptr;
+    SemanticGraphDatabase* semantic_graph_ = nullptr;  // добавить
+    VisualizationModule* visualizer = nullptr;  // указатель на визуализатор
 
     // Вспомогательные методы для рисования
     void drawMeter(sf::RenderWindow& window, const std::string& label, float value, float x, float y);
@@ -94,18 +150,6 @@ private:
     void drawStatistics(sf::RenderWindow& window, const StatisticsModule& stats, const EvolutionModule& evolution);
     void drawBottomPanel(sf::RenderWindow& window, const ResourceMonitor& resources, const EvolutionModule& evolution);
     std::string formatDouble(double value, int precision = 4) const;
-    //!!! Добавить новые поля
-    bool show_debug = false;  // По умолчанию скрыто
-    sf::RectangleShape debugButton;
-    sf::Text debugButtonText;
-    sf::Text debugInfoText;
-    sf::RectangleShape debugPanel;
-    
-    // Новые методы
-void drawDebugPanel(sf::RenderWindow& window, const EvolutionModule& evolution, 
-                   const MemoryManager& memory, int step);
-
-    void drawDebugButton(sf::RenderWindow& window);
 
     // === AI CHAT ===
     LanguageModule* languageModule = nullptr;
@@ -147,4 +191,14 @@ void drawDebugPanel(sf::RenderWindow& window, const EvolutionModule& evolution,
     sf::Text autoLearnText;
     sf::Text stopLearnText;
     bool autoLearningActive = false;  // флаг активности автообучения
+
+    UnifiedStatsCollector* stats_collector = nullptr;
+    int current_display_mode = 0; // 0=все, 1=neural, 2=evolution, 3=language, 4=memory
+    sf::Text modeText;
+
+    // кнопка чата
+    bool chat_visible = true;  // флаг видимости чата
+    sf::RectangleShape toggleChatButton;  // кнопка для переключения
+    sf::Text toggleChatText;  // текст на кнопке
+    bool simulation_running_ = false;
 };

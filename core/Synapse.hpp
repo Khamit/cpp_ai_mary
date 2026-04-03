@@ -23,6 +23,10 @@ struct Synapse
 
     // Флаг типа (на будущее: тормозные нейроны)
     bool inhibitory;
+    // Добавление торможения
+    float getContribution(float pre_activity) {
+    return inhibitory ? -weight * pre_activity : weight * pre_activity;
+    }
 
     Synapse()
         : weight(0.1f),
@@ -61,15 +65,15 @@ struct PlasticityParams
     float minWeight;           // минимум |weight| (обычно 0)
 
     PlasticityParams()
-        : stdpRate(0.01f),
-          hebbianRate(0.001f),
-          consolidationRate(0.0001f),
-          A_plus(0.1f),
-          A_minus(0.12f),
-          tau_plus(20.0f),
-          tau_minus(20.0f),
-          eligibilityDecay(0.95f),
-          maxWeight(1.0f),
-          minWeight(0.0f)
+        : stdpRate(0.5f),        // было 0.2, увеличили
+        hebbianRate(0.02f),     // было 0.01
+        consolidationRate(0.005f), // было 0.002
+        A_plus(0.5f),           // было 0.3
+        A_minus(0.6f),          // было 0.36
+        tau_plus(20.0f),
+        tau_minus(20.0f),
+        eligibilityDecay(0.95f),
+        maxWeight(1.0f),
+        minWeight(0.0f)
     {}
 };

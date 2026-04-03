@@ -13,7 +13,6 @@
 
 using namespace std::filesystem;
 
-// Конструкторы
 EvolutionModule::EvolutionModule(ImmutableCore& core, const EvolutionConfig& config, MemoryManager& memory)
     : immutable_core(core), 
       memoryManager(memory),
@@ -31,10 +30,11 @@ EvolutionModule::EvolutionModule(ImmutableCore& core, const EvolutionConfig& con
       min_fitness_for_optimization(config.min_fitness_for_optimization),
       mutation_rate(0.01),
       last_reduction_time(std::chrono::steady_clock::now() - REDUCTION_COOLDOWN),
-      reductions_this_minute(0)
+      reductions_this_minute(0),
+      knownFacts_(),
+      factConfidence_()
 {
-    // init emb
-    const size_t EMB_SIZE = 128; // размер embedding
+    const size_t EMB_SIZE = 128;
     projectionMatrix.resize(NeuralFieldSystem::NUM_GROUPS);
 
     std::mt19937 gen(std::random_device{}());
@@ -44,7 +44,7 @@ EvolutionModule::EvolutionModule(ImmutableCore& core, const EvolutionConfig& con
         row.resize(EMB_SIZE);
         for (auto& v : row) v = dist(gen);
     }
-    // stat
+    
     std::cout << "EvolutionModule initialized with config:" << std::endl;
     std::cout << "  - Reduction cooldown: " << REDUCTION_COOLDOWN.count() << "s" << std::endl;
     std::cout << "  - Max reductions: " << MAX_REDUCTIONS_PER_MINUTE << "/min" << std::endl;
@@ -53,7 +53,6 @@ EvolutionModule::EvolutionModule(ImmutableCore& core, const EvolutionConfig& con
     std::filesystem::create_directories(backup_dir);
 }
 
-// Проверка возможности мутации
 bool EvolutionModule::canReduceComplexity() {
     auto current_time = std::chrono::steady_clock::now();
     auto time_since_last = current_time - last_reduction_time;
@@ -75,11 +74,10 @@ bool EvolutionModule::canReduceComplexity() {
 
 std::vector<float> EvolutionModule::projectEmbeddingToGroups(const std::vector<float>& emb) {
     std::vector<float> groups(NeuralFieldSystem::NUM_GROUPS, 0.0f);
-
     for (size_t g = 0; g < groups.size(); ++g) {
-    size_t dim = std::min(emb.size(), projectionMatrix[g].size());
-    for (size_t i = 0; i < dim; ++i)
-        groups[g] += emb[i] * projectionMatrix[g][i];
+        size_t dim = std::min(emb.size(), projectionMatrix[g].size());
+        for (size_t i = 0; i < dim; ++i)
+            groups[g] += emb[i] * projectionMatrix[g][i];
         groups[g] = std::tanh(groups[g]);
     }
     return groups;
@@ -94,169 +92,174 @@ void EvolutionModule::recordReduction() {
               << " this minute)" << std::endl;
 }
 
-// Оценка приспособленности - ТОЛЬКО языковая и энергетическая
 void EvolutionModule::evaluateFitness(
     const NeuralFieldSystem& system,
     double step_time,
     LanguageModule& lang)
 {
     // ===== 1. Языковая метрика =====
-    double langFitness = std::clamp(lang.getLanguageFitness(), 0.0, 1.0);
+    double langFitness = 0.5;
+    try {
+        langFitness = std::clamp(lang.getLanguageFitness(), 0.0, 1.0);
+    } catch (const std::exception& e) {
+        std::cerr << "Error getting language fitness: " << e.what() << std::endl;
+        langFitness = 0.5;
+    }
+    
+    if (mastery_evaluator_) {
+        try {
+            float mastery = mastery_evaluator_->getAverageMastery();
+            langFitness = 0.7 * langFitness + 0.3 * mastery;
+        } catch (const std::exception& e) {
+            std::cerr << "Error getting mastery: " << e.what() << std::endl;
+        }
+    }
+    
+    if (langFitness > 0.95 && total_steps < 10000) {
+        langFitness = 0.6;
+    }
+    
+    static double last_lang_fitness = 0.0;
+    if (langFitness > 0.8 && last_lang_fitness < 0.3 && total_steps > 1000) {
+        langFitness = last_lang_fitness * 1.2;
+    }
+    last_lang_fitness = langFitness;
 
-    // ===== 2. Энергия (нормализованная) =====
+    // ===== 2. Энергия (должна быть ненулевой) =====
     double energy = system.computeTotalEnergy();
-
-    // Предполагаем нормальный диапазон энергии ~ [0, 2]
-    double normalizedEnergy = std::clamp(energy / 2.0, 0.0, 1.0);
-
-    // Чем меньше энергия — тем лучше
+    
+    // Отладка энергии
+    static int energy_debug = 0;
+    if (total_steps % 500 == 0 && energy_debug++ < 10) {
+        std::cout << "DEBUG: raw energy = " << energy << std::endl;
+    }
+    
+    double normalizedEnergy = std::clamp(energy / 10.0, 0.0, 1.0);
     double energyFitness = 1.0 - normalizedEnergy;
+    
+    // Если энергия нулевая — это аномалия
+    if (energy < 0.01 && total_steps > 1000) {
+        std::cout << "WARNING: Energy is zero at step " << total_steps << std::endl;
+        energyFitness = 0.3;  // разумное значение по умолчанию
+    }
 
-    // ===== 3. Стабильность (дисперсия групп) =====
-    auto avgs = system.getGroupAverages();
-    double mean = 0.0;
-    for (double v : avgs) mean += v;
-    mean /= avgs.size();
-
-    double variance = 0.0;
-    for (double v : avgs)
-        variance += (v - mean) * (v - mean);
-
-    variance /= avgs.size();
-
-    double stabilityFitness = 1.0 - std::clamp(variance * 5.0, 0.0, 1.0);
+    // ===== 3. Энтропия =====
+    double entropy = system.computeSystemEntropy();
+    double entropyFitness = std::clamp(entropy / 3.0, 0.0, 1.0);
 
     // ===== 4. Временная эффективность =====
-    // нормируем относительно 5 мс
     double timePenalty = std::clamp(step_time / 0.005, 0.0, 1.0);
     double timeFitness = 1.0 - timePenalty;
 
-    // ===== 5. Комбинирование (веса можно вынести в config) =====
-    double rawFitness =
-        0.55 * langFitness +
-        0.20 * energyFitness +
-        0.15 * stabilityFitness +
-        0.10 * timeFitness;
+    // ===== 5. Орбитальное здоровье =====
+    double orbitHealth = 0.0;
+    const auto& groups = system.getGroups();
+    int elite_count = 0;
+    int active_count = 0;
+    for (int g = 16; g <= 21 && g < groups.size(); g++) {
+        for (int i = 0; i < 32; i++) {
+            int level = groups[g].getOrbitLevel(i);
+            if (level >= 2) {
+                elite_count++;
+            }
+            if (level > 0) {
+                active_count++;
+            }
+        }
+    }
+    orbitHealth = 0.6 * (static_cast<double>(elite_count) / (6 * 32)) +
+                  0.4 * (static_cast<double>(active_count) / (6 * 32));
 
+    // ===== 6. Финальная формула =====
+    double rawFitness = 0.40 * langFitness + 
+                        0.20 * energyFitness + 
+                        0.20 * entropyFitness + 
+                        0.10 * timeFitness + 
+                        0.10 * orbitHealth;
     rawFitness = std::clamp(rawFitness, 0.0, 1.0);
 
-    // ===== 6. EMA-сглаживание =====
+    // Защита от аномалий
+    bool anomaly_detected = false;
+    if (rawFitness > 0.8 && langFitness < 0.2) {
+        rawFitness = 0.5;
+        anomaly_detected = true;
+    }
+    
+    static double last_raw_fitness = 0.0;
+    if (total_steps > 1000) {
+        double growth = rawFitness - last_raw_fitness;
+        if (growth > 0.3) {
+            rawFitness = last_raw_fitness + 0.1;
+            anomaly_detected = true;
+        }
+    }
+    last_raw_fitness = rawFitness;
+    
+    if (langFitness > 0.99 && energyFitness > 0.99 && 
+        entropyFitness > 0.99 && timeFitness > 0.99 && orbitHealth > 0.99) {
+        rawFitness = 0.5;
+        anomaly_detected = true;
+    }
+
+    // EMA-сглаживание
     const double alpha = 0.1;
     if (total_steps == 0)
         current_metrics.overall_fitness = rawFitness;
     else
-        current_metrics.overall_fitness =
-            alpha * rawFitness +
-            (1.0 - alpha) * current_metrics.overall_fitness;
+        current_metrics.overall_fitness = alpha * rawFitness + (1.0 - alpha) * current_metrics.overall_fitness;
 
     current_metrics.energy_score = energyFitness;
     current_metrics.performance_score = timeFitness;
-    current_metrics.code_size_score = stabilityFitness;
+    current_metrics.code_size_score = entropyFitness;
 
-    // ===== 7. Лучшее значение =====
-    if (current_metrics.overall_fitness > best_fitness)
-    {
-        best_fitness = current_metrics.overall_fitness;
-
-        std::cout << "\nNew best fitness: "
-                  << best_fitness
-                  << " | Lang: " << langFitness
-                  << " | Energy: " << energyFitness
-                  << " | Stability: " << stabilityFitness
-                  << " | Time: " << timeFitness
-                  << std::endl;
-
-        //createBackup();
+    // Обновление лучшего значения
+    if (current_metrics.overall_fitness > best_fitness) {
+        bool is_valid_record = true;
+        if (current_metrics.overall_fitness > 0.9 && langFitness < 0.3) is_valid_record = false;
+        if (current_metrics.overall_fitness > 0.8 && total_steps < 5000) is_valid_record = false;
+        
+        if (is_valid_record) {
+            best_fitness = current_metrics.overall_fitness;
+            std::cout << "\nNew best fitness: "
+                      << std::fixed << std::setprecision(2) << best_fitness
+                      << " | Lang: " << std::setprecision(2) << langFitness
+                      << " | Energy: " << std::setprecision(2) << energyFitness
+                      << " | Entropy: " << std::setprecision(2) << entropyFitness
+                      << " | Time: " << std::setprecision(2) << timeFitness
+                      << " | Orbit: " << std::setprecision(2) << orbitHealth
+                      << std::endl;
+            
+            // При достижении нового рекорда делаем бэкап
+            createBackup();
+        }
     }
 
     history.push_back(current_metrics);
     total_steps++;
 
-    // ===== 8. Проверка деградации =====
-    if (total_steps % 500 == 0)
-    {
-        if (checkForDegradation())
-        {
-            std::cout << "⚠️ Degradation detected\n";
-            if (current_metrics.overall_fitness < best_fitness * 0.65)
-            {
-                rollbackToBestVersion();
-            }
+    // Проверка деградации
+    if (total_steps % 500 == 0 && checkForDegradation()) {
+        std::cout << "⚠️ Degradation detected\n";
+        if (current_metrics.overall_fitness < best_fitness * 0.65) {
+            rollbackToBestVersion();
         }
     }
 
-    // ===== 9. Мутации =====
-    if (total_steps % 1000 == 0 && !in_stasis)
-    {
-        if (current_metrics.overall_fitness < min_fitness_for_optimization)
-        {
-            mutateParameters(const_cast<NeuralFieldSystem&>(system));
-        }
-    }
-
-    // ===== 10. Периодический вывод =====
-    if (total_steps % 500 == 0)
-    {
+    // Периодический вывод
+    if (total_steps % 500 == 0) {
         std::cout << "Fitness Report | "
-                  << "Lang: " << langFitness
-                  << " | Energy: " << energyFitness
-                  << " | Stability: " << stabilityFitness
-                  << " | Time: " << timeFitness
-                  << " | Overall: "
-                  << current_metrics.overall_fitness
+                  << "Lang: " << std::setprecision(2) << langFitness
+                  << " | Energy: " << std::setprecision(2) << energyFitness
+                  << " | Entropy: " << std::setprecision(2) << entropyFitness
+                  << " | Time: " << std::setprecision(2) << timeFitness
+                  << " | Orbit: " << std::setprecision(2) << orbitHealth
+                  << " | Overall: " << std::setprecision(2) << current_metrics.overall_fitness
                   << std::endl;
     }
 }
-/*
-// Устаревшие методы оценки - оставляем заглушки
-double EvolutionModule::calculateCodeSizeScore() const { return 0.5; }
-double EvolutionModule::calculatePerformanceScore(double) const { return 0.5; }
-double EvolutionModule::calculateEnergyScore(const NeuralFieldSystem& system) const {
-    double energy = system.computeTotalEnergy();
-    return 1.0 / (energy + 0.001);
-}
-*/
-// Предложение мутации
+
+// ========== ИСПРАВЛЕННАЯ МУТАЦИЯ ==========
 bool EvolutionModule::proposeMutation(NeuralFieldSystem& system) {
-    /*
-    // Новое
-    // Только если система давно не улучшалась
-    // Мутация архитектурных параметров (Уровень 3)
-    for (auto& group : system.getGroups()) {
-        if (shouldMutate()) {
-            // Мутация базовой высоты покоя (resting elevation)
-            float newBaseElevation = group.getBaseElevation() + randomMutation();
-            group.setBaseElevation(newBaseElevation);
-            
-            std::cout << "Эволюционная мутация высоты группы" << std::endl;
-        }
-    }
-*/
-// Старое
-
-    // Используем детектор для поиска хронических галлюцинаторов
-    auto hNeurons = detector_.findHNeurons(0.85f);
-    
-    if (!hNeurons.empty()) {
-        std::cout << "🧬 Эволюция: обнаружено " << hNeurons.size() 
-                  << " нейронов галлюцинаций. Подавление...\n";
-        
-        for (const auto& hn : hNeurons) {
-            auto& group = system.getGroups()[hn.groupIndex];
-            
-            // Вариант А: жестко ставим отрицательную высоту
-            group.setElevation(-0.9f);
-            
-            // Вариант Б: полное отключение (обнуление всех связей)
-            if (hn.hallucinationScore > 0.95f) {
-                group.decayAllWeights(0.0f);
-                std::cout << "   → Группа " << hn.groupIndex 
-                          << ", нейрон " << hn.neuronIndex << " деактивирован\n";
-            }
-        }
-        return true;
-    }
-
     if (in_stasis) {
         applyMinimalMutation(system);
         return true;
@@ -267,10 +270,72 @@ bool EvolutionModule::proposeMutation(NeuralFieldSystem& system) {
         return false;
     }
     
-    std::cout << "Proposing mutation at step " << total_steps << std::endl;
+    // ===== НОВОЕ: Проверяем, нужна ли мутация =====
+    if (current_metrics.overall_fitness > best_fitness * 0.9 && best_fitness > 0.4) {
+        // Если система хорошо работает, не мутируем
+        std::cout << "System performing well, skipping mutation" << std::endl;
+        return false;
+    }
     
+    // ===== НОВОЕ: Анализируем, что нужно улучшить =====
+    std::cout << "Analyzing system before mutation..." << std::endl;
+    
+    const auto& groups = system.getGroups();
+    
+    // Собираем статистику
+    int elite_neurons = 0;
+    int dead_neurons = 0;
+    double avg_connectivity = 0.0;
+    int connections_count = 0;
+    
+    for (int g = 0; g < NeuralFieldSystem::NUM_GROUPS; g++) {
+        for (int i = 0; i < 32; i++) {
+            int level = groups[g].getOrbitLevel(i);
+            if (level >= 3) elite_neurons++;
+            if (level == 0) dead_neurons++;
+            
+            // Считаем среднюю силу связей
+            const auto& weights = groups[g].getWeights();
+            for (int j = i + 1; j < 32; j++) {
+                avg_connectivity += std::abs(weights[i][j]);
+                connections_count++;
+            }
+        }
+    }
+    
+    if (connections_count > 0) avg_connectivity /= connections_count;
+    
+    std::cout << "  Elite neurons: " << elite_neurons 
+              << " | Dead neurons: " << dead_neurons
+              << " | Avg connectivity: " << avg_connectivity << std::endl;
+    
+    // ===== НОВОЕ: Решение, что мутировать =====
     if (immutable_core.requestPermission("system_mutation")) {
-        mutateParameters(system);
+        // Сохраняем состояние ДО мутации
+        saveEvolutionState();
+        
+        // Выбираем тип мутации на основе анализа
+        if (dead_neurons > 500 && current_metrics.overall_fitness < 0.3) {
+            // Слишком много мёртвых нейронов - реанимация
+            std::cout << "  Applying REANIMATION mutation (too many dead neurons)" << std::endl;
+            applyReanimationMutation(system);
+        } 
+        else if (elite_neurons < 100 && total_steps > 5000) {
+            // Мало элитных нейронов - усиление
+            std::cout << "  Applying ELITE_BOOST mutation (too few elite neurons)" << std::endl;
+            applyEliteBoostMutation(system);
+        }
+        else if (avg_connectivity < 0.1 && total_steps > 2000) {
+            // Слишком слабые связи - укрепление
+            std::cout << "  Applying CONNECTION_STRENGTHEN mutation (weak connections)" << std::endl;
+            applyConnectionStrengthenMutation(system);
+        }
+        else {
+            // Стандартная мутация с учётом орбит
+            std::cout << "  Applying STANDARD mutation" << std::endl;
+            mutateParametersSmart(system);
+        }
+        
         recordReduction();
         return true;
     } else {
@@ -278,23 +343,182 @@ bool EvolutionModule::proposeMutation(NeuralFieldSystem& system) {
         return false;
     }
 }
-// проверка фактов
+
+// ===== НОВЫЕ МЕТОДЫ МУТАЦИЙ =====
+
+void EvolutionModule::applyReanimationMutation(NeuralFieldSystem& system) {
+    auto& groups = system.getGroupsNonConst();
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<> boost_dist(0.5, 1.5);
+    
+    for (int g = 0; g < NeuralFieldSystem::NUM_GROUPS; g++) {
+        for (int i = 0; i < 32; i++) {
+            if (groups[g].getOrbitLevel(i) == 0) {
+                // Реанимируем мёртвые нейроны
+                groups[g].publicPromoteToBaseOrbit(i);
+                
+                // Даём случайную массу
+                double new_mass = 0.8 + boost_dist(gen) * 0.5;
+                groups[g].setMass(i, new_mass);
+                
+                // Укрепляем связи с элитными нейронами
+                for (int j = 0; j < 32; j++) {
+                    if (groups[g].getOrbitLevel(j) >= 2) {
+                        double old_weight = groups[g].getWeight(i, j);
+                        groups[g].setWeight(i, j, old_weight + 0.1);
+                    }
+                }
+            }
+        }
+    }
+    
+    std::cout << "  Reanimated dead neurons" << std::endl;
+}
+
+void EvolutionModule::applyEliteBoostMutation(NeuralFieldSystem& system) {
+    auto& groups = system.getGroupsNonConst();
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    
+    for (int g = 16; g <= 21 && g < groups.size(); g++) {
+        // Находим нейроны с потенциалом для повышения
+        std::vector<std::pair<double, int>> candidates;
+        
+        for (int i = 0; i < 32; i++) {
+            int level = groups[g].getOrbitLevel(i);
+            if (level == 2) {  // кандидаты на повышение
+                double activity = groups[g].getPositions()[i].norm();
+                candidates.push_back({activity, i});
+            }
+        }
+        
+        // Сортируем по активности
+        std::sort(candidates.begin(), candidates.end(), 
+                  [](const auto& a, const auto& b) { return a.first > b.first; });
+        
+        // Повышаем топ-3 кандидата
+        for (int k = 0; k < std::min(3, (int)candidates.size()); k++) {
+            int idx = candidates[k].second;
+            groups[g].publicPromoteToBaseOrbit(idx);
+            groups[g].setMass(idx, 2.0);
+            std::cout << "  Boosted neuron (" << g << "," << idx << ") to elite" << std::endl;
+        }
+    }
+}
+
+void EvolutionModule::applyConnectionStrengthenMutation(NeuralFieldSystem& system) {
+    auto& groups = system.getGroupsNonConst();
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::normal_distribution<> norm_dist(0.0, 0.05);
+    
+    for (int g = 0; g < NeuralFieldSystem::NUM_GROUPS; g++) {
+        for (int i = 0; i < 32; i++) {
+            int level_i = groups[g].getOrbitLevel(i);
+            if (level_i < 2) continue;  // только для активных нейронов
+            
+            for (int j = i + 1; j < 32; j++) {
+                int level_j = groups[g].getOrbitLevel(j);
+                if (level_j < 2) continue;
+                
+                double old_weight = groups[g].getWeight(i, j);
+                // Укрепляем только если оба нейрона активны
+                if (std::abs(old_weight) > 0.1) {
+                    double boost = 0.05 * (1.0 + norm_dist(gen));
+                    double new_weight = old_weight + boost;
+                    groups[g].setWeight(i, j, std::min(new_weight, 1.0));
+                }
+            }
+        }
+    }
+    
+    std::cout << "  Strengthened connections between active neurons" << std::endl;
+}
+
+void EvolutionModule::mutateParametersSmart(NeuralFieldSystem& system) {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::normal_distribution<> normalDist(0.0, 0.05);
+    std::uniform_real_distribution<> uniformDist(0.0, 1.0);
+    
+    std::cout << "  Smart mutation..." << std::endl;
+    
+    auto& groups = system.getGroupsNonConst();
+    
+    for (auto& group : groups) {
+        // 1. Мутация параметров с учётом состояния
+        if (uniformDist(gen) < mutation_rate * 0.5) {
+            // Только если группа не слишком хороша
+            double group_health = 0.0;
+            for (int i = 0; i < 32; i++) {
+                if (group.getOrbitLevel(i) >= 2) group_health++;
+            }
+            group_health /= 32.0;
+            
+            if (group_health < 0.6) {  // только для слабых групп
+                double lr = group.getLearningRate();
+                lr *= (1.0 + normalDist(gen) * 0.2);
+                lr = std::clamp(lr, 0.0005, 0.05);
+                group.setLearningRate(lr);
+            }
+        }
+    }
+    
+    // 2. Мутация межгрупповых связей - только слабые
+    int mutated = 0;
+    for (int i = 0; i < NeuralFieldSystem::NUM_GROUPS; ++i) {
+        for (int j = i + 1; j < NeuralFieldSystem::NUM_GROUPS; ++j) {
+            double current_weight = system.getInterWeights()[i][j];
+            if (std::abs(current_weight) < 0.1 && uniformDist(gen) < mutation_rate * 0.3) {
+                // Укрепляем очень слабые связи
+                double delta = 0.02 + normalDist(gen) * 0.01;
+                system.strengthenInterConnection(i, j, delta);
+                mutated++;
+            }
+            else if (std::abs(current_weight) > 0.4 && uniformDist(gen) < mutation_rate * 0.1) {
+                // Слегка ослабляем слишком сильные (чтобы не было перекоса)
+                double delta = -0.01;
+                system.weakenInterConnection(i, j, delta);
+                mutated++;
+            }
+        }
+    }
+    
+    std::cout << "  Mutated " << mutated << " inter-group connections" << std::endl;
+}
+
+void EvolutionModule::applyMinimalMutation(NeuralFieldSystem& system) {
+    std::cout << " Minimal mutation in stasis mode" << std::endl;
+    
+    auto& groups = system.getGroupsNonConst();
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<> dist(0.0, 0.05);
+    
+    // Только очень мягкие изменения
+    for (auto& group : groups) {
+        double lr = group.getLearningRate();
+        lr *= (0.99 + dist(gen));
+        lr = std::clamp(lr, 0.001, 0.02);
+        group.setLearningRate(lr);
+    }
+}
+
+// ========== ОСТАЛЬНЫЕ МЕТОДЫ (без изменений) ==========
+
 FactCheckResult EvolutionModule::checkFactualConsistency(const std::string& statement) {
     FactCheckResult result;
-    result.isConsistent = true; // По умолчанию считаем консистентным
+    result.isConsistent = true;
     result.confidence = 1.0f;
     
-    // Разбиваем на утверждения
     auto sentences = splitIntoSentences(statement);
     
     for (const auto& sentence : sentences) {
-        // Извлекаем потенциальные факты
         auto extractedFacts = extractPotentialFacts(sentence);
         
         for (const auto& fact : extractedFacts) {
-            // Проверяем по известным фактам
             if (knownFacts_.empty()) {
-                // Если нет базы знаний, снижаем уверенность
                 result.confidence *= 0.8f;
                 continue;
             }
@@ -319,65 +543,12 @@ FactCheckResult EvolutionModule::checkFactualConsistency(const std::string& stat
     return result;
 }
 
-// НОВЫЙ МЕТОД: мутация параметров групп
-void EvolutionModule::mutateParameters(NeuralFieldSystem& system) {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::normal_distribution<> normalDist(0.0, 0.1); // нормальное распределение для мутаций
-    
-    std::cout << "  Mutating group parameters..." << std::endl;
-    
-    for (auto& group : system.getGroups()) {
-        // 10% шанс мутации для каждой группы
-        if (std::uniform_real_distribution<>(0, 1)(gen) < mutation_rate) {
-            // Мутация learning rate (до 20% изменения)
-            double lr = group.getLearningRate();
-            lr *= (1.0 + normalDist(gen) * 0.2);
-            lr = std::clamp(lr, 0.0001, 0.1);
-            group.setLearningRate(lr);
-            
-            // Мутация порога активации
-            double thr = group.getThreshold();
-            thr += normalDist(gen) * 0.05;
-            thr = std::clamp(thr, 0.1, 0.9);
-            group.setThreshold(thr);
-        }
-    }
-    
-    // Мутация межгрупповых связей
-    std::cout << "  Mutating inter-group connections..." << std::endl;
-    for (int i = 0; i < NeuralFieldSystem::NUM_GROUPS; ++i) {
-        for (int j = i + 1; j < NeuralFieldSystem::NUM_GROUPS; ++j) {
-            if (std::uniform_real_distribution<>(0, 1)(gen) < mutation_rate * 0.5) {
-                double delta = normalDist(gen) * 0.05;
-                system.strengthenInterConnection(i, j, delta);
-            }
-        }
-    }
-}
-
 void EvolutionModule::testEvolutionMethods() {
     std::cout << "🧪 TESTING Evolution Methods:" << std::endl;
     std::cout << " - Mutation rate: " << mutation_rate << std::endl;
     std::cout << " - Best fitness: " << best_fitness << std::endl;
 }
 
-// ===== УДАЛЕНЫ ВСЕ МЕТОДЫ ОПТИМИЗАЦИИ КОДА =====
-// evolveCodeOptimization, optimizeConfigFiles, createOptimalConfig,
-// generateOptimizedCode, generateOptimizedDynamics, generateOptimizedLearning,
-// analyzeCodeEfficiency - все удалены
-/*
-void EvolutionModule::optimizeSystemParameters() {
-    // Заглушка - параметры мутируются в mutateParameters
-}
-*/
-
-void EvolutionModule::applyMinimalMutation(NeuralFieldSystem& system) {
-    std::cout << " Minimal mutation in stasis mode" << std::endl;
-    mutateParameters(system); // просто вызываем ту же мутацию
-}
-
-// ========== МЕТОДЫ ЗАЩИТЫ И БЭКАПОВ ========== Позже 
 bool EvolutionModule::createBackup() {
     try {
         auto now = std::chrono::system_clock::now();
@@ -387,7 +558,6 @@ bool EvolutionModule::createBackup() {
         std::string backup_name = backup_dir + "/backup_" + std::to_string(timestamp);
         std::filesystem::create_directories(backup_name);
         
-        // Сохраняем метаданные бэкапа
         std::ofstream meta(backup_name + "/backup_meta.txt");
         if (meta.is_open()) {
             meta << "Backup created: " << timestamp << "\n";
@@ -397,9 +567,7 @@ bool EvolutionModule::createBackup() {
             meta.close();
         }
         
-        std::cout << "Backup created: " << backup_name << std::endl;
         return true;
-        
     } catch (const std::exception& e) {
         std::cout << "Backup creation failed: " << e.what() << std::endl;
         return false;
@@ -429,7 +597,6 @@ bool EvolutionModule::restoreFromBackup() {
         
         std::cout << "System restored from backup: " << latest_backup << std::endl;
         return true;
-        
     } catch (const std::exception& e) {
         std::cout << "Backup restoration failed: " << e.what() << std::endl;
         return false;
@@ -465,7 +632,7 @@ void EvolutionModule::rollbackToBestVersion() {
 }
 
 double EvolutionModule::getCurrentCodeHash() const {
-    return static_cast<double>(total_steps); // простой хэш
+    return static_cast<double>(total_steps);
 }
 
 bool EvolutionModule::validateImprovement() const {
@@ -474,18 +641,17 @@ bool EvolutionModule::validateImprovement() const {
     const auto& previous = history[history.size() - 2];
     const auto& current = history[history.size() - 1];
     
-    double improvement = (current.overall_fitness - previous.overall_fitness) / previous.overall_fitness;
+    double improvement = (current.overall_fitness - previous.overall_fitness) / (previous.overall_fitness + 1e-6);
     return improvement > -0.1;
 }
 
 void EvolutionModule::saveEvolutionState() {
     EvolutionDumpData data;
-    data.generation = total_steps / 1000;
+    data.generation = total_steps / 10000;
     data.metrics = current_metrics;
-    data.energy_state = 0; // или вычислить
+    data.energy_state = 0;
     data.code_hash = getCurrentCodeHash();
     
-    // Используем MemoryManager
     memoryManager.saveEvolutionState(data, "evolution_state.bin");
 }
 
@@ -505,14 +671,15 @@ bool EvolutionModule::isInStasis() const {
     return in_stasis;
 }
 
-    std::vector<std::string> EvolutionModule::splitIntoSentences(const std::string& text) {
+std::vector<std::string> EvolutionModule::splitIntoSentences(const std::string& text) {
     std::vector<std::string> sentences;
     std::string current;
     
     for (char c : text) {
         current += c;
-        if (c == '.' || c == '!' || c == '?') {
+        if (c == '.' || c == '!' || c == '?' || c == '-') {
             if (!current.empty()) {
+                while (!current.empty() && current.back() == ' ') current.pop_back();
                 sentences.push_back(current);
                 current.clear();
             }
@@ -520,7 +687,8 @@ bool EvolutionModule::isInStasis() const {
     }
     
     if (!current.empty()) {
-        sentences.push_back(current);
+        while (!current.empty() && current.back() == ' ') current.pop_back();
+        if (!current.empty()) sentences.push_back(current);
     }
     
     return sentences;
@@ -528,30 +696,21 @@ bool EvolutionModule::isInStasis() const {
 
 std::vector<std::string> EvolutionModule::extractPotentialFacts(const std::string& sentence) {
     std::vector<std::string> facts;
-    std::istringstream iss(sentence);
-    std::string word;
-    std::string currentFact;
     
-    // Простая эвристика: ищем конструкции вида "X is Y" или "X are Y"
     size_t isPos = sentence.find(" is ");
     if (isPos != std::string::npos) {
-        facts.push_back(sentence.substr(0, isPos) + " = " + 
-                        sentence.substr(isPos + 4));
+        facts.push_back(sentence.substr(0, isPos) + " = " + sentence.substr(isPos + 4));
     }
     
     size_t arePos = sentence.find(" are ");
     if (arePos != std::string::npos) {
-        facts.push_back(sentence.substr(0, arePos) + " = " + 
-                        sentence.substr(arePos + 5));
+        facts.push_back(sentence.substr(0, arePos) + " = " + sentence.substr(arePos + 5));
     }
     
     return facts;
 }
 
 bool EvolutionModule::areFactsConsistent(const std::string& fact1, const std::string& fact2) {
-    // Простейшая проверка: если факты противоречат друг другу
-    // Например: "cat is animal" и "cat is plant"
-    
     size_t eqPos1 = fact1.find('=');
     size_t eqPos2 = fact2.find('=');
     
@@ -559,15 +718,12 @@ bool EvolutionModule::areFactsConsistent(const std::string& fact1, const std::st
         std::string subject1 = fact1.substr(0, eqPos1);
         std::string subject2 = fact2.substr(0, eqPos2);
         
-        // Если речь об одном и том же
         if (subject1 == subject2) {
             std::string value1 = fact1.substr(eqPos1 + 1);
             std::string value2 = fact2.substr(eqPos2 + 1);
-            
-            // Если значения разные - противоречие
             return value1 == value2;
         }
     }
     
-    return true; // если не о том же, то противоречия нет
+    return true;
 }
