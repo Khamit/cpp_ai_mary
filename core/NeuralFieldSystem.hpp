@@ -17,6 +17,47 @@
 #endif
 #include "PredictiveCoder.hpp"
 
+// *Информационная свободная энергия* 
+// адаптивная целевая энтропия - предсказываем по энтропии
+/*
+парадокс энтропии -
+Высокая энтропия (хаос) ≠ хорошая система
+Низкая энтропия (порядок) ≠ хорошая система
+Нужен: Хаос выйти в порядок что равно компактность и эфективность
+при малом обьеме информации - так система будет предсказывать - эффективность
+*/
+// FreeEnergyController должен БРАТЬ энергию извне, а не вычислять её сам
+class FreeEnergyController {
+private:
+    double free_energy_;
+    double target_free_energy_;
+    double temperature_;
+    
+public:
+    // Энергия передаётся извне!
+    void update(double energy, double entropy, double prediction_error) {
+        free_energy_ = energy - temperature_ * entropy;
+        
+        if (prediction_error > 0.3) {
+            target_free_energy_ = free_energy_ * 1.1;
+        } else {
+            target_free_energy_ = free_energy_ * 0.95;
+        }
+        
+        double free_energy_error = target_free_energy_ - free_energy_;
+        temperature_ += 0.01 * free_energy_error;
+        temperature_ = std::clamp(temperature_, 0.1, 2.0);
+    }
+    
+    // Этот метод должен получать целевую энтропию ИЗВНЕ
+    double getTargetEntropy(double energy) const {
+        // S_target = (E - F_target) / T
+        return (energy - target_free_energy_) / (temperature_ + 1e-6);
+    }
+    
+    double getTemperature() const { return temperature_; }
+};
+
 /**
  * @class AttentionMechanism
  * @brief Механизм внимания с энтропийной регуляризацией и геометрической нормализацией
@@ -146,6 +187,116 @@ public:
     
     /** Вычислить энтропию всей системы */
     double computeSystemEntropy() const;
+
+    // Entropy compute
+    double computeOptimalStructure();
+    void diagnoseCriticality();
+
+    /// Штраф -
+    /**
+     * Применить штраф за потребление ресурсов
+     * @param penalty - отрицательное значение при высоком потреблении
+     */
+    void applyResourcePenalty(float penalty) {
+        // 1. Применяем штраф ко всем группам
+        for (auto& group : groups) {
+            group.applyGlobalPenalty(penalty);
+        }
+        
+        // 2. При высоком штрафе (перегрузка) снижаем энтропию
+        if (penalty < -0.3f) {
+            attention.temperature *= 0.98f;
+            attention.temperature = std::clamp(attention.temperature, 0.1f, 5.0f);
+            
+            static int log_counter = 0;
+            if (log_counter++ % 100 == 0) {
+                std::cout << "⚠️ High resource usage! Penalty: " << penalty 
+                        << ", Temp reduced to: " << attention.temperature << std::endl;
+            }
+        }
+        
+        // 3. При экстремальной перегрузке вызываем принудительную деградацию
+        if (penalty < -0.7f) {
+            for (auto& group : groups) {
+                group.checkForResourceExhaustion();
+            }
+        }
+    }
+
+    // НОВЫЕ МЕТОДЫ для свободной энергии
+    void updateFreeEnergy(double prediction_error) {
+        double energy = computeTotalEnergy();
+        double entropy = computeSystemEntropy();
+        free_energy_controller_.update(energy, entropy, prediction_error);
+        
+        // НЕ вызывайте getOptimalEntropy()! Вместо этого:
+        double optimal_entropy = computeOptimalStructure();
+        if (std::isfinite(optimal_entropy) && optimal_entropy > 0) {
+            // Корректируем температуру для достижения оптимальной энтропии
+            double entropy_error = optimal_entropy - entropy;
+            attention.temperature *= (1.0 + 0.01 * entropy_error);
+            attention.temperature = std::clamp(attention.temperature, 0.1f, 5.0f);
+        }
+    }
+
+    // ЕДИНАЯ энтропия для всей системы (в БИТАХ)
+    double getUnifiedEntropy() const {
+        rebuildFlatVectors();
+        
+        const int BINS = 32;  // больше бинов для точности
+        std::vector<int> hist(BINS, 0);
+        
+        // 1. Гистограмма активностей
+        for (double v : flatPhi) {
+            int bin = static_cast<int>(v * BINS);
+            bin = std::clamp(bin, 0, BINS - 1);
+            hist[bin]++;
+        }
+        
+        // 2. Энтропия Шеннона в БИТАХ (log2)
+        double H = 0.0;
+        double total = static_cast<double>(TOTAL_NEURONS);
+        
+        for (int count : hist) {
+            if (count > 0) {
+                double p = static_cast<double>(count) / total;
+                H -= p * std::log2(p);  // ← БИТЫ!
+            }
+        }
+        
+        // 3. Нормализация [0, 1]
+        double max_entropy = std::log2(static_cast<double>(BINS));
+        return std::clamp(H / max_entropy, 0.0, 1.0);
+    }
+    
+    // Целевая энтропия (тоже в БИТАХ, нормализованная)
+    double getTargetUnifiedEntropy() const {
+        double prediction_error = predictive_coder ? predictive_coder->getLastError() : 0.5;
+        double system_energy = computeTotalEnergy();
+        
+        // Базовая целевая энтропия (50% от максимума)
+        double base_target = 0.5;
+        
+        // Модуляция ошибкой (высокая ошибка → выше энтропия)
+        double error_factor = 1.0 + std::min(0.5, prediction_error);
+        
+        // Модуляция энергией (высокая энергия → ниже энтропия)
+        double energy_factor = 1.0 / (1.0 + system_energy);
+        
+        // Режимная модуляция
+        double mode_factor = 1.0;
+        switch (current_mode_) {
+            case OperatingMode::TRAINING: mode_factor = 1.3; break;
+            case OperatingMode::NORMAL:   mode_factor = 1.0; break;
+            case OperatingMode::IDLE:     mode_factor = 0.7; break;
+            case OperatingMode::SLEEP:    mode_factor = 1.2; break;
+        }
+        
+        double target = base_target * error_factor * energy_factor * mode_factor;
+        return std::clamp(target, 0.2, 0.8);  // [20%..80%] от макс. энтропии
+    }
+
+    // ===============================================
 
     /** Возвращает вектор активностей всех нейронов */
     const std::vector<double>& getPhi() const { return flatPhi; }
@@ -303,6 +454,8 @@ private:
     double dt;
     std::vector<NeuralGroup> groups;                 // 32 группы
     std::vector<std::vector<double>> interWeights;   // межгрупповые связи 32x32
+
+    FreeEnergyController free_energy_controller_;
 
     // Плоские векторы для обратной совместимости
     mutable std::vector<double> flatPhi;

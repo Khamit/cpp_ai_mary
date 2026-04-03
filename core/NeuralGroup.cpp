@@ -156,6 +156,11 @@ void NeuralGroup::evolve() {
         updateMetricTensor();
     }
 
+    // Проверка на истощение ресурсов (периодически)
+    if (step_counter_ % 100 == 0) {
+        checkForResourceExhaustion();
+    }
+
     // Периодическая пропаганда знаний
     if (step_counter_ % 100 == 0) {
         propagateKnowledgeFromHigherOrbits();
@@ -757,10 +762,61 @@ void NeuralGroup::updateOrbitLevels() {
             if (memory_manager) {
                 auto similar = memory_manager->findSimilar("emergent_patterns", pattern, 1);
                 similar_exists = !similar.empty();
-                
-                // Также проверяем, есть ли похожий паттерн среди известных концептов
-                // (можно добавить проверку через semantic_graph_ если есть доступ)
-                matches_known = similar_exists;
+
+                if (!similar.empty()) {
+                    // Подкрепляем уже известные паттерны
+                    //reward += 0.2;  // ← ЭТОГО НЕТ!
+                }
+
+                auto patterns = memory_manager->findHighEntropyRecords("emergent_patterns", 1.5);
+                for (auto& p : patterns) {
+                    if (p.data.size() != static_cast<size_t>(size)) continue;
+                    
+                    // Сравниваем текущий паттерн нейрона i с сохранённым паттерном
+                    double similarity = 0.0;
+                    int matched = 0;
+                    
+                    for (int j = 0; j < size; j++) {
+                        double weight = std::abs(W_intra[i][j]);
+                        double pattern_val = std::abs(p.data[j]);
+                        
+                        // Евклидово расстояние для похожести
+                        double diff = weight - pattern_val;
+                        if (std::abs(diff) < 0.1) {  // порог схожести
+                            similarity += 1.0 - std::abs(diff);
+                            matched++;
+                        }
+                    }
+                    
+                    if (matched > 0) {
+                        similarity /= matched;
+                    }
+                    
+                    // Если паттерн похож (более 70% схожести) — подкрепляем
+                    if (similarity > 0.7f && matched > size / 4) {
+                        for (int j = 0; j < size; j++) {
+                            double weight = std::abs(W_intra[i][j]);
+                            double pattern_val = std::abs(p.data[j]);
+                            double diff = weight - pattern_val;
+                            
+                            if (std::abs(diff) < 0.1) {
+                                // Усиливаем связь в направлении сохранённого паттерна
+                                W_intra[i][j] += (pattern_val - weight) * 0.05;
+                                W_intra[j][i] = W_intra[i][j];
+                            }
+                        }
+                        
+                        // Ограничиваем веса
+                        double maxW = static_cast<double>(params.maxWeight);
+                        for (int j = 0; j < size; j++) {
+                            W_intra[i][j] = std::clamp(W_intra[i][j], -maxW, maxW);
+                            W_intra[j][i] = W_intra[i][j];
+                        }
+                        
+                        std::cout << "  Reinforced pattern from memory for neuron " << i 
+                                << " (similarity: " << similarity << ")" << std::endl;
+                    }
+                }
             }
             
             if (!similar_exists) {
@@ -773,23 +829,33 @@ void NeuralGroup::updateOrbitLevels() {
                         0.7f
                     );
                 }
-                
-                std::cout << "NEW EMERGENT PATTERN discovered by neuron " << i 
-                        << " (energy: " << orbital_energy[i] << ")" << std::endl;
-                
-                // Создаем новый ID для эмерджентного смысла
-                static uint32_t next_emergent_id = 1000;
-                uint32_t new_id = next_emergent_id++;
-                
-                // Сохраняем с новым ID
-                if (memory_manager) {
-                    memory_manager->storeWithEntropy(
-                        "emergent_meanings",
-                        pattern,
-                        computeLocalEntropy(i),
-                        0.7f
-                    );
-                }
+            }
+            // ===== БАЛАНСИРОВКА ЭНТРОПИИ (внутри цикла) =====
+            double current_entropy = computeEntropy();
+            double target_entropy = computeOptimalEntropyBits();
+            double entropy_ratio = current_entropy / (target_entropy + 1e-6);
+            
+            // Корректируем пороги на основе энтропии
+            if (entropy_ratio > 1.2) {
+                // Слишком хаотично → стимулируем понижение
+                promotion_threshold_ = 0.8;
+                demotion_threshold_ = 0.2;
+            } else if (entropy_ratio < 0.8) {
+                // Слишком упорядочено → стимулируем повышение
+                promotion_threshold_ = 0.4;
+                demotion_threshold_ = 0.6;
+            } else {
+                // Золотая середина
+                promotion_threshold_ = 0.6;
+                demotion_threshold_ = 0.4;
+            }
+            
+            // Используем пороги при принятии решения о повышении/понижении
+            if (target_level > old_level && functional_importance > promotion_threshold_) {
+                // Повышение (ваш существующий код)
+            }
+            else if (target_level < old_level && functional_importance < demotion_threshold_) {
+                // Понижение (ваш существующий код)
             }
         }
                         
@@ -1675,6 +1741,36 @@ void NeuralGroup::propagateKnowledgeFromHigherOrbits() {
     syncSynapsesFromWeights();
 }
 
+// Нейроны падают в сингулярность только при низкой энергии/радиусе, но НЕ при перерасходе памяти/CPU.
+bool NeuralGroup::checkForResourceExhaustion() {
+    // ВАЖНО: functional_importance должен вычисляться для каждого нейрона
+    // Это временное решение — нужно передавать извне
+    static int check_counter = 0;
+    check_counter++;
+    
+    if (check_counter % 100 == 0) {  // проверяем раз в 100 шагов
+        // Считаем среднюю активность
+        double avg_activity = getAverageActivity();
+        
+        // Если система перегружена (высокая активность)
+        if (avg_activity > 0.8f) {
+            // Принудительно снижаем активность малозначимых нейронов
+            int degraded = 0;
+            for (int i = 0; i < size; i++) {
+                // Нейроны на низких орбитах и с низкой связностью
+                if (orbit_level[i] <= 1 && getMemoryStrength(i) < 0.3) {
+                    orbit_level[i] = 0;  // в сингулярность
+                    degraded++;
+                }
+            }
+            if (degraded > 0) {
+                std::cout << "  Resource exhaustion: degraded " << degraded << " neurons" << std::endl;
+            }
+            return true;
+        }
+    }
+    return false;
+}
 // ============================================================================
 // STDP ОБУЧЕНИЕ (с учетом орбит)
 // ============================================================================
@@ -1749,10 +1845,12 @@ void NeuralGroup::learnSTDP(float reward, int currentStep) {
             float normalized_reward = std::min(1.0f, reward);
             // Базовая награда за активность (чтобы не умирали)
             if (isActive) {
-                float survival_reward = 0.01f;  // маленькая, но постоянная
-                // добавляем к основному reward
-                weight_change = params.stdpRate * normalized_reward * syn.eligibility * 
-                               elevation_factor * entropy_factor * orbit_factor * mass_factor;
+                //float survival_reward = 0.01f;  // маленькая, но постоянная
+                float energy_penalty = -0.1f * current_entropy;
+                float final_reward = normalized_reward + energy_penalty;
+                weight_change = params.stdpRate * final_reward * syn.eligibility * 
+                            elevation_factor * entropy_factor * orbit_factor * mass_factor;
+
                 syn.weight += weight_change;
                 
                 // НОВОЕ: масса растет пропорционально усилению связи
@@ -2599,27 +2697,6 @@ void NeuralGroup::generateCuriosityConnections() {
     performExperiments();
     
     syncSynapsesFromWeights();
-}
-
-void NeuralGroup::protectCoreConcepts() {
-    // Получаем ID важных смыслов из SemanticGraphDatabase
-    // Для этого нужно передать ссылку на граф в NeuralGroup
-    // Или сделать через callback
-    
-    static std::set<uint32_t> protected_concepts = {
-        597,  // Mary
-        43,   // creator
-        142,  // khamit
-        145,  // name
-        516,  // name (второй ID)
-        1,    // system_identity
-        2,    // system_capability
-        38,   // good
-        49    // greeting
-    };
-    
-    // Здесь нужно сопоставить концепты с нейронами
-    // Временно пропускаем — можно добавить позже
 }
 
 // ============================================================================

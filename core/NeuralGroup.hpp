@@ -389,6 +389,15 @@ public:
     void consolidateElevation(float globalImportance, float hallucinationPenalty = 0.0f);
     void consolidateEligibility(float globalImportance);
 
+    // Глобальные Штрафы 
+    void applyGlobalPenalty(float penalty) {
+        // Штраф уменьшает элевацию (важность) нейронов
+        elevation_ += penalty * 0.01f;
+        elevation_ = std::clamp(elevation_, -1.0f, 1.0f);
+    }
+
+    // ===== Entropy ==============
+
     // MASS
     bool hasMass() const { return true; }  // всегда true, т.к. масса есть у всех
     bool hasTemperature() const { return true; }  // всегда true
@@ -440,13 +449,86 @@ public:
     // сброс избыточной массы
     void activateMassShedding(int i);
 
-    //
+    // Synapses
     void syncSynapsesFromWeights();
     void syncWeightsFromSynapses();
     void learnHebbian(double globalReward);
 
-        // НОВЫЙ МЕТОД
+    // НОВЫЙ МЕТОД
     void updateWaveFunction();
+        // Нейроны при ЦПУ
+    bool checkForResourceExhaustion();
+
+    // ===== ЕДИНАЯ энтропия для всей системы (в БИТАХ) ======
+    // Исправленный метод — возвращает энтропию в БИТАХ!
+    double computeUnifiedEntropy() const {
+        const int BINS = 16;
+        std::vector<int> hist_azimuth(BINS, 0);
+        std::vector<int> hist_polar(BINS, 0);
+        
+        for (int i = 0; i < size; ++i) {
+            double azimuth = std::atan2(pos[i].y, pos[i].x);
+            double polar = std::acos(pos[i].z / (pos[i].norm() + 1e-12));
+            
+            int bin_az = static_cast<int>((azimuth + M_PI) / (2*M_PI) * BINS) % BINS;
+            int bin_pol = static_cast<int>(polar / M_PI * BINS) % BINS;
+            
+            hist_azimuth[bin_az]++;
+            hist_polar[bin_pol]++;
+        }
+        
+        double H = 0.0;
+        double max_entropy = std::log2(static_cast<double>(BINS));
+        
+        for (int count : hist_azimuth) {
+            if (count > 0) {
+                double p = static_cast<double>(count) / size;
+                H -= p * std::log2(p);  // ← БИТЫ!
+            }
+        }
+        for (int count : hist_polar) {
+            if (count > 0) {
+                double p = static_cast<double>(count) / size;
+                H -= p * std::log2(p);  // ← БИТЫ!
+            }
+        }
+        
+        // Нормализация и усреднение
+        return std::clamp((H / max_entropy) / 2.0, 0.0, 1.0);
+    }
+
+    // Исправленный computeOptimalEntropy — тоже в БИТАХ
+    double computeOptimalEntropyBits() const {
+        double avg_energy = getAverageEnergy();
+        double temperature = activation_temp;
+        
+        if (temperature < 0.01) return 0.5;
+        
+        double Z = 0.0;
+        std::vector<double> probabilities(size);
+        
+        for (int i = 0; i < size; ++i) {
+            double energy = getNeuronEnergy(i);
+            double p = std::exp(-energy / temperature);
+            probabilities[i] = p;
+            Z += p;
+        }
+        
+        if (Z < 1e-12) return 0.5;
+        
+        // Энтропия Шеннона в БИТАХ
+        double H = 0.0;
+        for (double p : probabilities) {
+            p /= Z;
+            if (p > 1e-12) {
+                H -= p * std::log2(p);  // ← БИТЫ!
+            }
+        }
+        
+        // Максимальная энтропия для size состояний = log2(size)
+        double max_H = std::log2(static_cast<double>(size));
+        return std::clamp(H / max_H, 0.0, 1.0);
+    }
 
     // ===== МЕТОДЫ ДЛЯ ВИЗУАЛИЗАЦИИ =====
     double getNeuronTemperature(int i) const {
@@ -612,6 +694,52 @@ public:
         return static_cast<float>(connection_success_count[i][j]) / total;
     }
 
+    // ENTROPY
+        // ===== НОВЫЕ МЕТОДЫ ДЛЯ УПРАВЛЕНИЯ КОНСОЛИДАЦИЕЙ =====
+    void setConsolidationRate(float rate) {
+        params.consolidationRate = rate;
+    }
+    
+    float getConsolidationRate() const {
+        return params.consolidationRate;
+    }
+    
+    // ===== НОВЫЙ МЕТОД ДЛЯ ПОЛУЧЕНИЯ СРЕДНЕЙ ЭНЕРГИИ =====
+    double getAverageEnergy() const {
+        double total_energy = 0.0;
+        for (int i = 0; i < size; ++i) {
+            total_energy += getNeuronEnergy(i);
+        }
+        return total_energy / size;
+    }
+    
+    // ===== УПРАВЛЕНИЕ СКОРОСТЬЮ STDP =====
+    void setStdpRate(float rate) {
+        params.stdpRate = rate;
+    }
+    
+    float getStdpRate() const {
+        return params.stdpRate;
+    }
+    
+    // ===== УПРАВЛЕНИЕ ТЕМПЕРАТУРОЙ =====
+    void setTemperature(float temp) {
+        activation_temp = temp;
+    }
+    
+    float getTemperature() const {
+        return activation_temp;
+    }
+    
+    // ===== АЛИАСЫ ДЛЯ ЭНТРОПИИ =====
+    double getCurrentEntropy() const {
+        return computeEntropy();
+    }
+    
+    double getTargetEntropy() const {
+        return computeEntropyTarget();
+    }
+
 private:
     MassLimits mass_limits;
     OperatingMode::Type current_mode_ = OperatingMode::NORMAL;
@@ -628,6 +756,10 @@ private:
     // Счетчики использования связей
     std::vector<std::vector<int>> connection_usage_count;
     std::vector<std::vector<int>> connection_success_count;
+
+    // ===== НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ БАЛАНСИРОВКИ ЭНТРОПИИ =====
+    double promotion_threshold_ = 0.6;
+    double demotion_threshold_ = 0.4;
     
     // Время последнего использования
     std::vector<std::vector<int>> connection_last_used_step;
@@ -712,25 +844,23 @@ private:
         double memory = getMemoryStrength(neuron_idx);
         int orbit = orbit_level[neuron_idx];
         
-        // ЕЩЕ БОЛЕЕ МЯГКИЕ ЛИМИТЫ
-        
-        // Увеличиваем фактор Шварцшильда еще больше
+        // Квантовые ограничения
         double schwarzschild_limit = r / (mass_limits.schwarzschild_radius_factor * 6.0);
         
+        // Термодинамические ограничения
         double temperature = getNeuronTemperature(neuron_idx);
-        // Еще меньше влияния температуры
         double thermodynamic_limit = mass_limits.max_temperature_mass * 5.0;
         
+        // Информационные ограничения
         double entropy = getLocalEntropy(neuron_idx);
-        // Увеличиваем информационный лимит еще больше
-        double info_limit = entropy * 20.0;  // было 2.0
+        double info_limit = entropy * 20.0;
         
-        // Увеличиваем орбитальные лимиты
-        double orbit_limits[] = {5.0, 8.0, 12.0, 15.0, 20.0};  // было {1.0, 2.0, 3.5, 5.0, 7.0}
+        // Орбитальные лимиты
+        double orbit_limits[] = {5.0, 8.0, 12.0, 15.0, 20.0};
         double orbit_limit = orbit_limits[orbit];
         
-        // Увеличиваем saturation_mass
-        double saturation = mass_limits.saturation_mass * 5.0;  // было 1.5
+        // Масса насыщения
+        double saturation = mass_limits.saturation_mass * 5.0;
         
         double mass_cap = std::min({
             schwarzschild_limit,
@@ -740,7 +870,7 @@ private:
             saturation
         });
         
-        // Увеличиваем минимальную массу
-        return std::max(mass_cap, homeo.min_mass);  // было homeo.min_mass * 0.8
+        return std::max(mass_cap, homeo.min_mass);
     }
+        
 };

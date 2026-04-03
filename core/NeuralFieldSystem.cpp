@@ -219,35 +219,135 @@ void NeuralFieldSystem::applyLateralInhibition() {
 }
 
 void NeuralFieldSystem::maintainCriticality() {
-    double entropy = computeSystemEntropy();
-    double target = 2.5;
-
-    // ===== НОВОЕ: температурное охлаждение =====
-    static int annealing_step = 0;
-    annealing_step++;
+    double prediction_error = predictive_coder ? predictive_coder->getLastError() : 0.5;
+    double energy = computeTotalEnergy();
+    double current_entropy = getUnifiedEntropy();
     
-    // Постепенное снижение температуры
-    if (annealing_step > 1000 && attention.temperature > 0.3f) {
-        // Медленное охлаждение
-        attention.temperature *= 0.999f;
+    // 1. Вычисляем адаптивную целевую энтропию
+    // target_entropy = 1.5 * (1 + error*2) * (1-energy/2) * mode
+    // Может быть от 0.5 до 3.5
+
+    free_energy_controller_.update(energy, current_entropy, prediction_error);
+    double target_entropy = free_energy_controller_.getTargetEntropy(energy);
+
+    // 2. Энтропийная ошибка
+    double entropy_error = target_entropy - current_entropy;
+    
+    // 3. Адаптируем параметры системы
+    if (std::abs(entropy_error) > 0.05) {   // 5% ошибки
+        if (entropy_error > 0) {
+            // Нужно увеличить энтропию (больше хаоса для исследования)
+            attention.temperature *= 1.02;
+            // Уменьшаем консолидацию (легче менять связи)
+            for (auto& group : groups) {
+                group.setConsolidationRate(0.003f);
+                group.setStdpRate(0.6f);  // увеличиваем скорость обучения
+            }
+        } else {
+            // Нужно уменьшить энтропию (больше порядка для предсказаний)
+            attention.temperature *= 0.98;
+            // Увеличиваем консолидацию (запоминаем паттерны)
+            for (auto& group : groups) {
+                group.setConsolidationRate(0.02f);
+                group.setStdpRate(0.3f);  // уменьшаем скорость обучения
+            }
+        }
+        
+        // Ограничиваем температуру
+        attention.temperature = std::clamp(attention.temperature, 0.1f, 5.0f);
     }
     
-    // Адаптация на основе энтропии
-    double entropy_error = target - entropy;
+    // 4. Логируем состояние
+    static int log_counter = 0;
+    if (log_counter++ % 100 == 0) {
+        std::cout << "Entropy: " << current_entropy 
+                  << " (target: " << target_entropy << ")"
+                  << ", Error: " << prediction_error
+                  << ", Temp: " << attention.temperature 
+                  << ", ΔE: " << entropy_error << std::endl;
+    }
+}
+
+// Принцип максимума энтропии Больцмана
+// Наиболее вероятное состояние = максимум энтропии при заданных ограничениях
+
+double NeuralFieldSystem::computeOptimalStructure() {
+    // Находим распределение, максимизирующее энтропию
+    // при фиксированной средней энергии (канонический ансамбль)
     
-    if (std::abs(entropy_error) > 0.3) {
-        // Сильная коррекция
-        if (entropy_error > 0) {
-            // Слишком низкая энтропия - увеличиваем температуру
-            attention.temperature *= 1.01f;
-        } else {
-            // Слишком высокая энтропия - уменьшаем температуру
-            attention.temperature *= 0.99f;
+    double avg_energy = computeTotalEnergy();
+    double temperature = attention.temperature;
+    
+    // Распределение Гиббса: p_i = exp(-E_i/kT) / Z
+    // Это даёт оптимальный баланс между порядком и хаосом!
+    
+    std::vector<double> probabilities;
+    double Z = 0.0;
+    
+    // Используем getAverageEnergy() который мы добавили
+    for (const auto& group : groups) {
+        double group_energy = group.getAverageEnergy();
+        // Защита от переполнения
+        double exp_arg = -group_energy / (temperature + 1e-6);
+        double p = std::exp(std::clamp(exp_arg, -50.0, 50.0));
+        probabilities.push_back(p);
+        Z += p;
+    }
+    
+    // Защита от деления на ноль
+    if (Z < 1e-12) return 0.0;
+    
+    // Нормализуем
+    for (auto& p : probabilities) {
+        p /= Z;
+    }
+    
+    // Вычисляем информационную энтропию этого распределения
+    double H_optimal = 0.0;
+    for (double p : probabilities) {
+        if (p > 1e-12) {
+            H_optimal -= p * std::log2(p);
         }
     }
     
-    // Ограничиваем температуру
-    attention.temperature = std::clamp(attention.temperature, 0.1f, 5.0f);
+    return H_optimal;  // Это идеальная энтропия для системы!
+}
+
+void NeuralFieldSystem::diagnoseCriticality() {
+    double entropy = computeSystemEntropy();
+    double energy = computeTotalEnergy();
+    double free_energy = energy - attention.temperature * entropy;
+    
+    // 1. Проверка на фазовый переход (критичность)
+    static double last_entropy = entropy;
+    double entropy_change = std::abs(entropy - last_entropy);
+    
+    if (entropy_change > 0.1) {
+        std::cout << "⚠️ Phase transition detected! ΔS = " << entropy_change << std::endl;
+    }
+    
+    // 2. Проверка на "застывание" (слишком низкая энтропия)
+    if (entropy < 0.5) {
+        std::cout << "❌ System frozen! Too ordered. Increasing exploration..." << std::endl;
+        attention.temperature *= 1.5;
+    }
+    
+    // 3. Проверка на "хаос" (слишком высокая энтропия)
+    if (entropy > 3.0) {
+        std::cout << "❌ System chaotic! Too disordered. Increasing consolidation..." << std::endl;
+        attention.temperature *= 0.7;
+    }
+    
+    // 4. Идеальное состояние
+    if (entropy > 1.2 && entropy < 1.8 && entropy_change < 0.05) {
+        static int stable_counter = 0;
+        stable_counter++;
+        if (stable_counter > 100) {
+            std::cout << "✅ System at critical point! Optimal balance achieved." << std::endl;
+        }
+    }
+    
+    last_entropy = entropy;
 }
 
 void NeuralFieldSystem::setOperatingMode(OperatingMode::Type mode) {
@@ -348,6 +448,7 @@ void NeuralFieldSystem::step(float globalReward, int stepNumber) {
     // ===== 7. ЛОГИРОВАНИЕ =====
     if (stepNumber % 1000 == 0) {
         logOrbitalHealth();
+        diagnoseCriticality(); 
     }
     
     if (stepNumber % 200 == 0) {

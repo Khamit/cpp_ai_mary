@@ -9,11 +9,90 @@
 #include "../modules/MetaCognitiveModule.hpp"
 #include "../modules/learning/CuriosityDriver.hpp"
 
+#include <mach/mach.h>  
+#include <sys/sysctl.h> 
+#ifdef __linux__
+#include <unistd.h>
+#endif
+
 CoreSystem::CoreSystem() 
     : neuralSystem(std::make_unique<NeuralFieldSystem>(0.001, eventSystem))
     , semantic_graph()  // инициализация графа
 {
     std::cout << "CoreSystem created" << std::endl;
+}
+
+float CoreSystem::getCurrentCPUUsage() const {
+#ifdef __APPLE__
+    // macOS: используем host_statistics
+    mach_msg_type_number_t count = HOST_CPU_LOAD_INFO_COUNT;
+    host_cpu_load_info_data_t cpu_load;
+    kern_return_t kr = host_statistics(mach_host_self(), HOST_CPU_LOAD_INFO,
+                                       (host_info_t)&cpu_load, &count);
+    if (kr == KERN_SUCCESS) {
+        natural_t total = cpu_load.cpu_ticks[CPU_STATE_USER] +
+                          cpu_load.cpu_ticks[CPU_STATE_SYSTEM] +
+                          cpu_load.cpu_ticks[CPU_STATE_IDLE] +
+                          cpu_load.cpu_ticks[CPU_STATE_NICE];
+        natural_t active = total - cpu_load.cpu_ticks[CPU_STATE_IDLE];
+        return static_cast<float>(active) / static_cast<float>(total);
+    }
+#elif defined(__linux__)
+    // Linux: читаем /proc/stat
+    std::ifstream stat("/proc/stat");
+    std::string line;
+    if (std::getline(stat, line)) {
+        long user, nice, system, idle;
+        sscanf(line.c_str(), "cpu %ld %ld %ld %ld", &user, &nice, &system, &idle);
+        long total = user + nice + system + idle;
+        static long prev_total = 0, prev_idle = 0;
+        long diff_total = total - prev_total;
+        long diff_idle = idle - prev_idle;
+        prev_total = total;
+        prev_idle = idle;
+        if (diff_total > 0) {
+            return 1.0f - static_cast<float>(diff_idle) / static_cast<float>(diff_total);
+        }
+    }
+#endif
+    return 0.5f;  // fallback
+}
+
+float CoreSystem::getCurrentRAMUsage() const {
+#ifdef __APPLE__
+    // macOS: используем mach_task_basic_info
+    struct task_basic_info info;
+    mach_msg_type_number_t count = TASK_BASIC_INFO_COUNT;
+    kern_return_t kr = task_info(mach_task_self(), TASK_BASIC_INFO,
+                                 (task_info_t)&info, &count);
+    if (kr == KERN_SUCCESS) {
+        uint64_t ram_used_mb = info.resident_size / (1024 * 1024);
+        return static_cast<float>(ram_used_mb) / static_cast<float>(deviceInfo.resources.ram_mb);
+    }
+#elif defined(__linux__)
+    // Linux: читаем /proc/self/status
+    std::ifstream status("/proc/self/status");
+    std::string line;
+    while (std::getline(status, line)) {
+        if (line.substr(0, 6) == "VmRSS:") {
+            long ram_kb;
+            sscanf(line.c_str(), "VmRSS: %ld kB", &ram_kb);
+            float ram_mb = ram_kb / 1024.0f;
+            return ram_mb / static_cast<float>(deviceInfo.resources.ram_mb);
+        }
+    }
+#endif
+    return 0.5f;  // fallback
+}
+
+void CoreSystem::applyResourcePenalty(float penalty) {
+    // Передаём штраф в нейросистему через специальный метод
+    // Можно добавить в NeuralFieldSystem метод applyGlobalPenalty
+    // Пока просто логируем при высоком потреблении
+    if (penalty < -0.3f) {  // значительный штраф
+        std::cout << "⚠️ Resource penalty: " << penalty << std::endl;
+        // В будущем: neuralSystem->applyResourcePenalty(penalty);
+    }
 }
 
 void CoreSystem::initializeSemanticGraph() {
@@ -245,9 +324,16 @@ void CoreSystem::shutdown() {
 }
 
 void CoreSystem::update(float dt) {
+    float cpu_usage = getCurrentCPUUsage();
+    float ram_usage = getCurrentRAMUsage();
+
     // Обновляем нейросистему с передачей номера шага
     static int stepCounter = 0;
     neuralSystem->step(0.0f, stepCounter++);
+
+    // Передаём "боль" в нейросистему
+    float resource_penalty = -0.5f * (cpu_usage + ram_usage);
+    neuralSystem->applyResourcePenalty(resource_penalty);
     
     // Мониторинг энтропии
     static int entropyCheckCounter = 0;

@@ -186,6 +186,13 @@ public:
         return true;
     }
 
+    // Функции мониторинга ресурсов
+    float getCurrentCPUUsage() const;
+    float getCurrentRAMUsage() const;
+    
+    // Применение штрафа к нейросистеме
+    void applyResourcePenalty(float penalty);
+
     // НОВЫЕ МЕТОДЫ
     const std::string& getMode() const { return system_mode; }
     bool isEnterpriseMode() const { return system_mode == "enterprise"; }

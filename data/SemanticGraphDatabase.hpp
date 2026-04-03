@@ -646,11 +646,17 @@ private:
 public:
     SemanticGraphDatabase() {
         std::filesystem::create_directories(dump_path);
+        // БАЗА
         buildBaseGraph();
+
+        // слои которые создают узлы
+        // !!! - в правильном порядке
+        buildCoreConceptsLayer();
         buildAbstractConceptLayer();
         buildVisualizationAndAffectLayer();
         buildRelationships();
         buildAllRelationships();
+        // УГЛУБЛЕННО
         buildTemporalConceptNetwork();
         buildSpatialConceptNetwork(); 
         buildMathematicalFoundationLayer();
@@ -1739,363 +1745,8 @@ private:
         addEdge(temp_later, state_inactive, SemanticEdge::Type::TIME, 0.7f, 0.8f, 80);
     }
 
-void buildRelationships() {
-    // Сначала создаем ВСЕ узлы в правильном порядке
-    
-    // === ПОВСЕДНЕВНЫЕ ДЕЙСТВИЯ ===
-    uint32_t action_sleep = addNode("sleep", "sleep", {"rest", "nap", "doze"}, "action",
-        0.7f, 0.3f, 3, EmotionalTone::POSITIVE,
-        {"daily", "rest", "energy"});
-
-    uint32_t action_eat = addNode("eat", "eat", {"consume", "have meal"}, "action",
-        0.7f, 0.3f, 3, EmotionalTone::POSITIVE,
-        {"daily", "food", "sustenance"});
-
-    uint32_t action_drink = addNode("drink", "drink", {"beverage", "sip"}, "action",
-        0.7f, 0.3f, 3, EmotionalTone::POSITIVE,
-        {"daily", "water", "thirst"});
-
-    uint32_t action_work = addNode("work", "work", {"labor", "task", "job"}, "action",
-        0.8f, 0.4f, 4, EmotionalTone::NEUTRAL,
-        {"daily", "productivity", "profession"});
-
-    uint32_t action_play = addNode("play", "play", {"game", "fun", "entertain"}, "action",
-        0.8f, 0.3f, 3, EmotionalTone::VERY_POSITIVE,
-        {"leisure", "fun", "enjoyment"});
-
-    uint32_t action_read = addNode("read", "read", {"book", "study", "learn"}, "action",
-        0.8f, 0.4f, 4, EmotionalTone::POSITIVE,
-        {"learning", "information", "knowledge"});
-
-    uint32_t action_write = addNode("write", "write", {"compose", "author"}, "action",
-        0.7f, 0.5f, 4, EmotionalTone::NEUTRAL,
-        {"communication", "creation"});
-
-    uint32_t action_think = addNode("think", "think", {"ponder", "consider", "reflect"}, "action",
-        0.9f, 0.6f, 6, EmotionalTone::NEUTRAL,
-        {"cognition", "mind", "philosophy"});
-
-    uint32_t action_feel = addNode("feel", "feel", {"sense", "experience"}, "action",
-        0.9f, 0.6f, 6, EmotionalTone::VERY_POSITIVE,
-        {"emotion", "sensation", "consciousness"});
-
-    // === СОСТОЯНИЯ ЧЕЛОВЕКА ===
-    uint32_t state_happy = addNode("happy", "happy", {"joyful", "glad", "cheerful"}, "state",
-        0.9f, 0.3f, 4, EmotionalTone::VERY_POSITIVE,
-        {"emotion", "feeling", "mood"});
-
-    uint32_t state_sad = addNode("sad", "sad", {"unhappy", "sorrowful", "gloomy"}, "state",
-        0.8f, 0.3f, 4, EmotionalTone::VERY_NEGATIVE,
-        {"emotion", "feeling", "mood"});
-
-    uint32_t state_tired = addNode("tired", "tired", {"exhausted", "fatigued", "weary"}, "state",
-        0.7f, 0.3f, 4, EmotionalTone::NEGATIVE,
-        {"energy", "rest", "condition"});
-
-    uint32_t state_energetic = addNode("energetic", "energetic", {"active", "lively", "vibrant"}, "state",
-        0.8f, 0.3f, 4, EmotionalTone::VERY_POSITIVE,
-        {"energy", "activity", "condition"});
-
-    uint32_t state_bored = addNode("bored", "bored", {"uninterested", "weary"}, "state",
-        0.6f, 0.3f, 4, EmotionalTone::NEGATIVE,
-        {"emotion", "interest", "engagement"});
-
-    uint32_t state_interested = addNode("interested", "interested", {"curious", "engaged"}, "state",
-        0.8f, 0.3f, 4, EmotionalTone::VERY_POSITIVE,
-        {"emotion", "attention", "learning"});
-
-    uint32_t state_confused = addNode("confused", "confused", {"perplexed", "bewildered"}, "state",
-        0.7f, 0.4f, 5, EmotionalTone::NEGATIVE,
-        {"cognition", "understanding", "learning"});
-
-    // === СОЦИАЛЬНЫЕ ОТНОШЕНИЯ ===
-    uint32_t social_friend = addNode("friend", "friend", {"buddy", "pal", "companion"}, "social",
-        0.9f, 0.4f, 5, EmotionalTone::VERY_POSITIVE,
-        {"relationship", "trust", "affection"});
-
-    uint32_t social_family = addNode("family", "family", {"relatives", "kin"}, "social",
-        0.9f, 0.5f, 5, EmotionalTone::VERY_POSITIVE,
-        {"relationship", "blood", "care"});
-
-    uint32_t social_stranger = addNode("stranger", "stranger", {"unknown", "unfamiliar"}, "social",
-        0.6f, 0.3f, 4, EmotionalTone::NEUTRAL,
-        {"relationship", "unknown", "caution"});
-
-    uint32_t social_help = addNode("help", "help", {"assist", "aid", "support"}, "social",
-        0.9f, 0.4f, 5, EmotionalTone::VERY_POSITIVE,
-        {"action", "kindness", "cooperation"});
-
-    uint32_t social_thank = addNode("thank", "thank", {"grateful", "appreciate"}, "social",
-        0.9f, 0.3f, 4, EmotionalTone::VERY_POSITIVE,
-        {"gratitude", "politeness", "acknowledgment"});
-
-    uint32_t social_sorry = addNode("sorry", "sorry", {"apologize", "regret"}, "social",
-        0.8f, 0.3f, 4, EmotionalTone::NEGATIVE,
-        {"apology", "remorse", "politeness"});
-
-    uint32_t social_promise = addNode("promise", "promise", {"swear", "vow", "commit"}, "social",
-        0.8f, 0.5f, 6, EmotionalTone::POSITIVE,
-        {"commitment", "trust", "reliability"});
-
-    // === ПОГОДА ===
-    uint32_t weather_sunny = addNode("sunny", "sunny", {"clear", "bright", "sunshine"}, "weather",
-        0.8f, 0.2f, 3, EmotionalTone::VERY_POSITIVE,
-        {"nature", "day", "warm"});
-
-    uint32_t weather_rain = addNode("rain", "rain", {"rainy", "precipitation", "shower"}, "weather",
-        0.7f, 0.2f, 3, EmotionalTone::NEUTRAL,
-        {"nature", "water", "wet"});
-
-    uint32_t weather_snow = addNode("snow", "snow", {"snowy", "blizzard"}, "weather",
-        0.7f, 0.2f, 3, EmotionalTone::POSITIVE,
-        {"nature", "cold", "winter"});
-
-    uint32_t weather_cloud = addNode("cloud", "cloud", {"cloudy", "overcast"}, "weather",
-        0.6f, 0.2f, 3, EmotionalTone::NEUTRAL,
-        {"nature", "sky", "gray"});
-
-    uint32_t weather_wind = addNode("wind", "wind", {"windy", "breeze"}, "weather",
-        0.6f, 0.2f, 3, EmotionalTone::NEUTRAL,
-        {"nature", "air", "movement"});
-
-    uint32_t weather_storm = addNode("storm", "storm", {"thunderstorm", "tempest"}, "weather",
-        0.8f, 0.3f, 4, EmotionalTone::NEGATIVE,
-        {"nature", "danger", "powerful"});
-
-    // === ТИПЫ ВОПРОСОВ ===
-    uint32_t question_who = addNode("who", "who", {"whom", "whose"}, "question_word",
-        0.9f, 0.3f, 4, EmotionalTone::NEUTRAL,
-        {"inquiry", "person", "identity"});
-
-    uint32_t question_what = addNode("what", "what", {"which"}, "question_word",
-        0.9f, 0.3f, 4, EmotionalTone::NEUTRAL,
-        {"inquiry", "thing", "object"});
-
-    uint32_t question_where = addNode("where", "where", {"location", "place"}, "question_word",
-        0.9f, 0.3f, 4, EmotionalTone::NEUTRAL,
-        {"inquiry", "location", "position"});
-
-    uint32_t question_when = addNode("when", "when", {"time"}, "question_word",
-        0.9f, 0.3f, 4, EmotionalTone::NEUTRAL,
-        {"inquiry", "time", "moment"});
-
-    uint32_t question_why = addNode("why", "why", {"reason", "purpose"}, "question_word",
-        0.9f, 0.4f, 5, EmotionalTone::NEUTRAL,
-        {"inquiry", "reason", "explanation"});
-
-    uint32_t question_how = addNode("how", "how", {"manner", "method"}, "question_word",
-        0.9f, 0.4f, 5, EmotionalTone::NEUTRAL,
-        {"inquiry", "method", "process"});
-
-    // === МЕСТА ===
-    uint32_t place_home = addNode("home", "home", {"house", "residence", "domicile"}, "place",
-        0.9f, 0.3f, 3, EmotionalTone::VERY_POSITIVE,
-        {"location", "living", "comfort"});
-
-    uint32_t place_work = addNode("workplace", "workplace", {"office", "job site"}, "place",
-        0.7f, 0.3f, 3, EmotionalTone::NEUTRAL,
-        {"location", "profession", "labor"});
-
-    uint32_t place_school = addNode("school", "school", {"university", "college", "academy"}, "place",
-        0.8f, 0.3f, 3, EmotionalTone::POSITIVE,
-        {"location", "education", "learning"});
-
-    uint32_t place_store = addNode("store", "store", {"shop", "market", "mall"}, "place",
-        0.7f, 0.3f, 3, EmotionalTone::POSITIVE,
-        {"location", "shopping", "commerce"});
-
-    uint32_t place_park = addNode("park", "park", {"garden", "nature"}, "place",
-        0.8f, 0.3f, 3, EmotionalTone::VERY_POSITIVE,
-        {"location", "nature", "relaxation"});
-
-    uint32_t place_city = addNode("city", "city", {"town", "metropolis", "urban"}, "place",
-        0.7f, 0.3f, 3, EmotionalTone::NEUTRAL,
-        {"location", "urban", "population"});
-
-    // === ВРЕМЕННЫЕ КОНЦЕПТЫ ===
-    uint32_t time_morning = addNode("morning", "morning", {"a.m.", "dawn", "sunrise"}, "time",
-        0.7f, 0.2f, 3, EmotionalTone::POSITIVE,
-        {"daily", "time", "schedule"});
-
-    uint32_t time_afternoon = addNode("afternoon", "afternoon", {"noon", "midday"}, "time",
-        0.7f, 0.2f, 3, EmotionalTone::NEUTRAL,
-        {"daily", "time", "schedule"});
-
-    uint32_t time_evening = addNode("evening", "evening", {"dusk", "nightfall"}, "time",
-        0.7f, 0.2f, 3, EmotionalTone::POSITIVE,
-        {"daily", "time", "schedule"});
-
-    uint32_t time_night = addNode("night", "night", {"midnight", "dark"}, "time",
-        0.7f, 0.2f, 3, EmotionalTone::NEUTRAL,
-        {"daily", "time", "rest"});
-
-    uint32_t time_today = addNode("today", "today", {"this day", "current"}, "time",
-        0.8f, 0.2f, 3, EmotionalTone::NEUTRAL,
-        {"temporal", "present", "schedule"});
-
-    uint32_t time_tomorrow = addNode("tomorrow", "tomorrow", {"next day", "future"}, "time",
-        0.8f, 0.2f, 3, EmotionalTone::POSITIVE,
-        {"temporal", "future", "planning"});
-
-    uint32_t time_yesterday = addNode("yesterday", "yesterday", {"past day", "previous"}, "time",
-        0.8f, 0.2f, 3, EmotionalTone::NEUTRAL,
-        {"temporal", "past", "memory"});
-
-    uint32_t time_week = addNode("week", "week", {"7 days"}, "time",
-        0.7f, 0.3f, 4, EmotionalTone::NEUTRAL,
-        {"duration", "schedule", "planning"});
-
-    uint32_t time_month = addNode("month", "month", {"30 days"}, "time",
-        0.7f, 0.3f, 4, EmotionalTone::NEUTRAL,
-        {"duration", "schedule", "planning"});
-
-    uint32_t time_year = addNode("year", "year", {"12 months", "365 days"}, "time",
-        0.7f, 0.3f, 4, EmotionalTone::NEUTRAL,
-        {"duration", "long-term", "planning"});
-}
-
-void buildAllRelationships() {
-    // Теперь, когда все узлы созданы, добавляем связи
-    
-    // Связи действий и состояний
-    addEdge("sleep", "tired", SemanticEdge::Type::CAUSES, 0.9f);
-    addEdge("sleep", "energetic", SemanticEdge::Type::AFTER, 0.8f);
-    addEdge("eat", "happy", SemanticEdge::Type::CAUSES, 0.7f);
-    addEdge("play", "happy", SemanticEdge::Type::CAUSES, 0.9f);
-    addEdge("work", "tired", SemanticEdge::Type::CAUSES, 0.8f);
-    addEdge("think", "confused", SemanticEdge::Type::MAYBE, 0.5f);
-    addEdge("think", "know", SemanticEdge::Type::LEADS_TO, 0.8f);
-
-    // Временные связи
-    addEdge("morning", "eat", SemanticEdge::Type::TIME, 0.7f);
-    addEdge("evening", "sleep", SemanticEdge::Type::TIME, 0.8f);
-    addEdge("today", "tomorrow", SemanticEdge::Type::AFTER, 1.0f);
-    addEdge("yesterday", "today", SemanticEdge::Type::BEFORE, 1.0f);
-
-    // Социальные связи
-    addEdge("friend", "help", SemanticEdge::Type::CAN_DO, 0.9f);
-    addEdge("help", "thank", SemanticEdge::Type::CAUSES, 0.9f);
-    addEdge("thank", "happy", SemanticEdge::Type::CAUSES, 0.8f);
-    addEdge("sorry", "sad", SemanticEdge::Type::CORRELATES_WITH, 0.7f);
-
-    // Погода и эмоции
-    addEdge("sunny", "happy", SemanticEdge::Type::CORRELATES_WITH, 0.8f);
-    addEdge("rain", "sad", SemanticEdge::Type::CORRELATES_WITH, 0.6f);
-    addEdge("storm", "fear", SemanticEdge::Type::CAUSES, 0.7f);
-
-    // Вопросы и темы
-    addEdge("who", "friend", SemanticEdge::Type::USED_FOR, 0.8f);
-    addEdge("where", "home", SemanticEdge::Type::USED_FOR, 0.8f);
-    addEdge("when", "today", SemanticEdge::Type::USED_FOR, 0.8f);
-    addEdge("why", "purpose", SemanticEdge::Type::USED_FOR, 0.9f);
-    addEdge("how", "think", SemanticEdge::Type::USED_FOR, 0.8f);
-
-    uint32_t what_id = getNodeId("what");
-    uint32_t your_id = getNodeId("your");
-    uint32_t name_id = getNodeId("name");
-    uint32_t mary_id = getNodeId("mary");
-    uint32_t my_id = getNodeId("my");
-    uint32_t is_id = getNodeId("is");
-
-    if (mary_id != 0 && name_id != 0) {
-        // name → mary
-        addEdge(name_id, mary_id, SemanticEdge::Type::IS_A, 0.9f);
-        
-        // your → my
-        if (your_id != 0 && my_id != 0) {
-            addEdge(your_id, my_id, SemanticEdge::Type::OPPOSITE_OF, 0.8f);
-        }
-        /*
-        // Создаем фрейм для ответа
-        createFrame("name_response", {
-            {"question_word", "what"},
-            {"possessive", "your"},
-            {"subject", "name"},
-            {"answer", "mary"},
-            {"possessive_answer", "my"}
-        });
-        // Фрейм для приветствия
-        createFrame("greeting_response", {
-            {"greeting", "hello"},
-            {"response", "hello"},
-            {"feeling", "positive"}
-        });
-
-        // Фрейм для вопроса "who are you?"
-        createFrame("who_are_you", {
-            {"question_word", "who"},
-            {"subject", "you"},
-            {"answer", "mary"},
-            {"answer_type", "ai"}
-        });
-
-        // Фрейм для вопроса "how are you?"
-        createFrame("how_are_you", {
-            {"question_word", "how"},
-            {"subject", "you"},
-            {"answer", "good"},
-            {"feeling", "positive"}
-        });
-
-        // Фрейм для вопроса "what can you do?"
-        createFrame("what_can_you_do", {
-            {"question_word", "what"},
-            {"modal", "can"},
-            {"subject", "you"},
-            {"answer", "learn"},
-            {"capability", "talk"}
-        });
-
-        // Фрейм для ответа о создателе
-        createFrame("creator_response", {
-            {"question", "who_created_you"},
-            {"creator", "khamit"},
-            {"platform", "github"},
-            {"project", "cpp_ai_mary"}
-        });
-
-        // Фрейм для вопроса о времени
-        createFrame("time_response", {
-            {"question", "what_time"},
-            {"answer", "now"},
-            {"source", "clock"}
-        });
-        */
-
-        // В buildAllRelationships(), после создания фреймов:
-
-        // Связываем фрейм "who_are_you" с конкретными смыслами
-        uint32_t who_are_you_frame = getNodeId("who_are_you");
-        uint32_t who_id = getNodeId("who");
-        uint32_t you_id = getNodeId("you");
-        uint32_t mary_id = getNodeId("mary");
-        uint32_t ai_id = getNodeId("ai");
-
-        if (who_are_you_frame != 0) {
-            if (who_id != 0) addEdge(who_are_you_frame, who_id, SemanticEdge::Type::CONTAINS, 1.0f);
-            if (you_id != 0) addEdge(who_are_you_frame, you_id, SemanticEdge::Type::CONTAINS, 1.0f);
-            if (mary_id != 0) addEdge(who_are_you_frame, mary_id, SemanticEdge::Type::CONTAINS, 1.0f);
-            if (ai_id != 0) addEdge(who_are_you_frame, ai_id, SemanticEdge::Type::CONTAINS, 0.8f);
-        }
-
-        // Связываем фрейм "how_are_you"
-        uint32_t how_are_you_frame = getNodeId("how_are_you");
-        uint32_t how_id = getNodeId("how");
-        uint32_t good_id = getNodeId("good");
-        uint32_t positive_id = getNodeId("positive");
-
-        if (how_are_you_frame != 0) {
-            if (how_id != 0) addEdge(how_are_you_frame, how_id, SemanticEdge::Type::CONTAINS, 1.0f);
-            if (you_id != 0) addEdge(how_are_you_frame, you_id, SemanticEdge::Type::CONTAINS, 1.0f);
-            if (good_id != 0) addEdge(how_are_you_frame, good_id, SemanticEdge::Type::CONTAINS, 1.0f);
-            if (positive_id != 0) addEdge(how_are_you_frame, positive_id, SemanticEdge::Type::CONTAINS, 0.8f);
-        }
-    }
-}
-
-
-// Добавьте этот метод в класс SemanticGraphDatabase перед buildAbstractConceptLayer()
-
+    // ПО Новой очереди с правильным порядком
+    // перед buildAbstractConceptLayer()
 void buildCoreConceptsLayer() {
     std::cout << "  Building core concepts layer..." << std::endl;
     
@@ -2803,9 +2454,10 @@ void buildCoreConceptsLayer() {
     
     std::cout << "  Added core concepts layer" << std::endl;
 }
-    
-    // НОВЫЙ МЕТОД: построение слоя абстрактных концептов
+
+    // построение слоя абстрактных концептов
     void buildAbstractConceptLayer() {
+        size_t prev_size = nodes.size();
         // ===== Действие =====
         // ПОЛУЧАЕМ ID существующих узлов вместо создания новых
         uint32_t action_capture = getNodeId("capture_frame");
@@ -3260,7 +2912,9 @@ void buildCoreConceptsLayer() {
             {"time", "time_today"},
             {"feeling", "state_happy"}
         });
-        std::cout << "  Added " << (nodes.size() - 180) << " abstract concepts" << std::endl;
+        
+        int new_concepts = nodes.size() - prev_size;
+        std::cout << "  Added " << new_concepts << " abstract concepts" << std::endl;
 
         // ===== 9. КОНЦЕПТЫ ТВОРЦА И ИДЕНТИЧНОСТИ =====
         // Добавьте после существующих слоев (примерно после строки с "std::cout << "  Added " << (nodes.size() - 180) << " abstract concepts" << std::endl;")
@@ -3411,7 +3065,7 @@ void buildCoreConceptsLayer() {
         std::cout << "  Added creator and identity concepts" << std::endl;
     }
 
-void buildVisualizationAndAffectLayer() {
+    void buildVisualizationAndAffectLayer() {
     std::cout << "  Building visualization and affect layer..." << std::endl;
     
     // ===== 1. КОНЦЕПТЫ ВИЗУАЛИЗАЦИИ (Judith Fan) =====
@@ -3706,6 +3360,373 @@ void buildVisualizationAndAffectLayer() {
     });
     */
     std::cout << "  Added visualization and affect concepts" << std::endl;
+}
+
+void buildRelationships() {
+    // Сначала создаем ВСЕ узлы в правильном порядке
+    
+    // === ПОВСЕДНЕВНЫЕ ДЕЙСТВИЯ ===
+    uint32_t action_sleep = addNode("sleep", "sleep", {"rest", "nap", "doze"}, "action",
+        0.7f, 0.3f, 3, EmotionalTone::POSITIVE,
+        {"daily", "rest", "energy"});
+
+    uint32_t action_eat = addNode("eat", "eat", {"consume", "have meal"}, "action",
+        0.7f, 0.3f, 3, EmotionalTone::POSITIVE,
+        {"daily", "food", "sustenance"});
+
+    uint32_t action_drink = addNode("drink", "drink", {"beverage", "sip"}, "action",
+        0.7f, 0.3f, 3, EmotionalTone::POSITIVE,
+        {"daily", "water", "thirst"});
+
+    uint32_t action_work = addNode("work", "work", {"labor", "task", "job"}, "action",
+        0.8f, 0.4f, 4, EmotionalTone::NEUTRAL,
+        {"daily", "productivity", "profession"});
+
+    uint32_t action_play = addNode("play", "play", {"game", "fun", "entertain"}, "action",
+        0.8f, 0.3f, 3, EmotionalTone::VERY_POSITIVE,
+        {"leisure", "fun", "enjoyment"});
+
+    uint32_t action_read = addNode("read", "read", {"book", "study", "learn"}, "action",
+        0.8f, 0.4f, 4, EmotionalTone::POSITIVE,
+        {"learning", "information", "knowledge"});
+
+    uint32_t action_write = addNode("write", "write", {"compose", "author"}, "action",
+        0.7f, 0.5f, 4, EmotionalTone::NEUTRAL,
+        {"communication", "creation"});
+
+    uint32_t action_think = addNode("think", "think", {"ponder", "consider", "reflect"}, "action",
+        0.9f, 0.6f, 6, EmotionalTone::NEUTRAL,
+        {"cognition", "mind", "philosophy"});
+
+    uint32_t action_feel = addNode("feel", "feel", {"sense", "experience"}, "action",
+        0.9f, 0.6f, 6, EmotionalTone::VERY_POSITIVE,
+        {"emotion", "sensation", "consciousness"});
+
+    // === СОСТОЯНИЯ ЧЕЛОВЕКА ===
+    uint32_t state_happy = addNode("happy", "happy", {"joyful", "glad", "cheerful"}, "state",
+        0.9f, 0.3f, 4, EmotionalTone::VERY_POSITIVE,
+        {"emotion", "feeling", "mood"});
+
+    uint32_t state_sad = addNode("sad", "sad", {"unhappy", "sorrowful", "gloomy"}, "state",
+        0.8f, 0.3f, 4, EmotionalTone::VERY_NEGATIVE,
+        {"emotion", "feeling", "mood"});
+
+    uint32_t state_tired = addNode("tired", "tired", {"exhausted", "fatigued", "weary"}, "state",
+        0.7f, 0.3f, 4, EmotionalTone::NEGATIVE,
+        {"energy", "rest", "condition"});
+
+    uint32_t state_energetic = addNode("energetic", "energetic", {"active", "lively", "vibrant"}, "state",
+        0.8f, 0.3f, 4, EmotionalTone::VERY_POSITIVE,
+        {"energy", "activity", "condition"});
+
+    uint32_t state_bored = addNode("bored", "bored", {"uninterested", "weary"}, "state",
+        0.6f, 0.3f, 4, EmotionalTone::NEGATIVE,
+        {"emotion", "interest", "engagement"});
+
+    uint32_t state_interested = addNode("interested", "interested", {"curious", "engaged"}, "state",
+        0.8f, 0.3f, 4, EmotionalTone::VERY_POSITIVE,
+        {"emotion", "attention", "learning"});
+
+    uint32_t state_confused = addNode("confused", "confused", {"perplexed", "bewildered"}, "state",
+        0.7f, 0.4f, 5, EmotionalTone::NEGATIVE,
+        {"cognition", "understanding", "learning"});
+
+    // === СОЦИАЛЬНЫЕ ОТНОШЕНИЯ ===
+    uint32_t social_friend = addNode("friend", "friend", {"buddy", "pal", "companion"}, "social",
+        0.9f, 0.4f, 5, EmotionalTone::VERY_POSITIVE,
+        {"relationship", "trust", "affection"});
+
+    uint32_t social_family = addNode("family", "family", {"relatives", "kin"}, "social",
+        0.9f, 0.5f, 5, EmotionalTone::VERY_POSITIVE,
+        {"relationship", "blood", "care"});
+
+    uint32_t social_stranger = addNode("stranger", "stranger", {"unknown", "unfamiliar"}, "social",
+        0.6f, 0.3f, 4, EmotionalTone::NEUTRAL,
+        {"relationship", "unknown", "caution"});
+
+    uint32_t social_help = addNode("help", "help", {"assist", "aid", "support"}, "social",
+        0.9f, 0.4f, 5, EmotionalTone::VERY_POSITIVE,
+        {"action", "kindness", "cooperation"});
+
+    uint32_t social_thank = addNode("thank", "thank", {"grateful", "appreciate"}, "social",
+        0.9f, 0.3f, 4, EmotionalTone::VERY_POSITIVE,
+        {"gratitude", "politeness", "acknowledgment"});
+
+    uint32_t social_sorry = addNode("sorry", "sorry", {"apologize", "regret"}, "social",
+        0.8f, 0.3f, 4, EmotionalTone::NEGATIVE,
+        {"apology", "remorse", "politeness"});
+
+    uint32_t social_promise = addNode("promise", "promise", {"swear", "vow", "commit"}, "social",
+        0.8f, 0.5f, 6, EmotionalTone::POSITIVE,
+        {"commitment", "trust", "reliability"});
+
+    // === ПОГОДА ===
+    uint32_t weather_sunny = addNode("sunny", "sunny", {"clear", "bright", "sunshine"}, "weather",
+        0.8f, 0.2f, 3, EmotionalTone::VERY_POSITIVE,
+        {"nature", "day", "warm"});
+
+    uint32_t weather_rain = addNode("rain", "rain", {"rainy", "precipitation", "shower"}, "weather",
+        0.7f, 0.2f, 3, EmotionalTone::NEUTRAL,
+        {"nature", "water", "wet"});
+
+    uint32_t weather_snow = addNode("snow", "snow", {"snowy", "blizzard"}, "weather",
+        0.7f, 0.2f, 3, EmotionalTone::POSITIVE,
+        {"nature", "cold", "winter"});
+
+    uint32_t weather_cloud = addNode("cloud", "cloud", {"cloudy", "overcast"}, "weather",
+        0.6f, 0.2f, 3, EmotionalTone::NEUTRAL,
+        {"nature", "sky", "gray"});
+
+    uint32_t weather_wind = addNode("wind", "wind", {"windy", "breeze"}, "weather",
+        0.6f, 0.2f, 3, EmotionalTone::NEUTRAL,
+        {"nature", "air", "movement"});
+
+    uint32_t weather_storm = addNode("storm", "storm", {"thunderstorm", "tempest"}, "weather",
+        0.8f, 0.3f, 4, EmotionalTone::NEGATIVE,
+        {"nature", "danger", "powerful"});
+
+    // === ТИПЫ ВОПРОСОВ ===
+    uint32_t question_who = addNode("who", "who", {"whom", "whose"}, "question_word",
+        0.9f, 0.3f, 4, EmotionalTone::NEUTRAL,
+        {"inquiry", "person", "identity"});
+
+    uint32_t question_what = addNode("what", "what", {"which"}, "question_word",
+        0.9f, 0.3f, 4, EmotionalTone::NEUTRAL,
+        {"inquiry", "thing", "object"});
+
+    uint32_t question_where = addNode("where", "where", {"location", "place"}, "question_word",
+        0.9f, 0.3f, 4, EmotionalTone::NEUTRAL,
+        {"inquiry", "location", "position"});
+
+    uint32_t question_when = addNode("when", "when", {"time"}, "question_word",
+        0.9f, 0.3f, 4, EmotionalTone::NEUTRAL,
+        {"inquiry", "time", "moment"});
+
+    uint32_t question_why = addNode("why", "why", {"reason", "purpose"}, "question_word",
+        0.9f, 0.4f, 5, EmotionalTone::NEUTRAL,
+        {"inquiry", "reason", "explanation"});
+
+    uint32_t question_how = addNode("how", "how", {"manner", "method"}, "question_word",
+        0.9f, 0.4f, 5, EmotionalTone::NEUTRAL,
+        {"inquiry", "method", "process"});
+
+    // === МЕСТА ===
+    uint32_t place_home = addNode("home", "home", {"house", "residence", "domicile"}, "place",
+        0.9f, 0.3f, 3, EmotionalTone::VERY_POSITIVE,
+        {"location", "living", "comfort"});
+
+    uint32_t place_work = addNode("workplace", "workplace", {"office", "job site"}, "place",
+        0.7f, 0.3f, 3, EmotionalTone::NEUTRAL,
+        {"location", "profession", "labor"});
+
+    uint32_t place_school = addNode("school", "school", {"university", "college", "academy"}, "place",
+        0.8f, 0.3f, 3, EmotionalTone::POSITIVE,
+        {"location", "education", "learning"});
+
+    uint32_t place_store = addNode("store", "store", {"shop", "market", "mall"}, "place",
+        0.7f, 0.3f, 3, EmotionalTone::POSITIVE,
+        {"location", "shopping", "commerce"});
+
+    uint32_t place_park = addNode("park", "park", {"garden", "nature"}, "place",
+        0.8f, 0.3f, 3, EmotionalTone::VERY_POSITIVE,
+        {"location", "nature", "relaxation"});
+
+    uint32_t place_city = addNode("city", "city", {"town", "metropolis", "urban"}, "place",
+        0.7f, 0.3f, 3, EmotionalTone::NEUTRAL,
+        {"location", "urban", "population"});
+
+    // === ВРЕМЕННЫЕ КОНЦЕПТЫ ===
+    uint32_t time_morning = addNode("morning", "morning", {"a.m.", "dawn", "sunrise"}, "time",
+        0.7f, 0.2f, 3, EmotionalTone::POSITIVE,
+        {"daily", "time", "schedule"});
+
+    uint32_t time_afternoon = addNode("afternoon", "afternoon", {"noon", "midday"}, "time",
+        0.7f, 0.2f, 3, EmotionalTone::NEUTRAL,
+        {"daily", "time", "schedule"});
+
+    uint32_t time_evening = addNode("evening", "evening", {"dusk", "nightfall"}, "time",
+        0.7f, 0.2f, 3, EmotionalTone::POSITIVE,
+        {"daily", "time", "schedule"});
+
+    uint32_t time_night = addNode("night", "night", {"midnight", "dark"}, "time",
+        0.7f, 0.2f, 3, EmotionalTone::NEUTRAL,
+        {"daily", "time", "rest"});
+
+    uint32_t time_today = addNode("today", "today", {"this day", "current"}, "time",
+        0.8f, 0.2f, 3, EmotionalTone::NEUTRAL,
+        {"temporal", "present", "schedule"});
+
+    uint32_t time_tomorrow = addNode("tomorrow", "tomorrow", {"next day", "future"}, "time",
+        0.8f, 0.2f, 3, EmotionalTone::POSITIVE,
+        {"temporal", "future", "planning"});
+
+    uint32_t time_yesterday = addNode("yesterday", "yesterday", {"past day", "previous"}, "time",
+        0.8f, 0.2f, 3, EmotionalTone::NEUTRAL,
+        {"temporal", "past", "memory"});
+
+    uint32_t time_week = addNode("week", "week", {"7 days"}, "time",
+        0.7f, 0.3f, 4, EmotionalTone::NEUTRAL,
+        {"duration", "schedule", "planning"});
+
+    uint32_t time_month = addNode("month", "month", {"30 days"}, "time",
+        0.7f, 0.3f, 4, EmotionalTone::NEUTRAL,
+        {"duration", "schedule", "planning"});
+
+    uint32_t time_year = addNode("year", "year", {"12 months", "365 days"}, "time",
+        0.7f, 0.3f, 4, EmotionalTone::NEUTRAL,
+        {"duration", "long-term", "planning"});
+}
+
+void buildAllRelationships() {
+        // Проверяем существование узлов перед добавлением рёбер
+    auto safeAddEdge = [this](const std::string& from, const std::string& to, 
+                              SemanticEdge::Type type, float weight = 1.0f) {
+        uint32_t from_id = getNodeId(from);
+        uint32_t to_id = getNodeId(to);
+        if (from_id != 0 && to_id != 0) {
+            addEdge(from_id, to_id, type, weight);
+        } else {
+            if (from_id == 0) std::cerr << "Node not found: " << from << std::endl;
+            if (to_id == 0) std::cerr << "Node not found: " << to << std::endl;
+        }
+    };
+    
+    // Теперь, когда все узлы созданы, добавляем связи
+    
+    // Связи действий и состояний
+    addEdge("sleep", "tired", SemanticEdge::Type::CAUSES, 0.9f);
+    addEdge("sleep", "energetic", SemanticEdge::Type::AFTER, 0.8f);
+    addEdge("eat", "happy", SemanticEdge::Type::CAUSES, 0.7f);
+    addEdge("play", "happy", SemanticEdge::Type::CAUSES, 0.9f);
+    addEdge("work", "tired", SemanticEdge::Type::CAUSES, 0.8f);
+    addEdge("think", "confused", SemanticEdge::Type::MAYBE, 0.5f);
+    addEdge("think", "know", SemanticEdge::Type::LEADS_TO, 0.8f);
+
+    // Временные связи
+    addEdge("morning", "eat", SemanticEdge::Type::TIME, 0.7f);
+    addEdge("evening", "sleep", SemanticEdge::Type::TIME, 0.8f);
+    addEdge("today", "tomorrow", SemanticEdge::Type::AFTER, 1.0f);
+    addEdge("yesterday", "today", SemanticEdge::Type::BEFORE, 1.0f);
+
+    // Социальные связи
+    addEdge("friend", "help", SemanticEdge::Type::CAN_DO, 0.9f);
+    addEdge("help", "thank", SemanticEdge::Type::CAUSES, 0.9f);
+    addEdge("thank", "happy", SemanticEdge::Type::CAUSES, 0.8f);
+    addEdge("sorry", "sad", SemanticEdge::Type::CORRELATES_WITH, 0.7f);
+
+    // Погода и эмоции
+    addEdge("sunny", "happy", SemanticEdge::Type::CORRELATES_WITH, 0.8f);
+    addEdge("rain", "sad", SemanticEdge::Type::CORRELATES_WITH, 0.6f);
+    addEdge("storm", "fear", SemanticEdge::Type::CAUSES, 0.7f);
+
+    // Вопросы и темы
+    addEdge("who", "friend", SemanticEdge::Type::USED_FOR, 0.8f);
+    addEdge("where", "home", SemanticEdge::Type::USED_FOR, 0.8f);
+    addEdge("when", "today", SemanticEdge::Type::USED_FOR, 0.8f);
+    addEdge("why", "purpose", SemanticEdge::Type::USED_FOR, 0.9f);
+    addEdge("how", "think", SemanticEdge::Type::USED_FOR, 0.8f);
+
+    uint32_t what_id = getNodeId("what");
+    uint32_t your_id = getNodeId("your");
+    uint32_t name_id = getNodeId("name");
+    uint32_t mary_id = getNodeId("mary");
+    uint32_t my_id = getNodeId("my");
+    uint32_t is_id = getNodeId("is");
+
+    if (mary_id != 0 && name_id != 0) {
+        // name → mary
+        addEdge(name_id, mary_id, SemanticEdge::Type::IS_A, 0.9f);
+        
+        // your → my
+        if (your_id != 0 && my_id != 0) {
+            addEdge(your_id, my_id, SemanticEdge::Type::OPPOSITE_OF, 0.8f);
+        }
+        /*
+        // Создаем фрейм для ответа
+        createFrame("name_response", {
+            {"question_word", "what"},
+            {"possessive", "your"},
+            {"subject", "name"},
+            {"answer", "mary"},
+            {"possessive_answer", "my"}
+        });
+        // Фрейм для приветствия
+        createFrame("greeting_response", {
+            {"greeting", "hello"},
+            {"response", "hello"},
+            {"feeling", "positive"}
+        });
+
+        // Фрейм для вопроса "who are you?"
+        createFrame("who_are_you", {
+            {"question_word", "who"},
+            {"subject", "you"},
+            {"answer", "mary"},
+            {"answer_type", "ai"}
+        });
+
+        // Фрейм для вопроса "how are you?"
+        createFrame("how_are_you", {
+            {"question_word", "how"},
+            {"subject", "you"},
+            {"answer", "good"},
+            {"feeling", "positive"}
+        });
+
+        // Фрейм для вопроса "what can you do?"
+        createFrame("what_can_you_do", {
+            {"question_word", "what"},
+            {"modal", "can"},
+            {"subject", "you"},
+            {"answer", "learn"},
+            {"capability", "talk"}
+        });
+
+        // Фрейм для ответа о создателе
+        createFrame("creator_response", {
+            {"question", "who_created_you"},
+            {"creator", "khamit"},
+            {"platform", "github"},
+            {"project", "cpp_ai_mary"}
+        });
+
+        // Фрейм для вопроса о времени
+        createFrame("time_response", {
+            {"question", "what_time"},
+            {"answer", "now"},
+            {"source", "clock"}
+        });
+        */
+
+        // В buildAllRelationships(), после создания фреймов:
+
+        // Связываем фрейм "who_are_you" с конкретными смыслами
+        uint32_t who_are_you_frame = getNodeId("who_are_you");
+        uint32_t who_id = getNodeId("who");
+        uint32_t you_id = getNodeId("you");
+        uint32_t mary_id = getNodeId("mary");
+        uint32_t ai_id = getNodeId("ai");
+
+        if (who_are_you_frame != 0) {
+            if (who_id != 0) addEdge(who_are_you_frame, who_id, SemanticEdge::Type::CONTAINS, 1.0f);
+            if (you_id != 0) addEdge(who_are_you_frame, you_id, SemanticEdge::Type::CONTAINS, 1.0f);
+            if (mary_id != 0) addEdge(who_are_you_frame, mary_id, SemanticEdge::Type::CONTAINS, 1.0f);
+            if (ai_id != 0) addEdge(who_are_you_frame, ai_id, SemanticEdge::Type::CONTAINS, 0.8f);
+        }
+
+        // Связываем фрейм "how_are_you"
+        uint32_t how_are_you_frame = getNodeId("how_are_you");
+        uint32_t how_id = getNodeId("how");
+        uint32_t good_id = getNodeId("good");
+        uint32_t positive_id = getNodeId("positive");
+
+        if (how_are_you_frame != 0) {
+            if (how_id != 0) addEdge(how_are_you_frame, how_id, SemanticEdge::Type::CONTAINS, 1.0f);
+            if (you_id != 0) addEdge(how_are_you_frame, you_id, SemanticEdge::Type::CONTAINS, 1.0f);
+            if (good_id != 0) addEdge(how_are_you_frame, good_id, SemanticEdge::Type::CONTAINS, 1.0f);
+            if (positive_id != 0) addEdge(how_are_you_frame, positive_id, SemanticEdge::Type::CONTAINS, 0.8f);
+        }
+    }
 }
 
 void buildTemporalConceptNetwork() {

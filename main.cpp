@@ -10,7 +10,7 @@
 // Подключаем новую архитектуру
 // nen
 #include "core/CoreSystem.hpp"
-// Подключаем CoreSystem вместо отдельных компонентов
+// Подключаем CoreSystem вместо отдельных компонентов? - yes we make central system to launch
 #include "core/NeuralFieldSystem.hpp"
 #include "modules/VisualizationModule.hpp"
 #include "modules/InteractionModule.hpp"
@@ -24,11 +24,11 @@
 #include "modules/lang/LanguageModule.hpp" 
 #include "core/CoreHub.hpp"
 #include "modules/learning/CuriosityDriver.hpp" 
-//#include "core/MemoryManager.hpp"
+//#include "core/MemoryManager.hpp" - now they launch by CoreSystem
 //#include "core/Component.hpp"
 #include <signal.h>
 #include <execinfo.h>
-#include <unistd.h>  // Добавьте этот заголовок для STDERR_FILENO
+#include <unistd.h>  // заголовок для STDERR_FILENO
 #include <cstring>
 #include <atomic>
 
@@ -56,7 +56,7 @@ void handler(int sig) {
     
     // Попытаться сохранить состояние перед выходом
     // (но будьте осторожны - многое может быть небезопасно в обработчике сигнала)
-    
+    // warning!
     handling_signal = false;
     exit(1);
 }
@@ -199,7 +199,7 @@ int main() {
                                visConfig, interConfig, uiConfig,
                               resConfig, evolConfig);
 
-        // СОЗДАЕМ КОНФИГУРАЦИЮ ДЛЯ ПАРАМЕТРОВ
+    // СОЗДАЕМ КОНФИГУРАЦИЮ ДЛЯ ПАРАМЕТРОВ
     Config systemConfig;
     if (configLoaded) {
         // Загружаем JSON в Config
@@ -229,7 +229,7 @@ int main() {
             selectedLimits = systemConfig.getIdleLimits();
             break;
     }
-
+    // this made for develop - then we should create backend
     // Параметры системы
     double dt = 0.001;
     unsigned int windowWidth = 800;
