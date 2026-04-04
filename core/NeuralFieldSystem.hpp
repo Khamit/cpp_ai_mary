@@ -181,6 +181,7 @@ public:
      * @param stepNumber - номер текущего шага
      */
     void step(float globalReward, int stepNumber);
+    int getCurrentStep() const { return stepCounter; }
 
     /** Вычислить общую энергию системы */
     double computeTotalEnergy() const;
@@ -191,6 +192,18 @@ public:
     // Entropy compute
     double computeOptimalStructure();
     void diagnoseCriticality();
+
+    // НОВЫЙ МЕТОД: получить температуру внимания
+    float getAttentionTemperature() const { return attention.temperature; }
+    
+    // НОВЫЙ МЕТОД: установить температуру внимания (если нужно)
+    void setAttentionTemperature(float temp) { attention.temperature = temp; }
+    
+    // НОВЫЙ МЕТОД: получить энтропию внимания
+    double getAttentionEntropy() const { return attention.entropy; }
+    
+    // НОВЫЙ МЕТОД: получить веса внимания
+    const std::vector<double>& getAttentionWeights() const { return attention.attention_weights; }
 
     /// Штраф -
     /**

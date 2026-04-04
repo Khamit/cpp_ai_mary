@@ -100,7 +100,7 @@ void NeuralGroup::evolve() {
             // Квантовое туннелирование - шанс спонтанного повышения
             if (wave_amplitude[i] > 1.5 && orbit_level[i] < 4) {
                 static std::mt19937 rng(std::random_device{}());
-                if (std::uniform_real_distribution<>(0, 1)(rng) < 0.001) {  // 0.1% шанс
+                if (std::uniform_real_distribution<>(0, 1)(rng) < 0.001) {
                     std::cout << "  Quantum tunneling! Neuron " << i 
                               << " jumps to orbit " << (orbit_level[i] + 1) << std::endl;
                     orbit_level[i]++;
@@ -132,108 +132,151 @@ void NeuralGroup::evolve() {
     // Обновление орбитальных уровней (раз в 10 шагов)
     if (step_counter_ % 10 == 0) {
         updateOrbitLevels();
-        // updateMetricTensor();
         updateHomeostasis();
     }
 
     if (step_counter_ % 50 == 0) {
-        // Новые знания с низких орбит поднимаются вверх
         promoteNovelPatternsFromLowerOrbits();
     }
 
-        // ===== НОВОЕ: очистка неиспользуемых связей =====
     if (step_counter_ % 50 == 0) {
         pruneConnectionsByOrbit();
     }
     
-    // ===== НОВОЕ: любопытство — создание новых связей =====
     if (step_counter_ % 200 == 0) {
         generateCuriosityConnections();
     }
 
-    // Метрический тензор обновляем реже (раз в 100 шагов)
     if (step_counter_ % 100 == 0) {
         updateMetricTensor();
     }
 
-    // Проверка на истощение ресурсов (периодически)
     if (step_counter_ % 100 == 0) {
         checkForResourceExhaustion();
     }
 
-    // Периодическая пропаганда знаний
     if (step_counter_ % 100 == 0) {
         propagateKnowledgeFromHigherOrbits();
     }
     
-    // Лог массы (раз в 1000 шагов)
     if (step_counter_ % 1000 == 0) {
         logMassDistribution();
     }
 
-    // НОВОЕ: единый генератор случайных чисел для всех проверок
     static std::mt19937 rng(std::random_device{}());
     
-    // Проверка на побег и сингулярность (каждый шаг)
     int rebirth_this_step = 0;
+    
+    // ===== ОСНОВНОЙ ЦИКЛ ПО НЕЙРОНАМ =====
     for (int i = 0; i < size; ++i) {
-        // Сначала проверяем, не сбежал ли нейрон (более экстремальное условие)
+        // Проверка на побег
         checkForEscape(i, rng);
         
-        // Затем проверяем на падение в сингулярность
+        // Проверка на сингулярность
         bool was_reset = checkForSingularity(i);
         if (was_reset) {
             rebirth_this_step++;
         }
-    }
+        
+        // ===== НОВЫЙ БЛОК ЭКСПЕРИМЕНТОВ ДЛЯ НИЖНИХ ОРБИТ =====
+        // !!! ВАЖНО: этот блок должен быть ВНУТРИ цикла for (int i = 0; i < size; ++i)
+        if (step_counter_ % 50 == 0 && orbit_level[i] <= 1) {
+            double novelty = computeNovelty(i);
+            if (novelty > 0.7f) {
+                learnSTDP(0.3f, step_counter_);
+            }
+        }
+        
+        // ===== ДОБАВЛЯЕМ ИССЛЕДОВАТЕЛЬСКИЙ ШУМ =====
+        if (orbit_level[i] <= 2) {
+            static std::mt19937 local_rng(std::random_device{}());
+            std::uniform_real_distribution<double> prob(0, 1);
+            if (prob(local_rng) < 0.01) {  // 1% шанс
+                pos[i] += Vec3::randomOnSphere(local_rng) * 0.05;
+            }
+        }
+    }  // ← ЗАКРЫВАЕМ ЦИКЛ for (int i = 0; i < size; ++i)
     
     // Увеличиваем время на орбите для всех нейронов
     for (int i = 0; i < size; ++i) {
         time_on_orbit[i] += dt;
     }
     
-    // Если слишком много перерождений за шаг - легкая стабилизация
-    if (rebirth_this_step > size / 10) {  // больше 10% нейронов переродилось
+    // Стабилизация при массовом перерождении
+    if (rebirth_this_step > size / 10) {
         std::cout << "Mass rebirth detected (" << rebirth_this_step 
                   << " neurons), activating gentle stabilization" << std::endl;
         
         for (int i = 0; i < size; ++i) {
-            if (orbit_level[i] == 0) {  // нейроны в сингулярности
-                // Даем небольшой толчок, чтобы не застревали
+            if (orbit_level[i] == 0) {
                 Vec3 random_boost = Vec3::randomOnSphere(rng) * 0.1;
                 vel[i] += random_boost;
             }
         }
     }
-    // НОВОЕ: периодический массовый выброс из сингулярности
-    if (step_counter_ % 50 == 0) {  // чаще, каждые 50 шагов
-        static std::mt19937 rng(std::random_device{}());
+    
+    // Массовый выброс из сингулярности
+    if (step_counter_ % 50 == 0) {
         int ejected = 0;
-        
         for (int i = 0; i < size; i++) {
             if (orbit_level[i] == 0) {
-                // Увеличиваем шанс выброса
                 double time_factor = std::min(1.0, time_on_orbit[i] / 100.0);
-                double chance = 0.05 + time_factor * 0.2;  // 5-25% шанс
-                
-                if (std::uniform_real_distribution<>(0, 1)(rng) < chance) {
+                double chance = 0.05 + time_factor * 0.2;
+                std::uniform_real_distribution<> dis(0, 1);
+                if (dis(rng) < chance) {
                     ejectFromSingularity(i);
                     ejected++;
                 }
             }
         }
-        
         if (ejected > 5) {
             std::cout << "  Mass ejection: " << ejected << " neurons escaped singularity" << std::endl;
         }
     }
 }
 
+void NeuralGroup::saveBestPatternToMemory(float reward) {
+    if (!memory_manager) return;
+    if (reward < 0.7f) return;  // только лучшие паттерны
+    
+    // Находим наиболее активный нейрон
+    int best_neuron = -1;
+    float best_activity = 0.0f;
+    for (int i = 0; i < size; i++) {
+        float activity = pos[i].norm();
+        if (activity > best_activity) {
+            best_activity = activity;
+            best_neuron = i;
+        }
+    }
+    
+    if (best_neuron == -1) return;
+    
+    // Сохраняем паттерн связей этого нейрона
+    std::vector<float> pattern;
+    for (int j = 0; j < size; j++) {
+        if (j != best_neuron) {
+            pattern.push_back(static_cast<float>(std::abs(W_intra[best_neuron][j])));
+        }
+    }
+    
+    // Сохраняем с высокой важностью
+    memory_manager->storeWithEntropy(
+        "best_patterns",
+        pattern,
+        computeEntropy(),
+        std::min(1.0f, reward)
+    );
+    
+    std::cout << "Saved best pattern from neuron " << best_neuron 
+              << " (reward: " << reward << ")" << std::endl;
+}
+
 void NeuralGroup::checkForEscape(int i, std::mt19937& rng) {
     double r = pos[i].norm();
     
     // Определяем предел побега - немного больше OUTER_ORBIT
-    const double ESCAPE_LIMIT = OrbitalParams::OUTER_ORBIT * 1.8;  // ~4.68
+    const double ESCAPE_LIMIT = OrbitalParams::OUTER_ORBIT * 1.7;  // ~4.68
     
     // Если нейрон слишком далеко - он "сбежал"
     if (r > ESCAPE_LIMIT) {
@@ -565,10 +608,21 @@ void NeuralGroup::applyOrbitalForces() {
         // ВНЕШНИЙ ПОТЕНЦИАЛ (стенка на больших расстояниях)
         double outer_wall = 0.0;
         double outer_limit = OrbitalParams::OUTER_ORBIT * 1.5;  // предел: 3.9
+        static int wall_hits[32] = {0};
+
+        if (r > outer_limit) {
+            wall_hits[i]++;
+            if (wall_hits[i] > 500) {  // слишком долго у стенки
+                ejectFromSingularity(i);
+                wall_hits[i] = 0;
+            }
+        } else {
+            wall_hits[i] = 0;
+        }
         
         if (r > outer_limit) {
             // Экспоненциально растущая сила
-            double wall_strength = 0.5 * (r - outer_limit) * (r - outer_limit);
+            double wall_strength = 2.4 * (r - outer_limit) * (r - outer_limit);
             outer_wall = wall_strength;
             
             // ВАЖНО: ДОБАВЛЯЕМ ДИССИПАЦИЮ ЭНЕРГИИ ПРИ УДАРЕ
@@ -657,6 +711,24 @@ void NeuralGroup::applyCompetitionForces() {
                                         (1.0 + orbit_level[i] * 0.8);
                     double weight_factor = 1.0 - std::min(0.9, std::abs(W_intra[i][j]) * 2.0);
                     Vec3 repel = diff.normalized() * competition * weight_factor / (dist + 0.1);
+                    force[i] += repel;
+                    force[j] -= repel;
+                }
+            }
+        }
+    }
+    // латеральное торможение между разными смыслами
+    // Если два нейрона активируют разные смыслы, они тормозят друг друга
+    for (int i = 0; i < size; i++) {
+        for (int j = i + 1; j < size; j++) {
+            // Если оба на высокой орбите и имеют разные специализации
+            if (orbit_level[i] >= 2 && orbit_level[j] >= 2 &&
+                neuron_specialization[i] != neuron_specialization[j]) {
+                
+                double dist = (pos[i] - pos[j]).norm();
+                if (dist < OrbitalParams::COMPETITION_DISTANCE * 2.0) {
+                    // Сильное отталкивание
+                    Vec3 repel = (pos[i] - pos[j]).normalized() * 0.2 / (dist + 0.1);
                     force[i] += repel;
                     force[j] -= repel;
                 }
@@ -894,9 +966,6 @@ void NeuralGroup::updateOrbitLevels() {
                 mass[i] = std::min(mass[i] * 1.2, homeo.max_mass);
                 orbital_energy[i] += 1.0;
                 
-                std::cout << " ⬆ Neuron " << i << " PROMOTED to orbit " << orbit_level[i] 
-                          << " (importance: " << std::fixed << std::setprecision(2) << functional_importance
-                          << ", conn: " << connectivity << ")" << std::endl;
             }
         }
         else if (target_level < old_level) {
@@ -913,10 +982,6 @@ void NeuralGroup::updateOrbitLevels() {
                 // Штраф к массе
                 mass[i] = std::max(mass[i] * 0.9, homeo.min_mass);
                 orbital_energy[i] *= 0.8;
-                
-                std::cout << " ⬇ Neuron " << i << " DEMOTED to orbit " << orbit_level[i] 
-                          << " (importance: " << std::fixed << std::setprecision(2) << functional_importance
-                          << ")" << std::endl;
             }
         }
         
@@ -1254,17 +1319,17 @@ void NeuralGroup::updateMassByEnergy() {
         int orbit = orbit_level[i];
         
         // Базовые массы для разных орбит
-        double base_mass_by_orbit[] = {0.5, 0.8, 1.2, 2.0, 3.5};
+        double base_mass_by_orbit[] = {0.8, 1.2, 2.0, 3.0, 5.0};
         double base_mass = base_mass_by_orbit[orbit];
         
-        // ВКЛАД ЭНЕРГИИ (но с насыщением) - ОСТАВЛЯЕМ ОДНО ОПРЕДЕЛЕНИЕ
-        double energy_contribution = 0.5 * std::tanh(energy);
+        // ВКЛАД ПАМЯТИ (увеличиваем!)
+        double memory_contribution = 2.0 * std::tanh(memory);  // было 0.3
         
-        // ВКЛАД ПАМЯТИ (тоже с насыщением) - ОСТАВЛЯЕМ ОДНО ОПРЕДЕЛЕНИЕ
-        double memory_contribution = 0.3 * std::tanh(memory);
+        // ВКЛАД ЭНЕРГИИ
+        double energy_contribution = 0.8 * std::tanh(energy);
         
         // Бонус за время на орбите
-        double time_bonus = 0.2 * std::min(1.0, time_on_orbit[i] / 500.0);
+        double time_bonus = 0.5 * std::min(1.0, time_on_orbit[i] / 500.0);
         
         // ЦЕЛЕВАЯ МАССА
         double target_mass = base_mass + energy_contribution + memory_contribution + time_bonus;
@@ -1272,6 +1337,12 @@ void NeuralGroup::updateMassByEnergy() {
         // ПРИМЕНЯЕМ ФИЗИЧЕСКИЕ ОГРАНИЧЕНИЯ
         double mass_cap = computeMassCap(i);
         target_mass = std::min(target_mass, mass_cap);
+
+        // Отладка
+        if (i == 0 && step_counter_ % 1000 == 0) {
+            std::cout << "Neuron " << i << ": memory=" << memory 
+                      << ", contrib=" << memory_contribution << std::endl;
+        }
         
         // ЭНЕРГИЯ СВЯЗИ - если связи сильные, масса может быть чуть выше
         double binding_energy = 0.0;
@@ -1295,6 +1366,14 @@ void NeuralGroup::updateMassByEnergy() {
         // ЕСЛИ МАССА СЛИШКОМ БЛИЗКА К КРИТИЧЕСКОЙ - АКТИВИРУЕМ ЗАЩИТУ
         if (mass[i] > mass_cap * 0.98) {
             activateMassShedding(i);
+        }
+        // ОТЛАДКА: выводим каждые 1000 шагов для нейрона 0
+        if (i == 0 && step_counter_ % 1000 == 0) {
+            std::cout << "Neuron 0: memory=" << memory 
+                    << ", contrib=" << memory_contribution 
+                    << ", target_mass=" << target_mass
+                    << ", mass_cap=" << mass_cap
+                    << ", final_mass=" << mass[i] << std::endl;
         }
     }
 }
@@ -1624,7 +1703,6 @@ void NeuralGroup::relayLearning(int learner_idx, float reward, int step) {
             target_radius[learner_idx] = getOrbitRadius(orbit_level[learner_idx]);
             time_on_orbit[learner_idx] = 0;
             promotion_count[learner_idx] = 0;
-            std::cout << " ⬆ Neuron " << learner_idx << " PROMOTED via relay learning!" << std::endl;
         }
     }
     
@@ -1658,8 +1736,6 @@ void NeuralGroup::promoteNovelPatternsFromLowerOrbits() {
         // Создаем сильную связь между элитой и новым паттерном
         W_intra[elite][best_novel] = std::min(1.0, W_intra[elite][best_novel] + 0.3);
         
-        std::cout << "Elite neuron " << elite << " absorbed novel pattern from " 
-                  << best_novel << std::endl;
     }
 }
 
@@ -2018,21 +2094,24 @@ double NeuralGroup::computeEntropy() const {
         hist_polar[bin_pol]++;
     }
     
-    double entropy = 0.0;
+    double H = 0.0;
+    double max_entropy = std::log2(static_cast<double>(BINS));  // ← log2 для битов
+    
     for (int count : hist_azimuth) {
         if (count > 0) {
             double p = static_cast<double>(count) / size;
-            entropy -= p * std::log(p);
+            H -= p * std::log2(p);  // ← биты!
         }
     }
     for (int count : hist_polar) {
         if (count > 0) {
             double p = static_cast<double>(count) / size;
-            entropy -= p * std::log(p);
+            H -= p * std::log2(p);  // ← биты!
         }
     }
     
-    return entropy / 2.0;
+    // Нормализация [0, 1]
+    return std::clamp(H / (2.0 * max_entropy), 0.0, 1.0);
 }
 
 double NeuralGroup::scalarCurvature() const {
@@ -2451,8 +2530,6 @@ void NeuralGroup::rebalanceOrbits() {
     
     if (!need_rebalance) return;
     
-    std::cout << " Rebalancing orbits..." << std::endl;
-    
     // Для каждого уровня (сверху вниз) корректируем численность
     for (int level = 4; level >= 0; --level) {
         double actual = static_cast<double>(distribution[level]) / size;
@@ -2506,6 +2583,10 @@ void NeuralGroup::rebalanceOrbits() {
         distribution.assign(5, 0);
         for (int i = 0; i < size; ++i) distribution[orbit_level[i]]++;
     }
+    static int rebalance_counter = 0;
+    if (need_rebalance && ++rebalance_counter % 10 == 0) {
+        std::cout << " Rebalancing orbits (distribution changed)" << std::endl;
+    }
 }
 
 // Добавить метод для вычисления локальной энтропии нейрона
@@ -2533,7 +2614,18 @@ void NeuralGroup::pruneConnectionsByOrbit() {
     // Выполняем раз в N шагов
     if (step_counter_ % 100 != 0) return;
     
+    // === НОВОЕ: флаг для разреженного логирования ===
+    static int log_counter = 0;
+    bool should_log = (++log_counter % 10 == 0); // Логируем только каждый 10-й раз
+    
     static std::mt19937 rng(std::random_device{}());
+    
+    // Счётчики для итогового отчёта
+    int candidates = 0;
+    int weakened_elite = 0;
+    int weakened_manager = 0;
+    int removed_weak = 0;
+    int removed_low = 0;
     
     for (int i = 0; i < size; i++) {
         int orbit_i = orbit_level[i];
@@ -2552,18 +2644,17 @@ void NeuralGroup::pruneConnectionsByOrbit() {
             
             // 1. ЭЛИТА (орбита 4) - НЕ РАЗРЫВАЕМ
             if (min_orbit >= 3 && max_orbit >= 3) {
-                // Элитные связи защищены
                 continue;
             }
             
             // 2. СВЯЗИ С ЭЛИТОЙ (орбита 4 + любая другая)
             if (max_orbit == 4 && min_orbit >= 2) {
-                // Связи с элитой важны, но могут быть понижены
                 if (efficiency < 0.3f && age > 1000) {
-                    // Неэффективная связь с элитой
                     W_intra[i][j] *= 0.5;
-                    std::cout << " Weakening elite connection: " << i << "-" << j 
-                              << " (eff=" << efficiency << ")" << std::endl;
+                    weakened_elite++;
+                    if (should_log) {
+                        std::cout << " Weakening elite connection: " << i << "-" << j << std::endl;
+                    }
                 }
                 continue;
             }
@@ -2571,17 +2662,16 @@ void NeuralGroup::pruneConnectionsByOrbit() {
             // 3. МЕНЕДЖЕРЫ (орбита 3) - проверяем эффективность
             if (min_orbit >= 2 && max_orbit <= 3) {
                 if (efficiency > 0.7f && weight > 0.5f) {
-                    // Эффективная связь → кандидат на повышение
-                    // Помечаем для возможного повышения орбиты
-                    if (orbit_i < 4 && orbit_j < 4) {
-                        // Будет обработано в updateOrbitLevels
-                        std::cout << " Candidate for promotion: " << i << "-" << j 
-                                  << " (eff=" << efficiency << ")" << std::endl;
+                    candidates++;
+                    if (should_log && candidates <= 10) { // Только первые 10 кандидатов
+                        std::cout << " Candidate for promotion: " << i << "-" << j << std::endl;
                     }
                 } else if (efficiency < 0.3f && age > 500) {
-                    // Неэффективная связь → ослабляем
                     W_intra[i][j] *= 0.7;
-                    std::cout << " Weakening manager connection: " << i << "-" << j << std::endl;
+                    weakened_manager++;
+                    if (should_log) {
+                        std::cout << " Weakening manager connection: " << i << "-" << j << std::endl;
+                    }
                 }
                 continue;
             }
@@ -2589,33 +2679,44 @@ void NeuralGroup::pruneConnectionsByOrbit() {
             // 4. РАБОЧИЕ (орбита 2) - активное тестирование
             if (min_orbit >= 1 && max_orbit <= 2) {
                 if (efficiency > 0.6f && weight > 0.3f) {
-                    // Перспективная связь → усиливаем
                     W_intra[i][j] *= 1.1;
                     W_intra[i][j] = std::min(W_intra[i][j], static_cast<double>(params.maxWeight));
                 } else if (efficiency < 0.4f && age > 300) {
-                    // Слабая связь → ослабляем
                     W_intra[i][j] *= 0.8;
-                } else if (age > 1000 && weight < 0.1f) {
-                    // Давно не использовалась и слабая → удаляем
-                    W_intra[i][j] = 0.0;
-                    std::cout << " Removing weak connection: " << i << "-" << j << std::endl;
+                } else if (age > 2000 && weight < 0.07f) {
+                    W_intra[i][j] = 0.8;
+                    removed_weak++;
+                    if (should_log) {
+                        std::cout << " Removing weak connection: " << i << "-" << j << std::endl;
+                    }
                 }
                 continue;
             }
             
             // 5. КАНДИДАТЫ И СИНГУЛЯРНОСТЬ (орбита 0-1) - агрессивная чистка
             if (max_orbit <= 1) {
-                // Связи на низких орбитах — кандидаты на удаление
                 if (age > 200 || efficiency < 0.3f) {
                     W_intra[i][j] *= 0.5;
                     if (W_intra[i][j] < 0.01f) {
                         W_intra[i][j] = 0.0;
-                        std::cout << " Removing low-orbit connection: " << i << "-" << j << std::endl;
+                        removed_low++;
+                        if (should_log) {
+                            std::cout << " Removing low-orbit connection: " << i << "-" << j << std::endl;
+                        }
                     }
                 }
                 continue;
             }
         }
+    }
+    
+    // === НОВОЕ: итоговый отчёт раз в 1000 шагов ===
+    if (step_counter_ % 1000 == 0 && (candidates > 0 || weakened_elite > 0 || removed_weak > 0)) {
+        std::cout << " [Prune] Candidates: " << candidates 
+                  << ", Elite weakened: " << weakened_elite
+                  << ", Manager weakened: " << weakened_manager
+                  << ", Weak removed: " << removed_weak
+                  << ", Low removed: " << removed_low << std::endl;
     }
     
     syncSynapsesFromWeights();
@@ -2637,13 +2738,13 @@ void NeuralGroup::performExperiments() {
             double new_energy = getNeuronEnergy(i);
             
             if (new_energy > old_energy) {
-                // Успешный эксперимент — усиливаем связи
-                for (int j = 0; j < size; j++) {
-                    if (i != j && std::abs(W_intra[i][j]) > 0.05) {
-                        W_intra[i][j] *= 1.05;
-                    }
-                }
+                
+                float reward = (new_energy - old_energy) / old_energy;
+                learnSTDP(reward * 2.0f, step_counter_);  // было просто 1.05
                 std::cout << "Successful experiment by neuron " << i << std::endl;
+            }
+            if (orbit_level[i] <= 2 && random() < 0.01) {
+                pos[i] += Vec3::randomOnSphere(rng) * 0.05;
             }
         }
     }
@@ -2673,7 +2774,7 @@ void NeuralGroup::generateCuriosityConnections() {
     
     // Создаем новые связи между элитой и исследовательскими нейронами
     int new_connections = 0;
-    int max_new = size / 10;  // не более 10% нейронов
+    int max_new = size / 23;  // не более 10% нейронов
     
     for (int elite : elite_neurons) {
         for (int exp : exploratory_neurons) {
@@ -2687,13 +2788,16 @@ void NeuralGroup::generateCuriosityConnections() {
                     W_intra[elite][exp] = new_weight;
                     W_intra[exp][elite] = new_weight;
                     new_connections++;
-                    std::cout << "Curiosity: new connection created between elite " 
-                              << elite << " and explorer " << exp << std::endl;
                 }
             }
         }
         if (new_connections >= max_new) break;
     }
+    // Один раз в 1000 шагов
+    if (step_counter_ % 1000 == 0 && new_connections > 0) {
+        std::cout << " Curiosity: created " << new_connections << " new connections" << std::endl;
+    }
+
     performExperiments();
     
     syncSynapsesFromWeights();

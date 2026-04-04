@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <iomanip>
 
-constexpr int CONSOLIDATION_INTERVAL = 100;   // Уровень 2: редко
+constexpr int CONSOLIDATION_INTERVAL = 65;   // Уровень 2: редко
 constexpr int EVOLUTION_INTERVAL = 5000;      // Уровень 3: очень редко
 
 NeuralFieldSystem::NeuralFieldSystem(double dt, EventSystem& events)
@@ -81,7 +81,8 @@ void NeuralFieldSystem::rebuildFlatVectors() const {
 }
 
 void NeuralFieldSystem::consolidateInterWeights() {
-    double entropy = computeSystemEntropy();
+    //double entropy = computeSystemEntropy();
+    double entropy = getUnifiedEntropy();
     double entropy_factor = 1.0 / (1.0 + std::exp(-(entropy - 2.0)));
     
     // ИСПРАВЛЕНИЕ: используем геометрическое среднее вместо линейного
@@ -516,7 +517,7 @@ double NeuralFieldSystem::computeTotalEnergy() const {
         }
     }
     
-    return total / TOTAL_NEURONS;
+    return total; // ← НЕ ДЕЛИМ! Абсолютная энергия
 }
 
 std::vector<double> NeuralFieldSystem::getGroupAverages() const {

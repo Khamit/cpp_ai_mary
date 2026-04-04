@@ -30,9 +30,7 @@ EvolutionModule::EvolutionModule(ImmutableCore& core, const EvolutionConfig& con
       min_fitness_for_optimization(config.min_fitness_for_optimization),
       mutation_rate(0.01),
       last_reduction_time(std::chrono::steady_clock::now() - REDUCTION_COOLDOWN),
-      reductions_this_minute(0),
-      knownFacts_(),
-      factConfidence_()
+      reductions_this_minute(0)
 {
     const size_t EMB_SIZE = 128;
     projectionMatrix.resize(NeuralFieldSystem::NUM_GROUPS);
@@ -104,15 +102,6 @@ void EvolutionModule::evaluateFitness(
     } catch (const std::exception& e) {
         std::cerr << "Error getting language fitness: " << e.what() << std::endl;
         langFitness = 0.5;
-    }
-    
-    if (mastery_evaluator_) {
-        try {
-            float mastery = mastery_evaluator_->getAverageMastery();
-            langFitness = 0.7 * langFitness + 0.3 * mastery;
-        } catch (const std::exception& e) {
-            std::cerr << "Error getting mastery: " << e.what() << std::endl;
-        }
     }
     
     if (langFitness > 0.95 && total_steps < 10000) {
@@ -507,42 +496,6 @@ void EvolutionModule::applyMinimalMutation(NeuralFieldSystem& system) {
 
 // ========== ОСТАЛЬНЫЕ МЕТОДЫ (без изменений) ==========
 
-FactCheckResult EvolutionModule::checkFactualConsistency(const std::string& statement) {
-    FactCheckResult result;
-    result.isConsistent = true;
-    result.confidence = 1.0f;
-    
-    auto sentences = splitIntoSentences(statement);
-    
-    for (const auto& sentence : sentences) {
-        auto extractedFacts = extractPotentialFacts(sentence);
-        
-        for (const auto& fact : extractedFacts) {
-            if (knownFacts_.empty()) {
-                result.confidence *= 0.8f;
-                continue;
-            }
-            
-            bool found = false;
-            for (const auto& known : knownFacts_) {
-                if (areFactsConsistent(fact, known)) {
-                    found = true;
-                    result.supportingEvidence.push_back(known);
-                    break;
-                }
-            }
-            
-            if (!found) {
-                result.isConsistent = false;
-                result.contradictions.push_back(sentence);
-                result.confidence *= 0.5f;
-            }
-        }
-    }
-    
-    return result;
-}
-
 void EvolutionModule::testEvolutionMethods() {
     std::cout << "🧪 TESTING Evolution Methods:" << std::endl;
     std::cout << " - Mutation rate: " << mutation_rate << std::endl;
@@ -669,61 +622,4 @@ void EvolutionModule::exitStasis() {
 
 bool EvolutionModule::isInStasis() const {
     return in_stasis;
-}
-
-std::vector<std::string> EvolutionModule::splitIntoSentences(const std::string& text) {
-    std::vector<std::string> sentences;
-    std::string current;
-    
-    for (char c : text) {
-        current += c;
-        if (c == '.' || c == '!' || c == '?' || c == '-') {
-            if (!current.empty()) {
-                while (!current.empty() && current.back() == ' ') current.pop_back();
-                sentences.push_back(current);
-                current.clear();
-            }
-        }
-    }
-    
-    if (!current.empty()) {
-        while (!current.empty() && current.back() == ' ') current.pop_back();
-        if (!current.empty()) sentences.push_back(current);
-    }
-    
-    return sentences;
-}
-
-std::vector<std::string> EvolutionModule::extractPotentialFacts(const std::string& sentence) {
-    std::vector<std::string> facts;
-    
-    size_t isPos = sentence.find(" is ");
-    if (isPos != std::string::npos) {
-        facts.push_back(sentence.substr(0, isPos) + " = " + sentence.substr(isPos + 4));
-    }
-    
-    size_t arePos = sentence.find(" are ");
-    if (arePos != std::string::npos) {
-        facts.push_back(sentence.substr(0, arePos) + " = " + sentence.substr(arePos + 5));
-    }
-    
-    return facts;
-}
-
-bool EvolutionModule::areFactsConsistent(const std::string& fact1, const std::string& fact2) {
-    size_t eqPos1 = fact1.find('=');
-    size_t eqPos2 = fact2.find('=');
-    
-    if (eqPos1 != std::string::npos && eqPos2 != std::string::npos) {
-        std::string subject1 = fact1.substr(0, eqPos1);
-        std::string subject2 = fact2.substr(0, eqPos2);
-        
-        if (subject1 == subject2) {
-            std::string value1 = fact1.substr(eqPos1 + 1);
-            std::string value2 = fact2.substr(eqPos2 + 1);
-            return value1 == value2;
-        }
-    }
-    
-    return true;
 }

@@ -1,5 +1,6 @@
 // data/MasterKeyManager.hpp
 #pragma once
+
 #include <string>
 #include <fstream>
 #include <chrono>

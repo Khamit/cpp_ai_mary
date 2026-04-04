@@ -73,8 +73,6 @@ public:
     void cycleDisplayMode() { current_display_mode = (current_display_mode + 1) % 6; }
     void drawUnifiedStats(sf::RenderWindow& window);
 
-    // Добавить сеттер
-    void setSemanticGraph(SemanticGraphDatabase* graph) { semantic_graph_ = graph; }
     // VisualizationModule
     void setVisualizer(VisualizationModule* vis) { visualizer = vis; }
     void toggleOrbits();
@@ -128,7 +126,6 @@ OperatingMode::Type getCurrentOperatingMode() const {
 private:
     // Добавить поле
     NeuralFieldSystem* neural_system = nullptr;
-    SemanticGraphDatabase* semantic_graph_ = nullptr;  // добавить
     VisualizationModule* visualizer = nullptr;  // указатель на визуализатор
 
     // Вспомогательные методы для рисования

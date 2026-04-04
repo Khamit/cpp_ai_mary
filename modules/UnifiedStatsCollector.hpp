@@ -5,10 +5,6 @@
 #include "EvolutionModule.hpp"
 #include "lang/LanguageModule.hpp"
 #include "MetaCognitiveModule.hpp"
-#include "lang/LearningOrchestrator.hpp"
-#include "learning/NeuralTrainer.hpp"           
-#include "learning/TrainingExampleManager.hpp"  
-#include "learning/ConceptMasteryEvaluator.hpp"
 #include <map>
 #include <string>
 #include <sstream>
@@ -165,12 +161,6 @@ void update(int step) {
         if (learning) {
             ModuleStats learn;
             learn.name = "LEARNING";
-            
-            learn.numeric_stats["total_steps"] = learning->getNeuralTrainer().getTotalSteps();
-            learn.numeric_stats["accuracy"] = learning->getAverageAccuracy();
-            learn.numeric_stats["buffer_size"] = learning->getExampleManager().getBufferSize();
-            learn.numeric_stats["average_mastery"] = learning->getMasteryEvaluator().getAverageMastery();
-            learn.numeric_stats["mastered_concepts"] = learning->getMasteryEvaluator().getMasteredConceptsCount();
             
             all_stats["learning"] = learn;
         }

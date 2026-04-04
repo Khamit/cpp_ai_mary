@@ -16,6 +16,9 @@
 #include "Component.hpp"
 #include "core/MemoryManager.hpp"
 
+class SemanticGraphDatabase;
+enum class EmotionalTone;
+
 // Структура 3D вектора
 struct Vec3 {
     double x, y, z;
@@ -147,7 +150,7 @@ struct MassRecommendations {
     static MassLimits forServer() {
         MassLimits limits;
         limits.planck_mass = 1.0;
-        limits.saturation_mass = 8.0;
+        limits.saturation_mass = 12.0;
         limits.max_temperature_mass = 7.0;
         limits.evaporation_rate = 0.005;
         limits.binding_energy_factor = 0.4;
@@ -242,8 +245,8 @@ struct HomeostasisParams {
     // НОВЫЕ ПАРАМЕТРЫ ДЛЯ КВАНТОВОЙ СТАБИЛИЗАЦИИ
     double mass_energy_factor = 0.3;      // как сильно масса зависит от энергии
     double mass_orbit_factor = 0.5;       // как сильно масса зависит от орбиты
-    double max_mass = 10.0;                 // максимальная масса
-    double min_mass = 0.8;                  // минимальная масса
+    double min_mass = 0.3;                  // минимальная масса
+    double max_mass = 12.0;                 // максимальная масса
     
     // Потенциальный барьер
     double barrier_height = 2.0;            // высота барьера на границах орбит
@@ -275,7 +278,7 @@ public:
     // Разрешаем перемещение
     NeuralGroup(NeuralGroup&&) = default;
     NeuralGroup& operator=(NeuralGroup&&) = default;
-
+    void setMemoryManager(MemoryManager* mm) { memory_manager = mm; }
     // Параметры гомеостаза (публичные для доступа)
     HomeostasisParams homeo;
     double activation_temp = 0.8;
@@ -304,6 +307,8 @@ public:
     void evolve();                                      // эволюция группы
     void learnSTDP(float reward, int currentStep);     // STDP обучение
     void consolidate();                                 // консолидация памяти
+    
+    void saveBestPatternToMemory(float reward);
     
     // ===== НОВЫЕ ОРБИТАЛЬНЫЕ МЕТОДЫ =====
     void updateMassByEnergy();
@@ -394,6 +399,12 @@ public:
         // Штраф уменьшает элевацию (важность) нейронов
         elevation_ += penalty * 0.01f;
         elevation_ = std::clamp(elevation_, -1.0f, 1.0f);
+    }
+
+    void publicPromoteToEliteOrbit(int i) {
+        if (i >= 0 && i < size) {
+            promoteToEliteOrbit(i);
+        }
     }
 
     // ===== Entropy ==============
@@ -556,14 +567,14 @@ public:
     }
     
     double getMemoryStrength(int i) const {
-        if (i < 0 || i >= size) return 0.0;
         double memory = 0.0;
         for (int j = 0; j < size; j++) {
             if (i != j) {
                 memory += std::abs(W_intra[i][j]);
             }
         }
-        return memory / (size - 1);
+        // УБРАТЬ ДЕЛЕНИЕ или уменьшить знаменатель
+        return memory / (size / 4);  // было size - 1
     }
 
     std::complex<double> getWaveFunction(int i) const { 
@@ -649,7 +660,7 @@ public:
         current_mode_ = mode;
     }
 
-    void setMemoryManager(MemoryManager* mm) { memory_manager = mm; }
+    
     
     // Добавить метод promoteToBaseOrbit если его нет
     void promoteToBaseOrbit(int i) {
@@ -743,7 +754,7 @@ public:
 private:
     MassLimits mass_limits;
     OperatingMode::Type current_mode_ = OperatingMode::NORMAL;
-    MemoryManager* memory_manager = nullptr; 
+    MemoryManager* memory_manager = nullptr;
 
     // ===== ФУНДАМЕНТАЛЬНЫЕ ПАРАМЕТРЫ =====
     int size;                       // количество нейронов
@@ -845,7 +856,7 @@ private:
         int orbit = orbit_level[neuron_idx];
         
         // Квантовые ограничения
-        double schwarzschild_limit = r / (mass_limits.schwarzschild_radius_factor * 6.0);
+        // double schwarzschild_limit = r / (mass_limits.schwarzschild_radius_factor * 6.0);
         
         // Термодинамические ограничения
         double temperature = getNeuronTemperature(neuron_idx);
@@ -860,17 +871,31 @@ private:
         double orbit_limit = orbit_limits[orbit];
         
         // Масса насыщения
-        double saturation = mass_limits.saturation_mass * 5.0;
+        double saturation = mass_limits.saturation_mass;
         
-        double mass_cap = std::min({
-            schwarzschild_limit,
-            thermodynamic_limit,
-            info_limit,
-            orbit_limit,
-            saturation
-        });
+        // Минимум из орбитального лимита и насыщения
+        double mass_cap = std::min(orbit_limit, saturation);
         
         return std::max(mass_cap, homeo.min_mass);
     }
+    
+    void promoteToEliteOrbit(int i) {
+        if (i < 0 || i >= size) return;
         
+        int target_level = 4;
+        orbit_level[i] = target_level;
+        target_radius[i] = OrbitalParams::OUTER_ORBIT;
+        
+        // Помещаем на элитную орбиту
+        static std::mt19937 rng(std::random_device{}());
+        double start_radius = OrbitalParams::OUTER_ORBIT * (0.9 + 0.2 * (rng() % 100 / 100.0));
+        pos[i] = Vec3::randomOnSphere(rng) * start_radius;
+        vel[i] = Vec3(0, 0, 0);
+        
+        orbital_energy[i] = 3.0;  // высокая энергия для элиты
+        time_on_orbit[i] = 0;
+        mass[i] = std::min(mass[i] * 1.5, homeo.max_mass);
+        
+        std::cout << "  Neuron " << i << " promoted to ELITE orbit (level 4)" << std::endl;
+    }
 };

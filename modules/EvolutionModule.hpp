@@ -8,13 +8,13 @@
 #include "lang/LanguageModule.hpp"
 #include "ConfigStructs.hpp"
 #include "EvolutionMetrics.hpp"
-#include "learning/ConceptMasteryEvaluator.hpp"
 #include <vector>
 #include <chrono>
 #include <string>
 #include <random>
 #include <memory>
 #include <iostream>
+#include <deque>
 
 // Forward declaration
 class LanguageModule;
@@ -106,15 +106,13 @@ public:
     void connectToSystem(NeuralFieldSystem& system) {
         detector_.setSystem(&system);
     }
-    
-    FactCheckResult checkFactualConsistency(const std::string& statement);
 
     // Конструктор
     EvolutionModule(ImmutableCore& core, const EvolutionConfig& config, MemoryManager& memory);
 
     HNeuronDetector& getDetector() { return detector_; }
-
-    ConceptMasteryEvaluator* getMasteryEvaluator() const { return mastery_evaluator_; }
+    
+    // Удаляем getMasteryEvaluator - больше не нужен
     
     // == РЕАЛИЗАЦИЯ МЕТОДОВ Component
     std::string getName() const override { return "EvolutionModule"; }
@@ -188,20 +186,16 @@ public:
     void updateAdaptiveParams(double current_fitness);
     void checkStagnation(double current_fitness);
     
-    void setMasteryEvaluator(ConceptMasteryEvaluator* evaluator) { mastery_evaluator_ = evaluator; }
+    // Удаляем setMasteryEvaluator - больше не нужен
 
 private: 
     std::vector<std::vector<float>> projectionMatrix;
-    std::vector<std::string> knownFacts_;
-    std::map<std::string, float> factConfidence_;
     
     // Параметрическая эволюция (устаревший метод, заменяется на умные)
     void mutateParameters(NeuralFieldSystem& system);
     
     // Умная параметрическая мутация
     void mutateParametersSmart(NeuralFieldSystem& system);
-    
-    ConceptMasteryEvaluator* mastery_evaluator_ = nullptr;
     
     // Методы защиты и бэкапов
     bool createBackup();
@@ -214,16 +208,12 @@ private:
     // Минимальная мутация для стазиса
     void applyMinimalMutation(NeuralFieldSystem& system);
     
-    // НОВЫЕ ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
-    std::vector<std::string> splitIntoSentences(const std::string& text);
-    std::vector<std::string> extractPotentialFacts(const std::string& sentence);
-    bool areFactsConsistent(const std::string& fact1, const std::string& fact2);
     
     // Защита элитных нейронов
     bool isEliteNeuron(const NeuralGroup& group, int neuron_idx) const;
     void protectEliteConnections(NeuralGroup& group, int neuron_idx);
     
-    // НОРМАЛИЗОВАННЫЕ ПАРАМЕТРЫ (добавить в конец private секции)
+    // НОРМАЛИЗОВАННЫЕ ПАРАМЕТРЫ
     struct {
         double min_lr = 0.0005;
         double max_lr = 0.05;

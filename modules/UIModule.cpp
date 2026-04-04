@@ -40,7 +40,8 @@ UIModule::UIModule(const UIConfig& config, int windowWidth, int windowHeight)
       modeText(font),
       stats_collector(nullptr),  // инициализируем nullptr
       current_display_mode(0),
-      toggleChatText(font)
+      toggleChatText(font),
+      simulation_running_(false)
 {
     // Загрузка шрифта
     if (!font.openFromFile("SF-Pro-Display-Regular.otf")) {
@@ -1035,123 +1036,26 @@ void UIModule::drawUnifiedStats(sf::RenderWindow& window) {
     if (current_display_mode == 0) {
         // COMPACT MODE
         ss << stats_collector->getCompactStats();
-    } 
+    }
+
     else if (current_display_mode == 5) {  // CONCEPTS MODE
-        ss << "CONCEPTS MASTERY\n\n";
+        ss << "DYNAMIC SEMANTIC MEMORY\n\n";
         
-        // Получаем LearningOrchestrator через stats_collector
-        auto* learning = stats_collector->getLearning();
-        if (learning) {
-            // Получаем доступ к ConceptMasteryEvaluator
-            auto& evaluator = learning->getMasteryEvaluator();
+        if (languageModule && languageModule->getDynamicMemory()) {
+            auto* memory = languageModule->getDynamicMemory();
             
-            // Общая статистика
-            float avg_mastery = evaluator.getAverageMastery();
-            int mastered = evaluator.getMasteredConceptsCount(0.7f);
+            ss << "Words learned: " << memory->getWordCount() << "\n";
+            ss << "Patterns detected: " << memory->getPatternCount() << "\n";
+            ss << "Meanings formed: " << memory->getMeaningCount() << "\n\n";
             
-            // Для "learning" концептов (30-70%) - нужно посчитать самим
-            int learning_count = 0;
-            for (uint32_t id = 1; id <= 614; id++) {
-                float mastery = evaluator.getConceptMastery(id);
-                if (mastery > 0.3f && mastery < 0.7f) {
-                    learning_count++;
-                }
-            }
-            int total_concepts = mastered + learning_count;
-            
-            // Прогресс-бар (создаем вручную)
-            ss << "Overall Mastery: ";
-            int filled = static_cast<int>(avg_mastery * 30);
-            for (int i = 0; i < 30; i++) {
-                ss << (i < filled ? "█" : "░");
-            }
-            ss << "\n";
-            ss << "Mastered (≥70%): " << mastered << " concepts\n";
-            ss << "Learning (30-70%): " << learning_count << " concepts\n";
-            ss << "Total active: " << total_concepts << " concepts\n\n";
-            
-            // Статистика по уровням абстракции
-            ss << "By Abstraction Level:\n";
-            auto level_stats = evaluator.getMasteryByAbstractionLevel();
-            for (int level = 1; level <= 10; level++) {
-                if (level_stats.count(level)) {
-                    int filled = static_cast<int>(level_stats[level] * 20);
-                    ss << "  Level " << level << ": ";
-                    for (int i = 0; i < 20; i++) {
-                        ss << (i < filled ? "█" : "░");
-                    }
-                    ss << " " << std::fixed << std::setprecision(0) 
-                       << (level_stats[level] * 100) << "%\n";
-                }
-            }
-            
-            // Топ-5 самых освоенных концептов
-            ss << "\nTop Mastered Concepts:\n";
-            auto all_mastery = evaluator.getAllConceptsMastery();
-            
-            std::vector<std::pair<uint32_t, float>> sorted(
-                all_mastery.begin(), all_mastery.end());
-            std::sort(sorted.begin(), sorted.end(),
-                [](const auto& a, const auto& b) { return a.second > b.second; });
-            
-            int count = 0;
-            for (const auto& [id, mastery] : sorted) {
-                if (count++ >= 5) break;
-                if (semantic_graph_) {
-                    auto node = semantic_graph_->getNode(id);
-                    if (node) {
-                        ss << "  " << node->canonical_form << ": " 
-                           << std::fixed << std::setprecision(0) << (mastery * 100) << "%\n";
-                    }
-                } else {
-                    ss << "  Concept " << id << ": " 
-                       << std::fixed << std::setprecision(0) << (mastery * 100) << "%\n";
-                }
-            }
-            
-            // Концепты, которые нужно подучить (30-70%)
-            ss << "\nNeed Practice:\n";
-            count = 0;
-            for (const auto& [id, mastery] : sorted) {
-                if (mastery > 0.3f && mastery < 0.7f) {
-                    if (count++ >= 3) break;
-                    if (semantic_graph_) {
-                        auto node = semantic_graph_->getNode(id);
-                        if (node) {
-                            ss << "  " << node->canonical_form << ": " 
-                               << std::fixed << std::setprecision(0) << (mastery * 100) << "%\n";
-                        }
-                    } else {
-                        ss << "  Concept " << id << ": " 
-                           << std::fixed << std::setprecision(0) << (mastery * 100) << "%\n";
-                    }
-                }
+            ss << "User Profiles:\n";
+            for (const auto& [name, profile] : memory->getAllProfiles()) {
+                ss << "  " << name << ": trust=" << std::fixed << std::setprecision(2)
+                << profile.trust_level << ", mood=" << profile.average_mood
+                << ", interactions=" << profile.interaction_count << "\n";
             }
         } else {
-            ss << "Learning module not available\n";
-        }
-    } else {
-        // DETAILED MODE
-        std::string module_name;
-        switch(current_display_mode) {
-            case 1: module_name = "neural"; break;
-            case 2: module_name = "evolution"; break;
-            case 3: module_name = "language"; break;
-            case 4: module_name = "memory"; break;
-        }
-        
-        auto it = all_stats.find(module_name);
-        if (it != all_stats.end()) {
-            ss << "=== " << it->second.name << " ===\n";
-            for (const auto& [key, val] : it->second.numeric_stats) {
-                ss << "  " << key << ": ";
-                if (val == 0 || val == 1) {
-                    ss << (val == 1 ? "YES" : "NO");
-                } else {
-                    ss << std::fixed << std::setprecision(2) << val;
-                }
-                ss << "\n";
-            }
+            ss << "Dynamic memory not available\n";
         }
     }
     
@@ -1211,7 +1115,16 @@ void UIModule::handleMouseWheel(const sf::Event::MouseWheelScrolled& event) {
 
 // Исправленный метод drawReflectionPanel
 void UIModule::drawReflectionPanel(sf::RenderWindow& window) {
-    if (!neural_system) return; // защита от нулевого указателя
+        if (!neural_system) {
+        // Вместо вывода ошибки, просто рисуем сообщение
+        sf::Text errorText(font);
+        errorText.setString("Neural system not connected");
+        errorText.setCharacterSize(12);
+        errorText.setFillColor(TEXT_WARNING);
+        errorText.setPosition(sf::Vector2f(410.0f, 60.0f));
+        window.draw(errorText);
+        return;
+    }
     
     try {
         auto state = neural_system->getReflectionState();

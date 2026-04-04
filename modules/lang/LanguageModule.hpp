@@ -13,20 +13,24 @@
 #include <iostream>   
 #include "../../core/Component.hpp"
 #include "../../core/NeuralFieldSystem.hpp"
-#include "../semantic/SemanticManager.hpp"
-#include "../semantic/ThoughtPredictor.hpp"
 #include "../../core/ImmutableCore.hpp"
 #include "../../core/IAuthorization.hpp"
-#include "../../data/SemanticGraphDatabase.hpp"
-//#include "EffectiveLearning_fwd.hpp" 
+#include "../../core/MemoryManager.hpp"
+#include "../../data/PersonnelData.hpp"
+#include "../../data/DynamicSemanticMemory.hpp"
+#include "../learning/WebTrainerModule.hpp"
 
-// Forward declaration
 class CuriosityDriver;
+class LearningOrchestrator;
 
-//class EffectiveLearning;
-class LearningOrchestrator;  // forward declaration
+// Структура для статистики языкового модуля
+struct LanguageStats {
+    int words_learned = 0;
+    int patterns_detected = 0;
+    int meanings_formed = 0;
+    int user_profiles = 0;
+};
 
-// Структура для хранения состояния диалога
 struct DialogueState {
     bool expecting_answer = false;
     std::string last_question;
@@ -34,85 +38,56 @@ struct DialogueState {
     std::chrono::system_clock::time_point question_time;
 };
 
-
 class LanguageModule : public Component {
 private:
     NeuralFieldSystem& neural_system;
-    ImmutableCore& immutable_core;           // техническая защита
-    IAuthorization& auth;                     // социальная защита
+    ImmutableCore& immutable_core;
+    IAuthorization& auth;
+    PersonnelDatabase& personnel_db_;
+    MemoryManager& memory_manager_;
     std::mt19937 rng_;
 
+    std::unique_ptr<WebTrainerModule> web_trainer_;
+
     DialogueState dialogue_state_;
-
-    std::unique_ptr<SemanticManager> semantic_manager;
-    std::unique_ptr<ThoughtPredictor> thought_predictor;
-
-    SemanticGraphDatabase* semantic_graph_ = nullptr;
-    LearningOrchestrator* orchestrator_ = nullptr;  // <-- ДОБАВИТЬ
+    std::unique_ptr<DynamicSemanticMemory> dynamic_memory_;
+    LearningOrchestrator* orchestrator_ = nullptr;
 
     int process_step_counter_ = 0;
-
-    //std::unique_ptr<NeuralTrainer> neural_trainer_;
-
-    std::thread learning_thread_;  // нужно join в деструкторе!
+    std::thread learning_thread_;
     std::atomic<bool> learning_active_{false};
     
-    // НОВОЕ: драйвер любопытства
     std::shared_ptr<CuriosityDriver> curiosity_driver_;
-    
-    static constexpr int GROUP_SEMANTIC_START = 16;
     
     float external_feedback_sum_ = 0.0f;
     int external_feedback_count_ = 0;
-    
-    // Для совместимости со старым UI
     bool auto_learning_active_ = false;
     
-    // Информация о режиме работы
     std::string system_mode_ = "personal";
     std::string default_user_ = "user";
     bool enforce_commands_ = false;
     bool emotional_responses_ = true;
 
-    // в private секцию
-    bool dictionary_initialized_ = false;
-    std::mutex dict_mutex_;
-    
-    // История последних смыслов для анализа
+    // История последних смыслов
     std::deque<uint32_t> recent_meanings_;
     static constexpr size_t MAX_RECENT_MEANINGS = 50;
 
-    // словарь для быстрого поиска слов -> смыслы
-    std::unordered_map<std::string, std::vector<uint32_t>> word_to_meaning;
-    
     // Приватные методы
     std::vector<std::string> split(const std::string& text);
     std::string toLower(std::string text);
-    std::string meaningsToText(const std::vector<uint32_t>& meanings);
-    float calculateConfidence(const std::vector<uint32_t>& meanings);
-    
-    // Проверка, можно ли выполнить команду
     bool canExecuteCommand(const std::string& user_name, 
                           const std::string& command,
                           AccessLevel required_level);
-
-    std::string buildFrameResponse(uint32_t frame_id, 
-                    const std::vector<uint32_t>& meanings);
+    std::string generateResponse(const std::string& input);
     
 public:
     explicit LanguageModule(NeuralFieldSystem& system, 
-                           ImmutableCore& core,
-                           IAuthorization& auth, SemanticGraphDatabase* graph = nullptr);
-    
+                        ImmutableCore& core,
+                        IAuthorization& auth,
+                        PersonnelDatabase& personnel_db,
+                        MemoryManager& memory_manager);
+        
     ~LanguageModule();
-
-    SemanticManager& getSemanticManager() { 
-        if (!semantic_manager) {
-            throw std::runtime_error("semantic_manager is null in getSemanticManager()");
-        }
-        return *semantic_manager; 
-    }
-
 
     std::string getName() const override { return "LanguageModule"; }
     bool initialize(const Config& config) override;
@@ -121,47 +96,49 @@ public:
     void saveState(MemoryManager& memory) override;
     void loadState(MemoryManager& memory) override;
 
-    void setOrchestrator(LearningOrchestrator* orchestrator) { orchestrator_ = orchestrator; }
-
-    std::shared_ptr<CuriosityDriver> createCuriosityDriver();
-    bool hasCuriosityDriver() const { return curiosity_driver_ != nullptr; }
-    // Основной метод обработки с учетом пользователя (возвращает ответ)
-    std::string process(const std::string& input, const std::string& user_name = "guest");
-    // НОВЫЕ МЕТОДЫ ДЛЯ ДИАЛОГОВОГО ОБУЧЕНИЯ
-    // капец их много - НЕОБХОДИМА РЕСТРУКТОРИЗАЦИЯ! СЛИШКОМ МНОГО КОДА В КЛАССЕ!!!
-    // Проверить, является ли ввод специальной командой
-    bool isSpecialCommand(const std::string& input);
+    void initWebTrainer() {
+        web_trainer_ = std::make_unique<WebTrainerModule>(neural_system, dynamic_memory_.get());
+        web_trainer_->bootstrapWithBasicKnowledge();
+    }
     
-    // Обработать специальную команду (возвращает true если команда обработана)
+    WebTrainerModule* getWebTrainer() { return web_trainer_.get(); }
+    std::shared_ptr<CuriosityDriver> createCuriosityDriver();
+    void setOrchestrator(LearningOrchestrator* orchestrator) { orchestrator_ = orchestrator; }
+    bool hasCuriosityDriver() const { return curiosity_driver_ != nullptr; }
+    
+    std::string process(const std::string& input, const std::string& user_name = "guest");
+    
+    bool isSpecialCommand(const std::string& input);
     bool handleSpecialCommand(const std::string& input, std::string& output);
     
-    // Получить следующий вопрос от системы
     std::string getNextQuestion();
-    
-    // Обработать ответ на вопрос
     std::string processAnswer(const std::string& answer);
-    
-    // Получить статус обучения
     std::string getLearningStatus() const;
+    std::string getDetailedStats() const;
     
-    // Ожидает ли система ответа?
     bool isExpectingAnswer() const { return dialogue_state_.expecting_answer; }
-    
-    // Сбросить состояние диалога
     void resetDialogue() { dialogue_state_.expecting_answer = false; }
-
 
     void giveFeedback(float rating, bool autoFeedback = false);
     double getLanguageFitness() const;
 
-    // Методы для UI (совместимость)
     void runAutoLearning(int steps, LearningOrchestrator* orchestrator);
-
     void stopAutoLearning();
     bool isAutoLearningActive() const { return auto_learning_active_; }
     
-    void saveAll() {}  // заглушка
-    int getLearnedWordsCount() const { return word_to_meaning.size(); } 
+    void saveAll() { if (dynamic_memory_) dynamic_memory_->saveToMemory(); }
+    int getLearnedWordsCount() const { return dynamic_memory_ ? dynamic_memory_->getWordCount() : 0; }
+
+    // НОВЫЙ МЕТОД: получить статистику языкового модуля
+    LanguageStats getLanguageStats() const {
+        if (!dynamic_memory_) return LanguageStats{0,0,0,0};
+        return LanguageStats{
+            dynamic_memory_->getWordCount(),
+            dynamic_memory_->getPatternCount(),
+            dynamic_memory_->getMeaningCount(),
+            static_cast<int>(dynamic_memory_->getAllProfiles().size())
+        };
+    }
 
     void addExternalFeedback(float rating) {
         external_feedback_sum_ += rating;
@@ -173,12 +150,6 @@ public:
                external_feedback_sum_ / external_feedback_count_ : 0.5f;
     }
 
-    void setSemanticGraph(SemanticGraphDatabase& graph) {
-        semantic_graph_ = &graph;
-        initializeWordDictionary();
-    }
-
-    // Установка режима работы
     void setSystemMode(const std::string& mode, const std::string& default_user = "user") {
         system_mode_ = mode;
         default_user_ = default_user;
@@ -188,20 +159,20 @@ public:
     void setCommandEnforcement(bool enforce) { enforce_commands_ = enforce; }
     void setEmotionalResponses(bool enable) { emotional_responses_ = enable; }
     
-    // Установка драйвера любопытства
     void setCuriosityDriver(std::shared_ptr<CuriosityDriver> driver) {
         curiosity_driver_ = driver;
     }
 
-    // Публичные методы для доступа к смыслам
-    std::vector<uint32_t> textToMeanings(const std::string& text);
-    
-    // НОВЫЙ МЕТОД: получить недавние смыслы
     std::vector<uint32_t> getRecentMeanings() const {
         return std::vector<uint32_t>(recent_meanings_.begin(), recent_meanings_.end());
     }
-    void initializeWordDictionary();
 
     int getProcessStepCounter() const { return process_step_counter_; }
     void incrementProcessStepCounter() { process_step_counter_++; }
+
+    float evaluateResponse(const std::string& input, const std::string& response);
+    void addToRecentMeanings(uint32_t meaning_id);
+    
+    // Доступ к динамической памяти
+    DynamicSemanticMemory* getDynamicMemory() { return dynamic_memory_.get(); }
 };
