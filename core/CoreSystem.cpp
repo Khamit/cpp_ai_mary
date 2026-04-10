@@ -2,7 +2,6 @@
 #include <iostream>
 #include <filesystem>
 #include "MaryDefense.hpp"
-#include "../modules/EvolutionModule.hpp"
 #include "../modules/lang/LanguageModule.hpp"
 #include "../modules/MetaCognitiveModule.hpp"
 #include "../modules/learning/CuriosityDriver.hpp"
@@ -42,12 +41,12 @@ bool CoreSystem::initialize(const std::string& configFile) {
         std::cout << "Personal mode: simplified access (user: " << default_user << ")" << std::endl;
     }
     
-    // 3. Детектируем устройство (ОДИН РАЗ!)
+    // 3. Детектируем устройство
     deviceInfo = DeviceProbe::detect();
     capabilities = DeviceProbe::buildCapabilities(deviceInfo);
     std::cout << DeviceProbe::describe(deviceInfo) << std::endl;
     
-    // 4. Инициализируем нейросистему с учётом железа
+    // 4. Инициализируем нейросистему
     std::mt19937 rng(std::random_device{}());
     
     MassLimits mass_limits;
@@ -64,19 +63,11 @@ bool CoreSystem::initialize(const std::string& configFile) {
     
     neuralSystem->initializeWithLimits(rng, mass_limits);
     
-    // 5. Создаём lineage (мать/дочь)
+    // 5. Создаём lineage
     lineage = MaryDefense::boot(rng);
     
-    // 6. Регистрируем модули
-    auto* evolution = registerComponent<EvolutionModule>(
-        "evolution", immutableCore, EvolutionConfig{}, memory);
-    if (evolution) {
-        evolution->connectToSystem(*neuralSystem);
-        std::cout << "EvolutionModule registered" << std::endl;
-    }
-    
     auto* language = registerComponent<LanguageModule>(
-        "language", *neuralSystem, immutableCore, *auth, personnel_db, memory);
+        "language", *neuralSystem, immutableCore, *auth, personnel_db);
     
     if (language) {
         language->setSystemMode(system_mode, default_user);
@@ -96,9 +87,6 @@ bool CoreSystem::initialize(const std::string& configFile) {
     }
     
     auto* metacog = registerComponent<MetaCognitiveModule>("metacognition", *neuralSystem);
-    if (metacog && evolution) {
-        metacog->setEvolutionModule(evolution);
-    }
     
     loadModulesForDevice();
     
@@ -135,21 +123,5 @@ void CoreSystem::update(float dt) {
     
     for (auto& component : components) {
         component->update(dt);
-    }
-}
-
-void CoreSystem::saveState() {
-    memory.saveAll();
-    for (auto& component : components) {
-        component->saveState(memory);
-    }
-    lineage->save(memory);
-}
-
-void CoreSystem::loadState() {
-    memory.loadAll();
-    lineage->load(memory);
-    for (auto& component : components) {
-        component->loadState(memory);
     }
 }

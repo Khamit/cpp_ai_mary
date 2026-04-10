@@ -3,7 +3,7 @@
 #include "Config.hpp"
 
 // Forward declaration
-class MemoryManager;
+class EmergentCore;
 
 class Component {
 public:
@@ -15,10 +15,8 @@ public:
     virtual void shutdown() = 0;
     virtual void update(float dt) = 0;
     
-    // Сохранение/загрузка состояния через MemoryManager
-    virtual void saveState(MemoryManager& memory) = 0;
-    virtual void loadState(MemoryManager& memory) = 0;
-    
+    // Сохранение/загрузка состояния через
+
     // Опциональные методы
     virtual void onRegister() {}  // вызывается при регистрации в CoreSystem
     virtual void onUnregister() {} // вызывается при удалении

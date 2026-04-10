@@ -17,14 +17,13 @@
 #include "modules/StatisticsModule.hpp"
 #include "modules/UIModule.hpp"
 #include "core/ImmutableCore.hpp"
-#include "modules/EvolutionModule.hpp"
 #include "modules/ResourceMonitor.hpp"
 #include "modules/ConfigStructs.hpp"
 #include "modules/MetaCognitiveModule.hpp"
 #include "modules/lang/LanguageModule.hpp" 
 #include "core/CoreHub.hpp"
 #include "modules/learning/CuriosityDriver.hpp" 
-//#include "core/MemoryManager.hpp" - now they launch by CoreSystem
+//#include "core/MemoryManager.hpp" //- now they launch by CoreSystem
 //#include "core/Component.hpp"
 #include <signal.h>
 #include <execinfo.h>
@@ -124,7 +123,6 @@ bool ConfigLoader::loadFromFile(const std::string& filename,
     evolConfig.reduction_cooldown_seconds = getIntValue(content, "\"reduction_cooldown_seconds\"", 30);
     evolConfig.max_reductions_per_minute = getIntValue(content, "\"max_reductions_per_minute\"", 2);
     evolConfig.min_fitness_for_optimization = getDoubleValue(content, "\"min_fitness_for_optimization\"", 0.8);
-    evolConfig.evolution_interval_steps = getIntValue(content, "\"evolution_interval_steps\"", 10000);
     evolConfig.backup_on_improvement = getBoolValue(content, "\"backup_on_improvement\"", true);
     evolConfig.enable_adaptive_mutations = getBoolValue(content, "\"enable_adaptive_mutations\"", true);
     
@@ -181,12 +179,17 @@ std::string ConfigLoader::getStringValue(const std::string& content, const std::
 }
 
 int main() {
+
+    std::cout << "=== PROGRAM START ===" << std::endl;
     // Установить обработчик сигналов В САМОМ НАЧАЛЕ
     signal(SIGSEGV, handler);
 
     // Создаем папки если их нет
     std::filesystem::create_directories("dump");
     std::filesystem::create_directories("data");
+
+
+    std::cout << "Step 1: Loading config..." << std::endl;
     
     // Загрузка полной конфигурации
     VisualizationConfig visConfig;
@@ -241,27 +244,27 @@ int main() {
               << NeuralFieldSystem::TOTAL_NEURONS << " total neurons" << std::endl;
     
   // ===== СОЗДАЕМ И ИНИЦИАЛИЗИРУЕМ CORESYSTEM =====
+    std::cout << "Step 2: Creating CoreSystem..." << std::endl;
     CoreSystem core;
-    
+    std::cout << "Step 3: Initializing CoreSystem..." << std::endl;
     if (!core.initialize("config/system_config.json")) {
         std::cerr << "Failed to initialize CoreSystem" << std::endl;
         return 1;
     }
-
+    std::cout << "Step 4: Getting components..." << std::endl;
     const auto& deviceInfo = core.getDeviceInfo();
     std::cout << "Running on: " << deviceInfo.device_type << std::endl;
 
     // Получаем доступ к компонентам
-    EvolutionModule* evolution = core.getComponent<EvolutionModule>("evolution");
     LanguageModule* language = core.getComponent<LanguageModule>("language");
     MetaCognitiveModule* metacog = core.getComponent<MetaCognitiveModule>("metacognition");
     // LearningOrchestrator больше не используется с новым DynamicSemanticMemory
     // auto* learning_orchestrator = core.getComponent<LearningOrchestrator>("learning");
     NeuralFieldSystem& neuralSystem = core.getNeuralSystem();
-    MemoryManager& memoryManager = core.getMemory();
+    EmergentMemory& memoryManager = core.getMemory();
     ImmutableCore& immutable_core = core.getImmutableCore();
     IAuthorization& auth = core.getAuth();
-
+    std::cout << "Step 5: Creating UI..." << std::endl;
     // Регистрируем хабы
     neuralSystem.registerHub(0);
     neuralSystem.registerHub(15);
@@ -269,22 +272,6 @@ int main() {
     
     CoreHub coreHub(3);
     coreHub.connectToGroups(neuralSystem);
-
-    // УДАЛЯЕМ ВСЁ, ЧТО СВЯЗАНО С LearningOrchestrator и ConceptMasteryEvaluator
-    // if (learning_orchestrator) { ... }  // ← УДАЛИТЬ
-
-    // Связываем MetaCognitiveModule с EvolutionModule
-    if (metacog && evolution) {
-        metacog->setEvolutionModule(evolution);
-    }
-
-    auto* trainer = language->getWebTrainer();
-    if (trainer) {
-        std::cout << "WebTrainer is active" << std::endl;
-        std::cout << trainer->getStats() << std::endl;
-    } else {
-        std::cout << "WARNING: WebTrainer is NULL!" << std::endl;
-    }
 
     // Конвертируем Config::ModeLimits в MassLimits
     MassLimits initialLimits;
@@ -302,12 +289,9 @@ int main() {
     neuralSystem.initializePredictiveCoder(memoryManager);
     neuralSystem.setOperatingMode(startupMode);
     std::cout << "Initial operating mode: " << OperatingMode::toString(startupMode) << std::endl;
-
+    
     ResourceMonitor resources(resConfig);
 
-    if (evolution) {
-        evolution->connectToSystem(neuralSystem);
-    }
 
     float bestFitness = 0.0f;
     uint8_t lastAction = 0;
@@ -318,9 +302,19 @@ int main() {
     // Инициализация UI
     UIModule ui(uiConfig, windowWidth, windowHeight);
     ui.setLanguageModule(language);
+    std::cout << "Step 6: Creating window..." << std::endl;
     int visWidth = ui.getVisualizationWidth();
     int visHeight = ui.getVisualizationHeight();
-    
+    auto* trainer = language->getWebTrainer();
+    if (trainer) {
+        std::cout << "WebTrainer is active" << std::endl;
+        std::cout << trainer->getStats() << std::endl;
+        
+        // ПЕРЕДАЁМ WebTrainer в UI
+        ui.setWebTrainer(trainer);
+    } else {
+        std::cout << "WARNING: WebTrainer is NULL!" << std::endl;
+    }
     VisualizationModule visualization(visConfig, NeuralFieldSystem::NUM_GROUPS, 
                                     NeuralFieldSystem::GROUP_SIZE, visWidth, visHeight);
     ui.setVisualizer(&visualization);
@@ -332,14 +326,14 @@ int main() {
 
     sf::RenderWindow window(sf::VideoMode({windowWidth, windowHeight}), 
                            "Advanced Neural Field System - MaryAI");
-
+    std::cout << "Step 7: Window created, entering main loop..." << std::endl;
     UnifiedStatsCollector stats_collector;
     stats_collector.setNeuralSystem(&neuralSystem);
     stats_collector.setMemoryManager(&memoryManager);
-    stats_collector.setEvolution(evolution);
     stats_collector.setLanguage(language);
     stats_collector.setMetaCognitive(metacog);
     // stats_collector.setLearning(nullptr);  // LearningOrchestrator удалён
+    visualization.updateOrbitRadiiFromSystem(neuralSystem);
 
     statistics.setStatsCollector(&stats_collector);
     ui.setStatsCollector(&stats_collector);
@@ -347,16 +341,6 @@ int main() {
     int step = 0;
     bool simulation_running = false;
     bool system_in_stasis = false;
-
-    if (std::ifstream("dump/short_term.bin").good()) {
-        memoryManager.loadAll();
-        std::cout << "! Loaded memory from dump/" << std::endl;
-    }
-
-    core.getEventSystem().subscribe(EventType::PREDICTION_HIGH_ERROR, 
-        [&memoryManager](const Event& event) {
-            memoryManager.storeWithEntropy("predictor", event.data, event.value, 0.8f);
-        });
 
     // ========== ОСНОВНОЙ ЦИКЛ ==========
     while (window.isOpen()) {
@@ -449,112 +433,41 @@ int main() {
             auto end_time = std::chrono::high_resolution_clock::now();
             double step_time = std::chrono::duration<double>(end_time - start_time).count();
 
-            if (evolution) {
-                evolution->evaluateFitness(neuralSystem, step_time, *language);
-            }
-            
-            // Работа с памятью (без LearningOrchestrator)
-            if (!system_in_stasis) {
-                std::vector<float> currentFeatures = neuralSystem.getFeatures();
-                double system_entropy = neuralSystem.computeSystemEntropy();
-                
-                auto similarIndices = memoryManager.findSimilar("neural", currentFeatures, 3);
-                
-                if (!similarIndices.empty()) {
-                    std::vector<int> actionVotes(10, 0);
-                    const auto& neuralMemory = memoryManager.getLongTermMemory().at("neural");
-                    
-                    for (size_t idx : similarIndices) {
-                        if (idx < neuralMemory.size()) {
-                            const auto& past = neuralMemory[idx];
-                            auto actionIt = past.metadata.find("action");
-                            auto utilityIt = past.metadata.find("utility");
-                            
-                            if (actionIt != past.metadata.end() && utilityIt != past.metadata.end()) {
-                                int pastAction = std::stoi(actionIt->second);
-                                float pastUtility = std::stof(utilityIt->second);
-                                actionVotes[pastAction % 10] += static_cast<int>(pastUtility * 10);
-                            }
-                        }
-                    }
-                    lastAction = std::max_element(actionVotes.begin(), actionVotes.end()) - actionVotes.begin();
-                } else {
-                    lastAction = rand() % 5;
-                }
-                
-                float currentFitness = evolution ? evolution->getOverallFitness() : 0.5f;
-                float fitnessDelta = currentFitness - bestFitness;
-                lastReward = fitnessDelta * 10.0f;
-                
-                float explorationBonus = ((rand() % 100) / 10000.0f) - 0.005f;
-                lastReward += explorationBonus;
-                
-                float utility = (currentFitness * 0.5f) + (cumulativeReward * 0.3f) + 0.2f;
-                
-                std::map<std::string, std::string> metadata;
-                metadata["action"] = std::to_string(lastAction);
-                metadata["reward"] = std::to_string(lastReward);
-                metadata["utility"] = std::to_string(utility);
-                metadata["step"] = std::to_string(step);
-                metadata["entropy"] = std::to_string(system_entropy);
-                
-                if (system_entropy > 2.5) {
-                    memoryManager.storeWithEntropy("neural", currentFeatures, system_entropy, utility);
-                } else {
-                    memoryManager.store("neural", "features", currentFeatures, utility, metadata);
-                }
-                
-                if (currentFitness > bestFitness) {
-                    bestFitness = currentFitness;
-                    std::cout << "\nNew best fitness: " << bestFitness 
-                              << " | Records: " << memoryManager.getLongTermMemory().size() << std::endl;
-                }
-                
-                if (step % 10000 == 0 && step > 0) {
-                    memoryManager.saveAll();
-                    statistics.saveToFile("dump/simulation_statistics.csv");
-                    std::cout << "\nCheckpoint saved at step " << step << std::endl;
-                }
-                
-                actionsTaken++;
-                if (actionsTaken % 100 == 0) {
-                    cumulativeReward *= 0.9f;
-                }
-
-                if (step % 1000 == 0) {
-                    memoryManager.saveAll();
-                }
-            }
-
-            // Умный вызов эволюции
-            if (evolution && step % evolConfig.evolution_interval_steps == 0 && !system_in_stasis) {
-                if (evolution->getOverallFitness() < evolConfig.min_fitness_for_optimization) {
-                    evolution->proposeMutation(neuralSystem);
-                }
-            }
             
             statistics.update(neuralSystem, step, dt);
 
-            if (step % 1000 == 0 && system_in_stasis) {
-                if (resources.getCurrentLoad() < 30.0 && evolution) {
-                    evolution->exitStasis();
-                    system_in_stasis = false;
-                    std::cout << "Auto-exited stasis" << std::endl;
-                }
-            }
-            
             if (step % 200 == 0) {
                 const auto& stats = statistics.getCurrentStats();
-                const auto& metrics = evolution ? evolution->getCurrentMetrics() : EvolutionMetrics();
                 double entropy = neuralSystem.computeSystemEntropy();
                 std::cout << "\rStep " << step 
                           << " | Energy: " << std::fixed << std::setprecision(3) << stats.total_energy
                           << " | Entropy: " << std::setprecision(2) << entropy
-                          << " | Fitness: " << std::setprecision(3) << metrics.overall_fitness
                           << " | Best: " << bestFitness
-                          << " | Memory: " << memoryManager.getLongTermMemory().size() 
                           << " | CPU: " << std::setprecision(0) << resources.getCurrentLoad() << "%   ";
                 std::cout.flush();
+            }
+            // В основном цикле, внутри if (simulation_running) после step++
+            if (step % 1000 == 0 && step > 0) {
+                if (trainer) {
+                    trainer->logTrainingStatus();
+                }
+                
+                // Дополнительная статистика обучения
+                std::cout << "\n=== LEARNING STATS ===" << std::endl;
+                std::cout << "Step: " << step << std::endl;
+                std::cout << "Best fitness: " << bestFitness << std::endl;
+                
+                if (language) {
+                    auto stats = language->getLanguageStats();
+                    std::cout << "Words learned: " << stats.words_learned << std::endl;
+                    std::cout << "Patterns detected: " << stats.patterns_detected << std::endl;
+                    std::cout << "Meanings formed: " << stats.meanings_formed << std::endl;
+                    std::cout << "User profiles: " << stats.user_profiles << std::endl;
+                    std::cout << "External feedback avg: " << language->getExternalFeedbackAvg() << std::endl;
+                }
+                
+                
+                std::cout << "=====================\n" << std::endl;
             }
             step++;
         } else {
@@ -570,7 +483,7 @@ int main() {
         }
 
         ui.draw(window, neuralSystem, statistics, simulation_running && !system_in_stasis, 
-                resources, evolution ? *evolution : EvolutionModule(immutable_core, evolConfig, memoryManager), 
+                resources, 
                 memoryManager, step);
         
         window.display();
@@ -581,8 +494,6 @@ int main() {
     
     statistics.saveToFile("dump/simulation_statistics.csv");
     
-    if (evolution) evolution->saveEvolutionState();
-    memoryManager.saveAll();
     if (language) language->saveAll();
     
     if (std::filesystem::exists("config/system_config.json")) {
@@ -600,7 +511,6 @@ int main() {
         meta << "Total neurons: " << NeuralFieldSystem::TOTAL_NEURONS << "\n";
         meta << "Total steps: " << step << "\n";
         meta << "Best fitness: " << bestFitness << "\n";
-        meta << "Memory records: " << memoryManager.getLongTermMemory().size() << "\n";
         meta << "Actions taken: " << actionsTaken << "\n";
         if (language) meta << "Learned words: " << language->getLearnedWordsCount() << "\n";
         meta.close();
@@ -611,7 +521,6 @@ int main() {
     std::cout << "\n=== FINAL STATS ===" << std::endl;
     std::cout << "Total steps: " << step << std::endl;
     std::cout << "Best fitness: " << bestFitness << std::endl;
-    std::cout << "Memory records: " << memoryManager.getLongTermMemory().size() << std::endl;
     std::cout << "Actions taken: " << actionsTaken << std::endl;
     std::cout << "Neurons: " << NeuralFieldSystem::TOTAL_NEURONS << " ("
               << NeuralFieldSystem::NUM_GROUPS << "x" << NeuralFieldSystem::GROUP_SIZE << ")" << std::endl;

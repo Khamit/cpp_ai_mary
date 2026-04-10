@@ -14,7 +14,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 #include "Component.hpp"
-#include "core/MemoryManager.hpp"
+#include "core/EmergentCore.hpp"
 
 class SemanticGraphDatabase;
 enum class EmotionalTone;
@@ -176,19 +176,19 @@ struct MassRecommendations {
 // Параметры орбитальной структуры
 struct OrbitalParams {
     // Радиусы орбит (в порядке возрастания)
-    static constexpr double SINGULARITY_RADIUS = 0.01;      // черная дыра
+    static constexpr double SINGULARITY_RADIUS = 0.05;      // черная дыра
     static constexpr double INNER_ORBIT = 0.6;             // кандидаты
-    static constexpr double BASE_ORBIT = 1.0;              // рабочие
-    static constexpr double MIDDLE_ORBIT = 1.5;            // менеджеры
-    static constexpr double OUTER_ORBIT = 2.6;              // элита
+    static constexpr double BASE_ORBIT = 1.2;              // рабочие
+    static constexpr double MIDDLE_ORBIT = 2.5;            // менеджеры
+    static constexpr double OUTER_ORBIT = 4.3;              // элита
 
     // НОВЫЙ ПАРАМЕТР - НЕ УБЕГАЙТЕ ДЖЕКИЧАНЫ!
-    static constexpr double ESCAPE_VELOCITY = 3.0;  // скорость убегания
+    static constexpr double ESCAPE_VELOCITY = 5.0;  // скорость убегания
     
     // Энергетические пороги
     static constexpr double ESCAPE_ENERGY = 2.7;            // энергия для повышения
-    static constexpr double FALL_ENERGY = 0.8;              // энергия для понижения
-    static constexpr double COLLAPSE_ENERGY = 0.07;          // энергия для обнуления
+    static constexpr double FALL_ENERGY = 1.2;              // энергия для понижения
+    static constexpr double COLLAPSE_ENERGY = 0.8;          // энергия для обнуления
     
     // Стабильность
     static constexpr double HIGH_STABILITY = 0.8;           // высокая стабильность
@@ -224,7 +224,7 @@ struct KnowledgeRelay {
 struct HomeostasisParams {
     // Целевые значения
     double target_entropy = 2.0;           // желаемая энтропия
-    double entropy_tolerance = 0.5;         // допустимое отклонение
+    double entropy_tolerance = 1.0;         // допустимое отклонение
     double adaptation_rate = 0.05;         // скорость адаптации
     
     // Регулируемые параметры
@@ -235,8 +235,8 @@ struct HomeostasisParams {
     double max_temperature = 2.0;              // макс. температура активации
     
     // Параметры для всплесков (bursts)
-    double burst_threshold = 2.3;              // порог для генерации всплеска
-    double burst_strength = 1.5;                // сила всплеска
+    double burst_threshold = 5.0;              // порог для генерации всплеска
+    double burst_strength = 0.8;                // сила всплеска
     double burst_decay = 0.95;                   // затухание всплеска
     
     // История для анализа
@@ -267,6 +267,30 @@ struct HomeostasisParams {
  * Низкие орбиты = временные, экспериментальные.
  * Сингулярность = смерть и перерождение.
  */
+
+ // Получить радиус орбиты по уровню (статический метод)
+static double getOrbitRadiusStatic(int level) {
+    switch(level) {
+        case 0: return OrbitalParams::SINGULARITY_RADIUS;
+        case 1: return OrbitalParams::INNER_ORBIT;
+        case 2: return OrbitalParams::BASE_ORBIT;
+        case 3: return OrbitalParams::MIDDLE_ORBIT;
+        case 4: return OrbitalParams::OUTER_ORBIT;
+        default: return 1.0;
+    }
+}
+
+// Получить все радиусы орбит (для визуализации)
+static std::vector<double> getAllOrbitRadii() {
+    return {
+        OrbitalParams::SINGULARITY_RADIUS,
+        OrbitalParams::INNER_ORBIT,
+        OrbitalParams::BASE_ORBIT,
+        OrbitalParams::MIDDLE_ORBIT,
+        OrbitalParams::OUTER_ORBIT
+    };
+}
+
 class NeuralGroup {
 public:
     NeuralGroup(int size, double dt, std::mt19937& rng, const MassLimits& limits = MassLimits());
@@ -278,7 +302,10 @@ public:
     // Разрешаем перемещение
     NeuralGroup(NeuralGroup&&) = default;
     NeuralGroup& operator=(NeuralGroup&&) = default;
-    void setMemoryManager(MemoryManager* mm) { memory_manager = mm; }
+    void setMemoryManager(EmergentMemory* mm) { memory_manager = mm; }
+
+    void setInputGroup(bool is_input) { is_input_group_ = is_input; }
+    bool isInputGroup() const { return is_input_group_; }
     // Параметры гомеостаза (публичные для доступа)
     HomeostasisParams homeo;
     double activation_temp = 0.8;
@@ -337,6 +364,12 @@ public:
     // Вес и энергия
     const std::vector<std::vector<double>>& getWeights() const { return W_intra; }
     const std::vector<double>& getOrbitalEnergy() const { return orbital_energy; }
+
+    // Элита обучает
+    double computeRelevanceToElite(int neuron_idx, 
+                                             const std::vector<int>& elite,
+                                             const Vec3& collective_intent) const;
+    void eliteToLettersFeedback();
 
     // Получить массу нейрона
     double getMass(int i) const { 
@@ -469,6 +502,53 @@ public:
     void updateWaveFunction();
         // Нейроны при ЦПУ
     bool checkForResourceExhaustion();
+
+    // ROYALITY RULES
+    // Элитный нейрон отдаёт команду нижним орбитам
+    void eliteCommand(int elite_idx, int target_orbit, float command_strength) {
+        if (orbit_level[elite_idx] < 4) return;
+        
+        for (int i = 0; i < size; i++) {
+            if (orbit_level[i] == target_orbit) {
+                // Элита влияет на позицию нижнего нейрона
+                Vec3 direction = pos[elite_idx].normalized();
+                force[i] += direction * command_strength * 0.1;
+                
+                // Усиливаем связь между элитой и исполнителем
+                W_intra[elite_idx][i] += command_strength * 0.05;
+                W_intra[i][elite_idx] = W_intra[elite_idx][i];
+            }
+        }
+    }
+
+    // Получить "решение" элитного нейрона (какую орбиту активировать)
+    int getEliteDecision(int elite_idx) {
+        if (orbit_level[elite_idx] < 4) return -1;
+        
+        // Элитный нейрон "голосует" за активацию определённой орбиты
+        double max_activity = 0.0;
+        int best_orbit = -1;
+        
+        for (int level = 0; level < 4; level++) {
+            double avg_activity = 0.0;
+            int count = 0;
+            for (int i = 0; i < size; i++) {
+                if (orbit_level[i] == level) {
+                    avg_activity += pos[i].norm();
+                    count++;
+                }
+            }
+            if (count > 0) {
+                avg_activity /= count;
+                if (avg_activity > max_activity) {
+                    max_activity = avg_activity;
+                    best_orbit = level;
+                }
+            }
+        }
+        
+        return best_orbit;
+    }
 
     // ===== ЕДИНАЯ энтропия для всей системы (в БИТАХ) ======
     // Исправленный метод — возвращает энтропию в БИТАХ!
@@ -705,6 +785,68 @@ public:
         return static_cast<float>(connection_success_count[i][j]) / total;
     }
 
+    // Элита обучает
+    // публичный метод для внешнего воздействия элиты
+    void eliteInstruct(const std::string& target_type, float strength) {
+        // ЗАЩИТА: слишком частые инструкции вредят
+        static std::map<std::string, int> instruction_counter;
+        instruction_counter[target_type]++;
+        
+        if (instruction_counter[target_type] > 10 && step_counter_ % 100 != 0) {
+            return;  // ограничиваем частоту
+        }
+        
+        std::vector<int> elite = getNeuronsByOrbit(4);
+        if (elite.empty()) return;
+        
+        // Элита формирует "инструкцию" на основе своего состояния
+        Vec3 instruction = eliteCommandVector();
+        
+        if (target_type == "letters") {
+            // Инструктируем буквенные нейроны
+            for (int i = 0; i < size; i++) {
+                if (orbit_level[i] <= 1) {
+                    force[i] += instruction * strength * 0.1;
+                }
+            }
+        } 
+        else if (target_type == "words") {
+            // Инструктируем слова
+            for (int i = 0; i < size; i++) {
+                if (orbit_level[i] == 2) {
+                    force[i] += instruction * strength * 0.15;
+                }
+            }
+        }
+        else if (target_type == "patterns") {
+            // Инструктируем паттерны
+            for (int i = 0; i < size; i++) {
+                if (orbit_level[i] == 3) {
+                    force[i] += instruction * strength * 0.2;
+                }
+            }
+        }
+    }
+
+    Vec3 eliteCommandVector() const {
+        std::vector<int> elite = getNeuronsByOrbit(4);
+        if (elite.empty()) return Vec3(0, 0, 0);
+        
+        Vec3 command(0, 0, 0);
+        double total_mass = 0.0;
+        
+        for (int e : elite) {
+            command += pos[e].normalized() * mass[e];
+            total_mass += mass[e];
+        }
+        
+        if (total_mass > 0) {
+            command = command / total_mass;
+        }
+        
+        return command.normalized();
+    }
+
     // ENTROPY
         // ===== НОВЫЕ МЕТОДЫ ДЛЯ УПРАВЛЕНИЯ КОНСОЛИДАЦИЕЙ =====
     void setConsolidationRate(float rate) {
@@ -754,7 +896,8 @@ public:
 private:
     MassLimits mass_limits;
     OperatingMode::Type current_mode_ = OperatingMode::NORMAL;
-    MemoryManager* memory_manager = nullptr;
+    EmergentMemory* memory_manager = nullptr;
+    bool is_input_group_ = false;
 
     // ===== ФУНДАМЕНТАЛЬНЫЕ ПАРАМЕТРЫ =====
     int size;                       // количество нейронов
@@ -769,8 +912,8 @@ private:
     std::vector<std::vector<int>> connection_success_count;
 
     // ===== НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ БАЛАНСИРОВКИ ЭНТРОПИИ =====
-    double promotion_threshold_ = 0.6;
-    double demotion_threshold_ = 0.4;
+    double promotion_threshold_ = 0.8;
+    double demotion_threshold_ = 0.2;
     
     // Время последнего использования
     std::vector<std::vector<int>> connection_last_used_step;
@@ -813,7 +956,7 @@ private:
     std::deque<double> entropy_history;              // история энтропии
     double burst_potential = 0.0;
     int last_burst_step = 0;
-    static constexpr int BURST_COOLDOWN = 50;
+    static constexpr int BURST_COOLDOWN = 5000;
     
     // ===== ВЫСОТА (ELEVATION) =====
     float elevation_ = 0.0f;

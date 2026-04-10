@@ -5,14 +5,14 @@
 #include "StatisticsModule.hpp"
 #include "ConfigStructs.hpp"
 #include "ResourceMonitor.hpp"
-#include "EvolutionModule.hpp"
 #include <string>
 #include "lang/LanguageModule.hpp"
 #include "UnifiedStatsCollector.hpp"
 #include "VisualizationModule.hpp"
+#include "../modules/learning/WebTrainerModule.hpp"
 
 // Forward declaration
-class MemoryManager; 
+class EmergentCore; 
 
    struct ChatMessage {
     std::string text;
@@ -36,10 +36,11 @@ public:
                         bool& simulation_running, StatisticsModule& stats);
     void draw(sf::RenderWindow& window, const NeuralFieldSystem& system, 
         const StatisticsModule& stats, bool simulation_running,
-        const ResourceMonitor& resources, const EvolutionModule& evolution,
-        const MemoryManager& memory, int step); 
+        const ResourceMonitor& resources,
+        const EmergentMemory& memory, int step); 
     
     int getVisualizationWidth() const { return windowWidth - config.control_panel_width; }
+    void setWebTrainer(WebTrainerModule* trainer) { web_trainer_ = trainer; }
     
     int getVisualizationHeight() const {
         return windowHeight 
@@ -132,6 +133,7 @@ private:
     void drawMeter(sf::RenderWindow& window, const std::string& label, float value, float x, float y);
     void drawBar(sf::RenderWindow& window, const std::string& label, float value, float x, float y);
     // =================================================
+    WebTrainerModule* web_trainer_ = nullptr;
 
     UIConfig config;
     int windowWidth, windowHeight;
@@ -139,13 +141,13 @@ private:
     
     sf::Font font;
     sf::RectangleShape startButton, stopButton, resetButton;
-    sf::Text startText, stopText, resetText, statsText, evolutionText, stasisText;
+    sf::Text startText, stopText, resetText, statsText, stasisText;
     sf::Text resourceText, configText; // Новые текстовые элементы
     sf::RectangleShape bottomPanel; // Новая нижняя панель
     
     void drawControlPanel(sf::RenderWindow& window, const StatisticsModule& stats, bool simulation_running);
-    void drawStatistics(sf::RenderWindow& window, const StatisticsModule& stats, const EvolutionModule& evolution);
-    void drawBottomPanel(sf::RenderWindow& window, const ResourceMonitor& resources, const EvolutionModule& evolution);
+    void drawStatistics(sf::RenderWindow& window, const StatisticsModule& stats);
+    void drawBottomPanel(sf::RenderWindow& window, const ResourceMonitor& resources);
     std::string formatDouble(double value, int precision = 4) const;
 
     // === AI CHAT ===
@@ -190,7 +192,7 @@ private:
     bool autoLearningActive = false;  // флаг активности автообучения
 
     UnifiedStatsCollector* stats_collector = nullptr;
-    int current_display_mode = 0; // 0=все, 1=neural, 2=evolution, 3=language, 4=memory
+    int current_display_mode = 0;
     sf::Text modeText;
 
     // кнопка чата

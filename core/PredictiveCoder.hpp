@@ -6,7 +6,7 @@
 
 // Forward declarations
 class NeuralFieldSystem;
-class MemoryManager;
+class EmergentMemory;
 
 /**
  * @class PredictiveCoder
@@ -18,7 +18,7 @@ class MemoryManager;
 class PredictiveCoder {
 public:
     PredictiveCoder(NeuralFieldSystem& neural_system,
-                    MemoryManager& memory_manager);
+                    EmergentMemory& memory);
 
     /**
      * Основной шаг предсказательного кодирования
@@ -43,7 +43,7 @@ private:
 
 private:
     NeuralFieldSystem& neural_system_;
-    MemoryManager& memory_manager_;
+    EmergentMemory& memory_;
 
     std::deque<std::vector<float>> state_history_;
     std::deque<float> prediction_errors_;

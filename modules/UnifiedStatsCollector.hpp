@@ -1,8 +1,7 @@
 // modules/UnifiedStatsCollector.hpp
 #pragma once
 #include "../core/NeuralFieldSystem.hpp"
-#include "../core/MemoryManager.hpp"
-#include "EvolutionModule.hpp"
+#include "../core/EmergentCore.hpp"
 #include "lang/LanguageModule.hpp"
 #include "MetaCognitiveModule.hpp"
 #include <map>
@@ -21,8 +20,7 @@ struct ModuleStats {
 class UnifiedStatsCollector {
 private:
     NeuralFieldSystem* neural_system = nullptr;
-    MemoryManager* memory_manager = nullptr;
-    EvolutionModule* evolution = nullptr;
+    EmergentMemory* memory_manager = nullptr;
     LanguageModule* language = nullptr;
     MetaCognitiveModule* metacog = nullptr;
     LearningOrchestrator* learning = nullptr;  // ИЗМЕНЕНО
@@ -32,8 +30,7 @@ private:
     
 public:
     void setNeuralSystem(NeuralFieldSystem* ns) { neural_system = ns; }
-    void setMemoryManager(MemoryManager* mem) { memory_manager = mem; }
-    void setEvolution(EvolutionModule* ev) { evolution = ev; }
+    void setMemoryManager(EmergentMemory* mem) { memory_manager = mem; }
     void setLanguage(LanguageModule* lang) { language = lang; }
     void setMetaCognitive(MetaCognitiveModule* meta) { metacog = meta; }
     void setLearning(LearningOrchestrator* learn) { learning = learn; }  // ИЗМЕНЕНО
@@ -99,27 +96,11 @@ void update(int step) {
         ModuleStats memory;
         memory.name = "MEMORY";
         
-        memory.numeric_stats["short_term"] = memory_manager->getShortTermSize();
-        memory.numeric_stats["long_term"] = memory_manager->getLongTermMemory().size();
-        memory.numeric_stats["dump_size"] = memory_manager->getDumpSize();
+        // memory.numeric_stats["short_term"] = memory_manager->getShortTermSize();
+        // memory.numeric_stats["long_term"] = memory_manager->getLongTermMemory().size();
+        // memory.numeric_stats["dump_size"] = memory_manager->getDumpSize();
         
         all_stats["memory"] = memory;
-    }
-    
-    // 3. EVOLUTION STATS
-    if (evolution) {
-        ModuleStats evo;
-        evo.name = "EVOLUTION";
-        
-        const auto& metrics = evolution->getCurrentMetrics();
-        evo.numeric_stats["fitness"] = metrics.overall_fitness;
-        evo.numeric_stats["best_fitness"] = evolution->getBestFitness();
-        evo.numeric_stats["energy_score"] = metrics.energy_score;
-        evo.numeric_stats["performance_score"] = metrics.performance_score;
-        evo.numeric_stats["code_score"] = metrics.code_size_score;
-        evo.numeric_stats["in_stasis"] = evolution->isInStasis() ? 1.0 : 0.0;
-        
-        all_stats["evolution"] = evo;
     }
     
     // 4. LANGUAGE STATS
@@ -235,32 +216,34 @@ void update(int step) {
         return 0.0;
     }
         
-    std::string getCompactStats() const {
+ std::string getCompactStats() const {
         std::stringstream ss;
-        ss << std::fixed << std::setprecision(2);
         
-        // Однострочная статистика для отладки
-        auto neural = all_stats.find("neural");
-        auto evolution = all_stats.find("evolution");
-        auto memory = all_stats.find("memory");
-        auto language = all_stats.find("language");
+        // Безопасное получение значения с дефолтом
+        auto getValue = [&](const std::string& category, const std::string& key, double defaultVal = 0.0) -> double {
+            auto catIt = all_stats.find(category);
+            if (catIt == all_stats.end()) return defaultVal;
+            auto valIt = catIt->second.numeric_stats.find(key);
+            if (valIt == catIt->second.numeric_stats.end()) return defaultVal;
+            return valIt->second;
+        };
         
-        if (neural != all_stats.end()) {
-            ss << "Energy:" << neural->second.numeric_stats.at("energy")
-               << "Entropy:" << neural->second.numeric_stats.at("entropy");
-        }
+        double energy = getValue("neural", "total_energy");
+        double entropy = getValue("neural", "system_entropy");
+        double fitness = getValue("evolution", "overall_fitness");
+        double bestFitness = getValue("evolution", "best_fitness");
+        double words = getValue("language", "words_learned");
+        double feedback = getValue("language", "external_feedback_avg");
+        double stm = getValue("memory", "stm_size");
+        double ltm = getValue("memory", "ltm_size");
         
-        if (evolution != all_stats.end()) {
-            ss << " Fit:" << evolution->second.numeric_stats.at("fitness");
-        }
-        
-        if (memory != all_stats.end()) {
-            ss << " Mem:" << memory->second.numeric_stats.at("long_term");
-        }
-        
-        if (language != all_stats.end()) {
-            ss << " Lang:" << language->second.numeric_stats.at("fitness");
-        }
+        ss << "Energy: " << std::fixed << std::setprecision(2) << energy << "\n";
+        ss << "Entropy: " << std::setprecision(2) << entropy << "\n";
+        ss << "Fitness: " << std::setprecision(2) << fitness << "\n";
+        ss << "Best: " << bestFitness << "\n";
+        ss << "Words: " << words << "\n";
+        ss << "Feedback: " << std::setprecision(2) << feedback << "\n";
+        ss << "STM: " << stm << " LTM: " << ltm;
         
         return ss.str();
     }

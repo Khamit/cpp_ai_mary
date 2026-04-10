@@ -1,16 +1,16 @@
 #include "PredictiveCoder.hpp"
 
 #include "NeuralFieldSystem.hpp"
-#include "MemoryManager.hpp"
+#include "EmergentCore.hpp"
 
 #include <cmath>
 #include <iostream>
 #include <algorithm>
 
 PredictiveCoder::PredictiveCoder(NeuralFieldSystem& neural_system,
-                                 MemoryManager& memory_manager)
+                                 EmergentMemory& memory)
     : neural_system_(neural_system),
-      memory_manager_(memory_manager) {}
+      memory_(memory) {}
 
 float PredictiveCoder::step(int step_number)
 {
@@ -170,40 +170,21 @@ void PredictiveCoder::triggerAnomaly(float error, int step) {
 void PredictiveCoder::storeCompressedState(const std::vector<float>& state,
                                            float error)
 {
-    // ЗАЩИТА 1: Проверка валидности
-    if (state.size() < 64) {
-        return;
-    }
+    if (state.size() < 64) return;
     
-    // ЗАЩИТА 2: Проверка на NaN/Inf
     for (size_t i = 0; i < std::min(state.size(), size_t(10)); i++) {
-        if (!std::isfinite(state[i])) {
-            std::cerr << "PredictiveCoder: невалидное состояние" << std::endl;
-            return;
-        }
+        if (!std::isfinite(state[i])) return;
     }
     
-    // ЗАЩИТА 3: Слишком частая запись
     static int last_store_step = 0;
     static int store_count = 0;
-    
-    // Сбрасываем счетчик каждые 1000 шагов
     static int current_step = 0;
-    if (current_step % 1000 == 0) {
-        store_count = 0;
-    }
     
-    // Не сохраняем слишком часто (максимум 1 раз в 10 шагов)
-    if (current_step - last_store_step < 10) {
-        return;
-    }
+    if (current_step % 1000 == 0) store_count = 0;
+    if (current_step - last_store_step < 10) return;
+    if (store_count > 100) return;
     
-    // Не сохраняем слишком много всего (максимум 100 сохранений)
-    if (store_count > 100) {
-        return;
-    }
-    
-    // Создаем сжатое представление
+    // Создаём сжатое представление
     std::vector<float> compressed(16, 0.0f);
     for (int i = 0; i < 16; ++i) {
         float sum = 0.0f;
@@ -213,27 +194,16 @@ void PredictiveCoder::storeCompressedState(const std::vector<float>& state,
         compressed[i] = sum / 4.0f;
     }
     
-    // ЗАЩИТА 4: Проверяем сжатые данные
-    for (float val : compressed) {
-        if (!std::isfinite(val)) {
-            std::cerr << "PredictiveCoder: невалидное сжатое состояние" << std::endl;
-            return;
-        }
-    }
+    // Сохраняем в EmergentMemory
+    memory_.writeSTM(
+        compressed,           // pattern
+        0.7f,                 // importance
+        static_cast<float>(error),  // entropy
+        "predictive_state",   // tag
+        current_step
+    );
     
-    // Сохраняем с защитой от исключений
-    try {
-        memory_manager_.storeWithEntropy(
-            "predictive",
-            compressed,
-            static_cast<double>(error),
-            0.7f
-        );
-        last_store_step = current_step;
-        store_count++;
-    } catch (const std::exception& e) {
-        std::cerr << "Ошибка сохранения в PredictiveCoder: " << e.what() << std::endl;
-    }
-    
+    last_store_step = current_step;
+    store_count++;
     current_step++;
 }

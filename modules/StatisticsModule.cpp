@@ -92,16 +92,6 @@ void StatisticsModule::updateFromCollector()
 
     const auto& all_stats = stats_collector->getAllStats();
 
-    auto evo_it = all_stats.find("evolution");
-    if (evo_it != all_stats.end())
-    {
-        auto fit_it = evo_it->second.numeric_stats.find("fitness");
-        if (fit_it != evo_it->second.numeric_stats.end())
-        {
-            last.fitness = fit_it->second;
-        }
-    }
-
     auto mem_it = all_stats.find("memory");
     if (mem_it != all_stats.end())
     {

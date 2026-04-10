@@ -3,7 +3,7 @@
 #include <sstream>
 #include <iomanip>
 #include <iostream>
-#include "core/MemoryManager.hpp" 
+#include "core/EmergentCore.hpp" 
 
 // Apple-like dark UI palette
 static const sf::Color PANEL_BG(30, 32, 34, 180);
@@ -26,7 +26,6 @@ UIModule::UIModule(const UIConfig& config, int windowWidth, int windowHeight)
       stopText(font),
       resetText(font),
       statsText(font),
-      evolutionText(font),
       stasisText(font),
       resourceText(font),
       configText(font),
@@ -162,13 +161,6 @@ UIModule::UIModule(const UIConfig& config, int windowWidth, int windowHeight)
     statsText.setCharacterSize(14);
     statsText.setFillColor(TEXT_MAIN);
     statsText.setPosition(sf::Vector2f(startX, 220.0f));
-    
-    // Эволюция
-    evolutionText.setFont(font);
-    evolutionText.setString("Evolution:\n\nLoading...");
-    evolutionText.setCharacterSize(14);
-    evolutionText.setFillColor(TEXT_MAIN);
-    evolutionText.setPosition(sf::Vector2f(startX, 350.0f));
     
     // Стазис
     stasisText.setFont(font);
@@ -555,7 +547,18 @@ void UIModule::handleMouseClick(const sf::Event::MouseButtonPressed& event, Neur
 
     else if (autoLearnButton.getGlobalBounds().contains(mousePos)) {
         autoLearningActive = true;
-        // ВАЖНО: автоматически запускаем симуляцию, если она остановлена
+        
+        // РЕАЛЬНЫЙ ЗАПУСК WebTrainer
+        if (web_trainer_) {
+            // Если ещё не загружены базовые знания — загружаем
+            web_trainer_->bootstrapWithBasicKnowledge();  // ← добавить
+            web_trainer_->start();
+            std::cout << "WebTrainer STARTED" << std::endl;
+        } else {
+            std::cout << "WARNING: WebTrainer is NULL!" << std::endl;
+        }
+        
+        // Автоматически запускаем симуляцию, если она остановлена
         if (!simulation_running) {
             simulation_running = true;
             stats.startTimer();
@@ -567,6 +570,13 @@ void UIModule::handleMouseClick(const sf::Event::MouseButtonPressed& event, Neur
 
     else if (stopLearnButton.getGlobalBounds().contains(mousePos)) {
         autoLearningActive = false;
+        
+        // РЕАЛЬНАЯ ОСТАНОВКА WebTrainer
+        if (web_trainer_) {
+            web_trainer_->stop();
+            std::cout << "WebTrainer STOPPED" << std::endl;
+        }
+        
         // НЕ останавливаем симуляцию, только обучение
         std::cout << "AUTO-LEARNING STOPPED" << std::endl;
         return;
@@ -575,17 +585,19 @@ void UIModule::handleMouseClick(const sf::Event::MouseButtonPressed& event, Neur
 
 void UIModule::draw(sf::RenderWindow& window, const NeuralFieldSystem& system, 
                    const StatisticsModule& stats, bool simulation_running,
-                   const ResourceMonitor& resources, const EvolutionModule& evolution,
-                   const MemoryManager& memory, int step) {
+                   const ResourceMonitor& resources,
+                   const EmergentMemory& memory, int step) {
     
     // Рисуем нижнюю панель
     window.draw(bottomPanel);
-    drawBottomPanel(window, resources, evolution);
+    drawBottomPanel(window, resources);
     
     //CHAT
     drawChat(window);
     
     if (!config.show_controls) return;
+
+    
 
     sf::RectangleShape panel;
     panel.setSize(sf::Vector2f(
@@ -1195,8 +1207,7 @@ void UIModule::drawReflectionPanel(sf::RenderWindow& window) {
 
 void UIModule::drawStatistics(
     sf::RenderWindow& window, 
-    const StatisticsModule& stats, 
-    const EvolutionModule& evolution) {
+    const StatisticsModule& stats) {
 
     const auto& current = stats.getCurrentStats();
     
@@ -1212,17 +1223,6 @@ void UIModule::drawStatistics(
     statsText.setString(ss.str());
     window.draw(statsText);
     
-    // Эволюция
-    std::stringstream evolution_ss;
-    evolution_ss << "Evolution:\n\n"
-                    << "Fitness: " << formatDouble(evolution.getOverallFitness()) << "\n"
-                    << "Best: " << formatDouble(evolution.getBestFitness()) << "\n"
-                 << "Generation: " << stats.getHistory().size() / 100 << "\n"
-                 << "Mutations: " << (current.step / 1000);
-    
-    evolutionText.setString(evolution_ss.str());
-    window.draw(evolutionText);
-    
     // Стазис
     if (stats.getCurrentStats().total_energy < 0.001) {
         stasisText.setString("LOW ENERGY\nSTASIS MODE");
@@ -1231,7 +1231,7 @@ void UIModule::drawStatistics(
     }
 }
 
-void UIModule::drawBottomPanel(sf::RenderWindow& window, const ResourceMonitor& resources, const EvolutionModule& evolution) {
+void UIModule::drawBottomPanel(sf::RenderWindow& window, const ResourceMonitor& resources) {
     // Ресурсы
     std::stringstream resource_ss;
     resource_ss << "RESOURCES:\n"
@@ -1246,10 +1246,7 @@ void UIModule::drawBottomPanel(sf::RenderWindow& window, const ResourceMonitor& 
     // Конфигурация
     std::stringstream config_ss;
     config_ss << "CONFIGURATION:\n"
-              << "CPU Threshold: " << formatDouble(resources.getCPUThreshold(), 1) << "%\n"
-              //<< "Reduction Cooldown: " << evolution.getReductionCooldown() << "s\n"
-              << "Overall Fitness: " << evolution.getOverallFitness() << "/min\n"
-              << "Best Fitness: " << formatDouble(evolution.getBestFitness(), 2);
+              << "CPU Threshold: " << formatDouble(resources.getCPUThreshold(), 1) << "%\n";
     
     configText.setString(config_ss.str());
     window.draw(configText);

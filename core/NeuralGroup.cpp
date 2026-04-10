@@ -100,7 +100,7 @@ void NeuralGroup::evolve() {
             // Квантовое туннелирование - шанс спонтанного повышения
             if (wave_amplitude[i] > 1.5 && orbit_level[i] < 4) {
                 static std::mt19937 rng(std::random_device{}());
-                if (std::uniform_real_distribution<>(0, 1)(rng) < 0.001) {
+                if (std::uniform_real_distribution<>(0, 1)(rng) < 0.02) {
                     std::cout << "  Quantum tunneling! Neuron " << i 
                               << " jumps to orbit " << (orbit_level[i] + 1) << std::endl;
                     orbit_level[i]++;
@@ -141,6 +141,10 @@ void NeuralGroup::evolve() {
 
     if (step_counter_ % 50 == 0) {
         pruneConnectionsByOrbit();
+    }
+
+    if (step_counter_ % 50 == 0) {
+        eliteToLettersFeedback();  // ← ДОБАВИТЬ
     }
     
     if (step_counter_ % 200 == 0) {
@@ -237,13 +241,12 @@ void NeuralGroup::evolve() {
 
 void NeuralGroup::saveBestPatternToMemory(float reward) {
     if (!memory_manager) return;
-    if (reward < 0.7f) return;  // только лучшие паттерны
+    if (reward < 0.7f) return;
     
-    // Находим наиболее активный нейрон
     int best_neuron = -1;
     float best_activity = 0.0f;
     for (int i = 0; i < size; i++) {
-        float activity = pos[i].norm();
+        float activity = static_cast<float>(pos[i].norm());
         if (activity > best_activity) {
             best_activity = activity;
             best_neuron = i;
@@ -252,7 +255,6 @@ void NeuralGroup::saveBestPatternToMemory(float reward) {
     
     if (best_neuron == -1) return;
     
-    // Сохраняем паттерн связей этого нейрона
     std::vector<float> pattern;
     for (int j = 0; j < size; j++) {
         if (j != best_neuron) {
@@ -260,12 +262,13 @@ void NeuralGroup::saveBestPatternToMemory(float reward) {
         }
     }
     
-    // Сохраняем с высокой важностью
-    memory_manager->storeWithEntropy(
-        "best_patterns",
+    // Исправлено: используем writeSTM вместо storeWithEntropy
+    memory_manager->writeSTM(
         pattern,
-        computeEntropy(),
-        std::min(1.0f, reward)
+        std::min(1.0f, reward),
+        0.5f,  // entropy
+        "best_pattern",
+        step_counter_
     );
     
     std::cout << "Saved best pattern from neuron " << best_neuron 
@@ -275,11 +278,23 @@ void NeuralGroup::saveBestPatternToMemory(float reward) {
 void NeuralGroup::checkForEscape(int i, std::mt19937& rng) {
     double r = pos[i].norm();
     
-    // Определяем предел побега - немного больше OUTER_ORBIT
-    const double ESCAPE_LIMIT = OrbitalParams::OUTER_ORBIT * 1.7;  // ~4.68
+    // НОВОЕ: мягкое ограничение вместо жёсткого
+    const double SOFT_LIMIT = OrbitalParams::OUTER_ORBIT * 1.2;  // 5.4
+    const double HARD_LIMIT = OrbitalParams::OUTER_ORBIT * 1.5;  // 6.75
+
+    if (r > SOFT_LIMIT) {
+        // Тормозим, но не сбрасываем
+        double brake = 0.95;
+        vel[i] *= brake;
+        
+        // Тянем обратно к центру
+        Vec3 radial = pos[i].normalized();
+        double pull = 0.01 * (r - SOFT_LIMIT);
+        vel[i] -= radial * pull;
+    }
     
     // Если нейрон слишком далеко - он "сбежал"
-    if (r > ESCAPE_LIMIT) {
+    if (r > HARD_LIMIT) {
         // УБИРАЕМ вывод для каждого нейрона, оставляем только для отладки
         // std::cout << "  Neuron " << i << " escaped to infinity at r=" << r 
         //          << "! Resetting to singularity..." << std::endl;
@@ -447,7 +462,7 @@ void NeuralGroup::computeDerivatives() {
         }
         // ВЫСОКИЕ ОРБИТЫ: высокое трение = стабильность
         else if (r > OrbitalParams::MIDDLE_ORBIT) {
-            damping_factor *= 2.0;   // дополнительное торможение для элиты
+            damping_factor *= 3.2;   // дополнительное торможение для элиты
         }
         
         double orbital_drag = damping_factor * inertia_factor;
@@ -509,11 +524,11 @@ void NeuralGroup::computeDerivatives() {
             
             // Усиливаем для нейронов в сингулярности
             if (orbit_level[i] == 0) {
-                pauli_repulsion *= 20.0;  // усилено с 5.0 до 20.0
+                pauli_repulsion *= 16.0;  // усилено с 5.0 до 20.0
             }
             
             // ПРИМЕНЯЕМ ИМПУЛЬС, а не силу (для преодоления диссипации)
-            double impulse_strength = pauli_repulsion * dt * 10.0;
+            double impulse_strength = pauli_repulsion * dt * 7.0;
             vel[i] += radial * impulse_strength;
             
             // Добавляем случайную компоненту
@@ -832,73 +847,78 @@ void NeuralGroup::updateOrbitLevels() {
             bool matches_known = false;  // <-- ДОБАВИТЬ ЭТУ ПЕРЕМЕННУЮ
             
             if (memory_manager) {
-                auto similar = memory_manager->findSimilar("emergent_patterns", pattern, 1);
-                similar_exists = !similar.empty();
+                // Используем query вместо findSimilar
+                auto matches = memory_manager->query(pattern, 1, step_counter_);
+                bool similar_exists = !matches.empty();
+                
+                // Для поиска по энтропии — проходим по LTM вручную
+                const auto& ltm = memory_manager->getLTM();
+                std::vector<MemoryRecord> high_entropy_patterns;
+                for (const auto& record : ltm) {
+                    if (record.entropy > 1.5f) {
+                        high_entropy_patterns.push_back(record);
+                    }
+                
 
-                if (!similar.empty()) {
-                    // Подкрепляем уже известные паттерны
-                    //reward += 0.2;  // ← ЭТОГО НЕТ!
-                }
-
-                auto patterns = memory_manager->findHighEntropyRecords("emergent_patterns", 1.5);
-                for (auto& p : patterns) {
-                    if (p.data.size() != static_cast<size_t>(size)) continue;
-                    
-                    // Сравниваем текущий паттерн нейрона i с сохранённым паттерном
-                    double similarity = 0.0;
-                    int matched = 0;
-                    
-                    for (int j = 0; j < size; j++) {
-                        double weight = std::abs(W_intra[i][j]);
-                        double pattern_val = std::abs(p.data[j]);
+                    // Используем high_entropy_patterns вместо findHighEntropyRecords
+                    for (const auto& p : high_entropy_patterns) {
+                        if (p.pattern.size() != static_cast<size_t>(size)) continue;
                         
-                        // Евклидово расстояние для похожести
-                        double diff = weight - pattern_val;
-                        if (std::abs(diff) < 0.1) {  // порог схожести
-                            similarity += 1.0 - std::abs(diff);
-                            matched++;
-                        }
-                    }
-                    
-                    if (matched > 0) {
-                        similarity /= matched;
-                    }
-                    
-                    // Если паттерн похож (более 70% схожести) — подкрепляем
-                    if (similarity > 0.7f && matched > size / 4) {
+                        // Сравниваем текущий паттерн нейрона i с сохранённым паттерном
+                        double similarity = 0.0;
+                        int matched = 0;
+                        
                         for (int j = 0; j < size; j++) {
                             double weight = std::abs(W_intra[i][j]);
-                            double pattern_val = std::abs(p.data[j]);
-                            double diff = weight - pattern_val;
+                            double pattern_val = std::abs(p.pattern[j]);
                             
-                            if (std::abs(diff) < 0.1) {
-                                // Усиливаем связь в направлении сохранённого паттерна
-                                W_intra[i][j] += (pattern_val - weight) * 0.05;
-                                W_intra[j][i] = W_intra[i][j];
+                            // Евклидово расстояние для похожести
+                            double diff = weight - pattern_val;
+                            if (std::abs(diff) < 0.1) {  // порог схожести
+                                similarity += 1.0 - std::abs(diff);
+                                matched++;
                             }
                         }
                         
-                        // Ограничиваем веса
-                        double maxW = static_cast<double>(params.maxWeight);
-                        for (int j = 0; j < size; j++) {
-                            W_intra[i][j] = std::clamp(W_intra[i][j], -maxW, maxW);
-                            W_intra[j][i] = W_intra[i][j];
+                        if (matched > 0) {
+                            similarity /= matched;
                         }
                         
-                        std::cout << "  Reinforced pattern from memory for neuron " << i 
-                                << " (similarity: " << similarity << ")" << std::endl;
+                        // Если паттерн похож (более 70% схожести) — подкрепляем
+                        if (similarity > 0.7f && matched > size / 4) {
+                            for (int j = 0; j < size; j++) {
+                                double weight = std::abs(W_intra[i][j]);
+                                double pattern_val = std::abs(p.pattern[j]);
+                                double diff = weight - pattern_val;
+                                
+                                if (std::abs(diff) < 0.1) {
+                                    // Усиливаем связь в направлении сохранённого паттерна
+                                    W_intra[i][j] += (pattern_val - weight) * 0.05;
+                                    W_intra[j][i] = W_intra[i][j];
+                                }
+                            }
+                            
+                            // Ограничиваем веса
+                            double maxW = static_cast<double>(params.maxWeight);
+                            for (int j = 0; j < size; j++) {
+                                W_intra[i][j] = std::clamp(W_intra[i][j], -maxW, maxW);
+                                W_intra[j][i] = W_intra[i][j];
+                            }
+                            
+                            std::cout << "  Reinforced pattern from memory for neuron " << i 
+                                    << " (similarity: " << similarity << ")" << std::endl;
+                        }
                     }
                 }
-            }
             
-            if (!similar_exists) {
-                // Новый паттерн! Сохраняем в memory_manager (НЕ в граф)
-                if (memory_manager) {
-                    memory_manager->storeWithEntropy(
-                        "emergent_patterns",  // отдельное хранилище для эмерджентных паттернов
+                if (!similar_exists) {
+                    // Сохраняем через writeSTM вместо storeWithEntropy
+                    memory_manager->writeSTM(
                         pattern,
-                        computeLocalEntropy(i),
-                        0.7f
+                        0.7f,
+                        static_cast<float>(computeLocalEntropy(i)),
+                        "emergent_pattern",
+                        step_counter_
                     );
                 }
             }
@@ -1006,6 +1026,7 @@ void NeuralGroup::updateOrbitLevels() {
                     std::cout << " Force demotion of lazy elite neuron " << i << std::endl;
                 }
         }
+        
         // ===== 5. РАСПРЕДЕЛЕНИЕ ПО ФУНКЦИЯМ =====
         // На основе орбиты назначаем специализацию
         if (orbit_level[i] >= 3) {
@@ -1030,6 +1051,7 @@ void NeuralGroup::updateOrbitLevels() {
     if (step_counter_ % 1000 == 0) {
         rebalanceOrbits(); 
     }
+
     // ===== НОВОЕ: заморозка стабильных кластеров =====
     for (int i = 0; i < size; i++) {
         if (orbit_level[i] >= 3 && time_on_orbit[i] > 200.0) {
@@ -1070,8 +1092,64 @@ void NeuralGroup::updateOrbitLevels() {
             }
         }
     }
+    // ===== НОВОЕ: "ПРИВЫЧКА" ДЛЯ ЭЛИТЫ =====
+    // ДОБАВИТЬ ЭТОТ БЛОК ЗДЕСЬ, ПОСЛЕ ЗАМОРОЗКИ КЛАСТЕРОВ
+    for (int i = 0; i < size; i++) {
+        if (orbit_level[i] >= 3 && time_on_orbit[i] > 500.0) {
+            // Вычисляем functional_importance для нейрона i
+            // (нужно переиспользовать логику из начала метода)
+            double connectivity = 0.0;
+            for (int j = 0; j < size; j++) {
+                if (i != j && std::abs(W_intra[i][j]) > 0.3) {
+                    connectivity += std::abs(W_intra[i][j]);
+                }
+            }
+            connectivity = std::min(1.0, connectivity / 10.0);
+            
+            double uniqueness = 0.0;
+            int neighbor_count = 0;
+            for (int j = 0; j < size; j++) {
+                if (i != j) {
+                    double diff = std::abs(pos[i].norm() - pos[j].norm());
+                    uniqueness += diff;
+                    neighbor_count++;
+                }
+            }
+            if (neighbor_count > 0) uniqueness /= neighbor_count;
+            uniqueness = std::min(1.0, uniqueness * 2.0);
+            
+            double homeostatic_value = 1.0 - std::abs(computeLocalEntropy(i) - homeo.target_entropy) / homeo.target_entropy;
+            double adaptability = std::min(1.0, std::abs(orbital_energy[i] - getNeuronEnergy(i)) / 2.0);
+            
+            double functional_importance = (connectivity * 0.4 + uniqueness * 0.2 + 
+                                            homeostatic_value * 0.2 + adaptability * 0.2);
+            
+            if (functional_importance > 0.6) {
+                // Нейрон на высокой орбите долго и стабилен — формируем "привычку"
+                // Увеличиваем инерцию (массу) чтобы не падал
+                mass[i] = std::min(mass[i] * 1.05, homeo.max_mass);
+                
+                // Усиливаем связи с нейронами на орбите 2 (исполнители)
+                for (int j = 0; j < size; j++) {
+                    if (orbit_level[j] == 2 && std::abs(W_intra[i][j]) < 0.5) {
+                        W_intra[i][j] += 0.01;
+                        W_intra[j][i] = W_intra[i][j];
+                        
+                        // Ограничиваем веса
+                        double maxW = static_cast<double>(params.maxWeight);
+                        W_intra[i][j] = std::clamp(W_intra[i][j], -maxW, maxW);
+                        W_intra[j][i] = W_intra[i][j];
+                    }
+                }
+                
+                if (step_counter_ % 1000 == 0) {
+                    std::cout << "  Neuron " << i << " developing HABIT on orbit " 
+                              << orbit_level[i] << " (importance: " << functional_importance << ")" << std::endl;
+                }
+            }
+        }
+    }
 }
-
 // ============================================================================
 // Проверка падения в сингулярность - ИСПРАВЛЕННАЯ ВЕРСИЯ
 // ============================================================================
@@ -1126,56 +1204,42 @@ bool NeuralGroup::checkForSingularity(int i) {
 }
 
 // ----------------------------------------------------------------------------
-// НОВЫЙ МЕТОД: Выбрасывание из сингулярности на 2-3 орбиты
-// ----------------------------------------------------------------------------
-
-// ----------------------------------------------------------------------------
 // УСИЛЕННОЕ выбрасывание из сингулярности на 2-3 орбиты
 // ----------------------------------------------------------------------------
 
 void NeuralGroup::ejectFromSingularity(int i) {
     static std::mt19937 rng(std::random_device{}());
     
-    // Выбираем целевой уровень орбиты: 2 или 3
     std::uniform_int_distribution<int> orbit_dist(2, 3);
     int target_level = orbit_dist(rng);
     
-    // Обновляем орбитальный уровень
     orbit_level[i] = target_level;
     target_radius[i] = getOrbitRadius(target_level);
     
-    // УВЕЛИЧИВАЕМ радиус выброса (подальше от центра)
-    double r_scale = 1.2 + 0.5 * (rng() % 100) / 100.0;  // было 0.9+0.2
-    double new_radius = target_radius[i] * r_scale;
+    // УМЕНЬШИТЬ радиус выброса
+    double r_scale = 0.7 + 0.2 * (rng() % 100) / 100.0;  // было 0.9+0.2
+    double new_radius = target_radius[i] * r_scale;       // будет 0.7-0.9 от целевой орбиты
     
-    // Новая позиция
     pos[i] = Vec3::randomOnSphere(rng) * new_radius;
     
-    // УСИЛЕННАЯ скорость выброса
+    // УМЕНЬШИТЬ скорость выброса
     Vec3 radial = pos[i].normalized();
     Vec3 tangent1 = Vec3::cross(radial, Vec3(0, 1, 0));
-    if (tangent1.norm() < 0.1) {
-        tangent1 = Vec3::cross(radial, Vec3(1, 0, 0));
-    }
+    if (tangent1.norm() < 0.1) tangent1 = Vec3::cross(radial, Vec3(1, 0, 0));
     Vec3 tangent2 = Vec3::cross(radial, tangent1);
     
     std::uniform_real_distribution<double> angle_dist(0, 2 * M_PI);
     double angle = angle_dist(rng);
     Vec3 direction = (tangent1 * std::cos(angle) + tangent2 * std::sin(angle)).normalized();
     
-    // СИЛЬНЫЙ выброс
-    double ejection_strength = 1.5 + target_level * 0.5;  // level 2: 2.5, level 3: 3.0
+    // УМЕНЬШИТЬ ejection_strength
+    double ejection_strength = 0.5 + target_level * 0.2;
     vel[i] = direction * ejection_strength;
+    vel[i] += radial * ejection_strength * 0.2;  // было 0.5
     
-    // Добавляем радиальную компоненту для гарантированного удаления от центра
-    vel[i] += radial * ejection_strength * 0.5;
-    
-    // Сбрасываем энергию и таймер
-    orbital_energy[i] = getKineticEnergy(i) + getPotentialEnergy(i) + 2.0;
+    orbital_energy[i] = getKineticEnergy(i) + getPotentialEnergy(i) + 1.8;
     time_on_orbit[i] = 0;
-    
-    // Масса восстанавливается
-    mass[i] = 1.0 + target_level * 0.4;
+    mass[i] = 0.8 + target_level * 0.2;  // было 1.0 + target_level * 0.4
     
     // Частично восстанавливаем связи
     for (int j = 0; j < size; j++) {
@@ -1357,10 +1421,15 @@ void NeuralGroup::updateMassByEnergy() {
         target_mass = std::min(target_mass, mass_cap);
         
         // ПЛАВНАЯ АДАПТАЦИЯ С УЧЕТОМ "ИНЕРЦИИ МАССЫ"
-        double inertia = 0.93;  // масса меняется медленно
+        // Плавная адаптация
+        double inertia = 0.97;  // было 0.93 — медленнее меняем
         mass[i] = mass[i] * inertia + target_mass * (1.0 - inertia);
         
-        // ФИНАЛЬНОЕ КЛИППИРОВАНИЕ
+        // Мягкое клиппирование
+        if (mass[i] > mass_cap) {
+            mass[i] = mass_cap * 0.95 + mass[i] * 0.05;  // плавное приближение
+        }
+        // финальное
         mass[i] = std::clamp(mass[i], homeo.min_mass, mass_cap);
         
         // ЕСЛИ МАССА СЛИШКОМ БЛИЗКА К КРИТИЧЕСКОЙ - АКТИВИРУЕМ ЗАЩИТУ
@@ -1765,25 +1834,24 @@ void NeuralGroup::eliteCommandLowerOrbits() {
 
 // Эстафета
 void NeuralGroup::propagateKnowledgeFromHigherOrbits() {
-    // Раз в 100 шагов: знания с высоких орбит спускаются вниз
-    if (step_counter_ % 100 != 0) return;
+    if (step_counter_ % 50 != 0) return;  // чаще, было 100
     
     // Собираем "знания" с высоких орбит (3-4)
-    std::vector<double> high_orbit_patterns;
     std::vector<int> high_orbit_neurons;
+    std::vector<double> high_orbit_activities;
     
     for (int i = 0; i < size; ++i) {
         if (orbit_level[i] >= 3 && getNeuronEnergy(i) > 0.5) {
             high_orbit_neurons.push_back(i);
-            high_orbit_patterns.push_back(pos[i].norm());  // их активность
+            high_orbit_activities.push_back(pos[i].norm());
         }
     }
     
     if (high_orbit_neurons.empty()) return;
     
-    // Передаём знания на нижние орбиты
+    // Передаём знания на нижние орбиты (1-2)
     for (int learner = 0; learner < size; ++learner) {
-        if (orbit_level[learner] >= 2) continue;  // только нижние орбиты
+        if (orbit_level[learner] >= 2) continue;
         
         // Находим ближайшего учителя
         int best_teacher = -1;
@@ -1791,7 +1859,7 @@ void NeuralGroup::propagateKnowledgeFromHigherOrbits() {
         
         for (size_t t = 0; t < high_orbit_neurons.size(); ++t) {
             int teacher = high_orbit_neurons[t];
-            double similarity = 1.0 - std::abs(pos[learner].norm() - high_orbit_patterns[t]);
+            double similarity = 1.0 - std::abs(pos[learner].norm() - high_orbit_activities[t]);
             
             if (similarity > best_similarity) {
                 best_similarity = similarity;
@@ -1799,18 +1867,16 @@ void NeuralGroup::propagateKnowledgeFromHigherOrbits() {
             }
         }
         
-        if (best_teacher != -1 && best_similarity > 0.2) {  // было 0.3
-            // Проверяем, не слишком ли много связей у учителя
-            int teacher_connections = 0;
-            for (int j = 0; j < size; ++j) {
-                if (std::abs(W_intra[best_teacher][j]) > 0.1) teacher_connections++;
-            }
+        if (best_teacher != -1 && best_similarity > 0.3) {  // снижено с 0.2
+            // УСИЛЕННАЯ передача знаний
+            double boost = 0.1;  // было 0.03
+            W_intra[learner][best_teacher] = std::min(1.0, 
+                W_intra[learner][best_teacher] + boost);
+            W_intra[best_teacher][learner] = W_intra[learner][best_teacher];
             
-            if (teacher_connections < size / 2) {
-                W_intra[learner][best_teacher] = std::min(1.0, 
-                    W_intra[learner][best_teacher] + 0.03);  // было 0.05
-                W_intra[best_teacher][learner] = W_intra[learner][best_teacher];
-            }
+            // Также влияем на позицию learner'а
+            Vec3 direction = pos[best_teacher].normalized();
+            force[learner] += direction * 0.05;
         }
     }
     
@@ -1829,7 +1895,7 @@ bool NeuralGroup::checkForResourceExhaustion() {
         double avg_activity = getAverageActivity();
         
         // Если система перегружена (высокая активность)
-        if (avg_activity > 0.8f) {
+        if (avg_activity > 0.9f) {
             // Принудительно снижаем активность малозначимых нейронов
             int degraded = 0;
             for (int i = 0; i < size; i++) {
@@ -1846,6 +1912,126 @@ bool NeuralGroup::checkForResourceExhaustion() {
         }
     }
     return false;
+}
+// Элита Обучает
+// Добавьте этот метод в NeuralGroup.hpp
+void NeuralGroup::eliteToLettersFeedback() {
+    if (step_counter_ % 30 != 0) return;  // каждые 30 шагов
+    
+    std::vector<int> elite = getNeuronsByOrbit(4);
+    if (elite.empty()) return;
+    
+    // Элита вычисляет "что важно" для текущего контекста
+    Vec3 collective_intent(0, 0, 0);
+    double collective_energy = 0.0;
+    
+    for (int e : elite) {
+        collective_intent += pos[e].normalized();
+        collective_energy += getNeuronEnergy(e);
+    }
+    collective_intent = collective_intent.normalized();
+    float intent_strength = std::min(1.0f, static_cast<float>(collective_energy) / 20.0f);
+    
+    // ===== 1. ВЛИЯНИЕ НА БУКВЫ (орбита 0-1) =====
+    for (int i = 0; i < size; i++) {
+        if (orbit_level[i] <= 1) {  // буквенные/сигнальные нейроны
+            // Вычисляем, насколько этот нейрон релевантен текущему намерению элиты
+            double alignment = std::abs(Vec3::dot(pos[i].normalized(), collective_intent));
+            
+            if (alignment > 0.7) {
+                // Элита усиливает релевантные буквенные нейроны
+                double boost = 0.05 * intent_strength * alignment;
+                force[i] += collective_intent * boost;
+                
+                // Укрепляем связь элита→буква
+                for (int e : elite) {
+                    if (std::abs(W_intra[e][i]) < 0.8) {
+                        W_intra[e][i] += boost * 0.1;
+                        W_intra[i][e] = W_intra[e][i];
+                    }
+                }
+                
+                if (step_counter_ % 500 == 0 && boost > 0.05) {  // было 0.01
+                    std::cout << "  Elite→Letter feedback: neuron " << i 
+                            << " boosted by " << boost << std::endl;
+                }
+            }
+        }
+    }
+    
+    // ===== 2. ВЛИЯНИЕ НА СЛОВА (орбита 2) =====
+    for (int i = 0; i < size; i++) {
+        if (orbit_level[i] == 2) {  // слова
+            double alignment = std::abs(Vec3::dot(pos[i].normalized(), collective_intent));
+            
+            // Элита предпочитает определённые слова
+            if (alignment > 0.5) {
+                // Увеличиваем энергию "предпочтительных" слов
+                orbital_energy[i] += 0.02 * intent_strength * alignment;
+                
+                // Укрепляем связь с элитой
+                for (int e : elite) {
+                    if (W_intra[e][i] < 0.6) {
+                        W_intra[e][i] += 0.02 * intent_strength;
+                        W_intra[i][e] = W_intra[e][i];
+                    }
+                }
+            }
+        }
+    }
+    
+    // ===== 3. АКТИВАЦИЯ ПАТТЕРНОВ КОТОРЫЕ ЭЛИТА "ХОЧЕТ" ВИДЕТЬ =====
+    for (int i = 0; i < size; i++) {
+        if (orbit_level[i] == 3) {  // координация/паттерны
+            double relevance = computeRelevanceToElite(i, elite, collective_intent);
+            
+            if (relevance > 0.6) {
+                // Элита "одобряет" этот паттерн
+                double approval = 0.03 * relevance;
+                mass[i] = std::min(mass[i] * (1.0 + approval), homeo.max_mass);
+                
+                // Повышаем шанс на promotion
+                promotion_count[i]++;
+                if (promotion_count[i] > 15 && orbit_level[i] < 4) {
+                    orbit_level[i]++;
+                    target_radius[i] = getOrbitRadius(orbit_level[i]);
+                    std::cout << "  Elite approved pattern " << i 
+                              << " promoted to orbit " << orbit_level[i] << std::endl;
+                }
+            }
+        }
+    }
+    
+    syncSynapsesFromWeights();
+}
+
+// Вспомогательный метод для вычисления релевантности паттерна элите
+double NeuralGroup::computeRelevanceToElite(int neuron_idx, 
+                                             const std::vector<int>& elite,
+                                             const Vec3& collective_intent) const {
+    if (neuron_idx < 0 || neuron_idx >= size) return 0.0;
+    
+    double relevance = 0.0;
+    int connections_to_elite = 0;
+    
+    // 1. Насколько сильно связан с элитой
+    for (int e : elite) {
+        double weight = std::abs(W_intra[neuron_idx][e]);
+        if (weight > 0.1) {
+            relevance += weight;
+            connections_to_elite++;
+        }
+    }
+    
+    if (connections_to_elite > 0) {
+        relevance /= connections_to_elite;
+    }
+    
+    // 2. Насколько его позиция совпадает с коллективным намерением
+    double alignment = std::abs(Vec3::dot(pos[neuron_idx].normalized(), collective_intent));
+    relevance = relevance * 0.6 + alignment * 0.4;
+    
+    return std::min(1.0, relevance);
 }
 // ============================================================================
 // STDP ОБУЧЕНИЕ (с учетом орбит)
@@ -2683,8 +2869,8 @@ void NeuralGroup::pruneConnectionsByOrbit() {
                     W_intra[i][j] = std::min(W_intra[i][j], static_cast<double>(params.maxWeight));
                 } else if (efficiency < 0.4f && age > 300) {
                     W_intra[i][j] *= 0.8;
-                } else if (age > 2000 && weight < 0.07f) {
-                    W_intra[i][j] = 0.8;
+                } else if (age > 400 && weight < 0.03f) {
+                    W_intra[i][j] = 0.0;
                     removed_weak++;
                     if (should_log) {
                         std::cout << " Removing weak connection: " << i << "-" << j << std::endl;

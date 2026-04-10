@@ -78,10 +78,8 @@ public:
             }
         }
         
-        // Инициализация орбитальных сфер
         initializeOrbitSpheres();
         
-        // Создаем нейроны для каждой группы
         neurons.resize(numGroups);
         for (int g = 0; g < numGroups; ++g) {
             neurons[g].resize(groupSize);
@@ -91,17 +89,32 @@ public:
             }
         }
         
-        // Создаем центральную сингулярность
         singularity.setRadius(10.0f);
         singularity.setOrigin(sf::Vector2f(10.0f, 10.0f));
         singularity.setFillColor(sf::Color(255, 100, 100, 200));
     }
     
+    // НОВЫЙ МЕТОД: обновить радиусы орбит из ядра (теперь отдельный метод)
+    void updateOrbitRadiiFromSystem(const NeuralFieldSystem& system) {
+        if (system.getGroups().empty()) return;
+        
+        const auto& firstGroup = system.getGroups()[0];
+        
+        // Используем статические методы, которые нужно добавить в NeuralGroup
+        real_radii_[0] = static_cast<float>(firstGroup.getOrbitRadius(0));
+        real_radii_[1] = static_cast<float>(firstGroup.getOrbitRadius(1));
+        real_radii_[2] = static_cast<float>(firstGroup.getOrbitRadius(2));
+        real_radii_[3] = static_cast<float>(firstGroup.getOrbitRadius(3));
+        real_radii_[4] = static_cast<float>(firstGroup.getOrbitRadius(4));
+        
+        initializeOrbitSpheres();
+    }
+    
     void initializeOrbitSpheres() {
-        orbitSpheres.resize(5);  // 5 орбит
+        orbitSpheres.resize(5);
         
         for (int level = 0; level < 5; ++level) {
-            float radius = config.orbit_radii[level] * config.orbit_scale * config.zoom_level;
+            float radius = real_radii_[level] * config.orbit_scale * config.zoom_level;
             
             orbitSpheres[level].setRadius(radius);
             orbitSpheres[level].setOrigin(sf::Vector2f(radius, radius));
@@ -412,24 +425,25 @@ void drawInhibitorField(sf::RenderWindow& window, const NeuralFieldSystem& syste
 private:
     sf::Font font;           // шрифт как член класса
     bool fontLoaded = false; // флаг успешной загрузки
+    float real_radii_[5] = {0.05f, 0.6f, 1.2f, 2.5f, 4.3f};  // будут обновлены из ядра
+    
     // Проекция 3D точки на 2D экран
     sf::Vector2f project3DTo2D(float x, float y, float z, 
-                               float rot_rad, float tilt_rad, 
-                               float cos_tilt, float sin_tilt) const {
-        // Поворот вокруг оси Y (rotation)
+                            float rot_rad, float tilt_rad, 
+                            float cos_tilt, float sin_tilt) const {
+        // Поворот вокруг оси Y
         float x_rot = x * std::cos(rot_rad) + z * std::sin(rot_rad);
         float z_rot = -x * std::sin(rot_rad) + z * std::cos(rot_rad);
         float y_rot = y;
         
-        // Наклон (tilt) - поворот вокруг оси X
+        // Наклон
         float y_tilt = y_rot * cos_tilt - z_rot * sin_tilt;
         float z_tilt = y_rot * sin_tilt + z_rot * cos_tilt;
         float x_tilt = x_rot;
         
-        // Простая перспективная проекция
-        float perspective = 1.0f / (2.0f - z_tilt * 0.5f);
-        
-        return sf::Vector2f(x_tilt * perspective, y_tilt * perspective);
+        // ОРТОГРАФИЧЕСКАЯ проекция (без перспективного искажения)
+        // Это сохранит реальные расстояния
+        return sf::Vector2f(x_tilt, y_tilt);
     }
 
     void drawOrbitLegend(sf::RenderWindow& window) {

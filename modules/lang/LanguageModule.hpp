@@ -10,12 +10,13 @@
 #include <unordered_map>
 #include <mutex>      
 #include <chrono>     
-#include <iostream>   
+#include <iostream>
+#include <curl/curl.h>
+#include "../../core/EmergentCore.hpp"
 #include "../../core/Component.hpp"
 #include "../../core/NeuralFieldSystem.hpp"
 #include "../../core/ImmutableCore.hpp"
 #include "../../core/IAuthorization.hpp"
-#include "../../core/MemoryManager.hpp"
 #include "../../data/PersonnelData.hpp"
 #include "../../data/DynamicSemanticMemory.hpp"
 #include "../learning/WebTrainerModule.hpp"
@@ -23,7 +24,6 @@
 class CuriosityDriver;
 class LearningOrchestrator;
 
-// Структура для статистики языкового модуля
 struct LanguageStats {
     int words_learned = 0;
     int patterns_detected = 0;
@@ -44,11 +44,9 @@ private:
     ImmutableCore& immutable_core;
     IAuthorization& auth;
     PersonnelDatabase& personnel_db_;
-    MemoryManager& memory_manager_;
     std::mt19937 rng_;
 
     std::unique_ptr<WebTrainerModule> web_trainer_;
-
     DialogueState dialogue_state_;
     std::unique_ptr<DynamicSemanticMemory> dynamic_memory_;
     LearningOrchestrator* orchestrator_ = nullptr;
@@ -62,30 +60,28 @@ private:
     float external_feedback_sum_ = 0.0f;
     int external_feedback_count_ = 0;
     bool auto_learning_active_ = false;
+    std::string last_user_input_;
     
     std::string system_mode_ = "personal";
     std::string default_user_ = "user";
     bool enforce_commands_ = false;
     bool emotional_responses_ = true;
 
-    // История последних смыслов
     std::deque<uint32_t> recent_meanings_;
     static constexpr size_t MAX_RECENT_MEANINGS = 50;
 
-    // Приватные методы
     std::vector<std::string> split(const std::string& text);
     std::string toLower(std::string text);
     bool canExecuteCommand(const std::string& user_name, 
                           const std::string& command,
                           AccessLevel required_level);
-    std::string generateResponse(const std::string& input);
+    std::string contextualResponse(const std::string& input, int step);
     
 public:
     explicit LanguageModule(NeuralFieldSystem& system, 
                         ImmutableCore& core,
                         IAuthorization& auth,
-                        PersonnelDatabase& personnel_db,
-                        MemoryManager& memory_manager);
+                        PersonnelDatabase& personnel_db);
         
     ~LanguageModule();
 
@@ -93,21 +89,34 @@ public:
     bool initialize(const Config& config) override;
     void shutdown() override;
     void update(float dt) override;
-    void saveState(MemoryManager& memory) override;
-    void loadState(MemoryManager& memory) override;
 
     void initWebTrainer() {
-        web_trainer_ = std::make_unique<WebTrainerModule>(neural_system, dynamic_memory_.get());
+        if (!dynamic_memory_) {
+            std::cerr << "⚠️ Cannot initialize WebTrainer: dynamic_memory_ is null" << std::endl;
+            return;
+        }
+        
+        web_trainer_ = std::make_unique<WebTrainerModule>(
+            neural_system, 
+            dynamic_memory_.get()
+        );
+        
         web_trainer_->bootstrapWithBasicKnowledge();
+        std::cout << "🌐 WebTrainer initialized and bootstrapped!" << std::endl;
     }
     
     WebTrainerModule* getWebTrainer() { return web_trainer_.get(); }
+
+    void applyEliteInstruction(const std::string& intent);
     std::shared_ptr<CuriosityDriver> createCuriosityDriver();
     void setOrchestrator(LearningOrchestrator* orchestrator) { orchestrator_ = orchestrator; }
     bool hasCuriosityDriver() const { return curiosity_driver_ != nullptr; }
     
     std::string process(const std::string& input, const std::string& user_name = "guest");
     
+    std::string formatResponse(const std::string& base_word);
+    std::string readResponseFromNeuralSystem();
+
     bool isSpecialCommand(const std::string& input);
     bool handleSpecialCommand(const std::string& input, std::string& output);
     
@@ -129,7 +138,6 @@ public:
     void saveAll() { if (dynamic_memory_) dynamic_memory_->saveToMemory(); }
     int getLearnedWordsCount() const { return dynamic_memory_ ? dynamic_memory_->getWordCount() : 0; }
 
-    // НОВЫЙ МЕТОД: получить статистику языкового модуля
     LanguageStats getLanguageStats() const {
         if (!dynamic_memory_) return LanguageStats{0,0,0,0};
         return LanguageStats{
@@ -169,10 +177,8 @@ public:
 
     int getProcessStepCounter() const { return process_step_counter_; }
     void incrementProcessStepCounter() { process_step_counter_++; }
-
     float evaluateResponse(const std::string& input, const std::string& response);
     void addToRecentMeanings(uint32_t meaning_id);
     
-    // Доступ к динамической памяти
     DynamicSemanticMemory* getDynamicMemory() { return dynamic_memory_.get(); }
 };

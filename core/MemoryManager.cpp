@@ -26,6 +26,7 @@ const std::map<std::string, std::vector<MemoryRecord>>& MemoryManager::getLongTe
 
 std::atomic<bool> MemoryManager::consolidating_{false};
 std::atomic<int> MemoryManager::store_depth_{0};
+std::mutex MemoryManager::store_mutex_; 
 
 size_t MemoryManager::getDumpSize() const {
     return sizeof(size_t) + sizeof(double) * 5 + sizeof(uint64_t);
@@ -64,25 +65,27 @@ void MemoryManager::store(const std::string& component, const std::string& type,
                          float importance,
                          const std::map<std::string, std::string>& metadata) {
     
-    // Защита от рекурсии
-    store_depth_++;
-    if (store_depth_ > 5) {
-        std::cerr << "Слишком глубокая рекурсия в store()" << std::endl;
-        store_depth_--;
+    // ЗАЩИТА ОТ РЕКУРСИИ - используем mutex вместо atomic counter
+    static thread_local bool in_store = false;
+    if (in_store) {
+        std::cerr << "Recursive store() call detected, skipping" << std::endl;
         return;
     }
     
-    // Проверяем размер данных (не больше 1KB на запись)
-    if (data.size() > 256) {  // 256 floats = 1KB
+    // БЛОКИРОВКА МЬЮТЕКСА (исправляет deadlock!)
+    std::lock_guard<std::mutex> lock(store_mutex_);
+    in_store = true;
+    
+    // Проверяем размер данных
+    if (data.size() > 256) {
         std::cerr << "Запись слишком большая: " << data.size() << " floats" << std::endl;
-        store_depth_--;
+        in_store = false;
         return;
     }
 
-    // Проверка на валидность данных
     if (data.empty()) {
         std::cerr << "Попытка сохранить пустые данные" << std::endl;
-        store_depth_--;
+        in_store = false;
         return;
     }
 
@@ -90,7 +93,7 @@ void MemoryManager::store(const std::string& component, const std::string& type,
     for (size_t i = 0; i < std::min(data.size(), size_t(10)); i++) {
         if (!std::isfinite(data[i])) {
             std::cerr << "Невалидные данные в store()" << std::endl;
-            store_depth_--;
+            in_store = false;
             return;
         }
     }
@@ -103,100 +106,34 @@ void MemoryManager::store(const std::string& component, const std::string& type,
     record.metadata = metadata;
     record.importance = importance;
     
-    // ИСПРАВЛЕНИЕ: обрезаем копию, а не оригинал
     pruneVector(record.data);
 
     // Добавляем в кратковременную память
     shortTermMemory.push_back(record);
     
-    // Если важность высокая, сразу в долговременную
-    if (importance > 0.8f) {
-        longTermMemory[component].push_back(record);
-        
-        // Проверяем лимиты долговременной памяти
-        if (longTermMemory[component].size() > maxLongTermPerComponent) {
-            longTermMemory[component].erase(
-                longTermMemory[component].begin(),
-                longTermMemory[component].begin() + 10
-            );
-        }
-    }
-    
-    // Автоматическая очистка при достижении порога - НО БЕЗ РЕКУРСИИ!
+    // АВТОМАТИЧЕСКАЯ ОЧИСТКА - БЕЗ РЕКУРСИИ!
     if (shortTermMemory.size() > maxShortTermMemory * cleanupThreshold && 
-        !consolidating_ && store_depth_ == 1) {
+        !consolidating_.load()) {
+        // Временно устанавливаем флаг консолидации
+        consolidating_.store(true);
         consolidate(0.5f);
+        consolidating_.store(false);
     }
     
-    // Ограничиваем размер кратковременной памяти
+    // Ограничиваем размер
     if (shortTermMemory.size() > maxShortTermMemory) {
         size_t removeCount = shortTermMemory.size() - maxShortTermMemory;
         shortTermMemory.erase(shortTermMemory.begin(), 
                              shortTermMemory.begin() + removeCount);
         
-        // Дефрагментируем память
         if (shortTermMemory.capacity() > maxShortTermMemory * 2) {
             std::vector<MemoryRecord>(shortTermMemory).swap(shortTermMemory);
         }
     }
     
-    store_depth_--;
+    in_store = false;
 }
 
-// Специализированное сохранение для эволюционных данных
-void MemoryManager::saveEvolutionState(const EvolutionDumpData& data, const std::string& filename) {
-    std::ofstream file(dumpPath + filename, std::ios::binary);
-    if (!file) {
-        std::cerr << "Failed to save evolution state to " << filename << std::endl;
-        return;
-    }
-    
-    file.write(reinterpret_cast<const char*>(&data.generation), sizeof(data.generation));
-    file.write(reinterpret_cast<const char*>(&data.metrics.code_size_score), sizeof(data.metrics.code_size_score));
-    file.write(reinterpret_cast<const char*>(&data.metrics.performance_score), sizeof(data.metrics.performance_score));
-    file.write(reinterpret_cast<const char*>(&data.metrics.energy_score), sizeof(data.metrics.energy_score));
-    file.write(reinterpret_cast<const char*>(&data.metrics.overall_fitness), sizeof(data.metrics.overall_fitness));
-    file.write(reinterpret_cast<const char*>(&data.energy_state), sizeof(data.energy_state));
-    file.write(reinterpret_cast<const char*>(&data.code_hash), sizeof(data.code_hash));
-    
-    size_t weights_size = data.best_weights.size();
-    file.write(reinterpret_cast<const char*>(&weights_size), sizeof(weights_size));
-    if (weights_size > 0) {
-        file.write(reinterpret_cast<const char*>(data.best_weights.data()), 
-                  weights_size * sizeof(double));
-    }
-    
-    std::cout << "Evolution state saved to " << dumpPath + filename << std::endl;
-}
-
-// Загрузка эволюционных данных
-EvolutionDumpData MemoryManager::loadEvolutionState(const std::string& filename) {
-    EvolutionDumpData data;
-    std::ifstream file(dumpPath + filename, std::ios::binary);
-    if (!file) {
-        std::cerr << "Failed to load evolution state from " << filename << std::endl;
-        return data;
-    }
-    
-    file.read(reinterpret_cast<char*>(&data.generation), sizeof(data.generation));
-    file.read(reinterpret_cast<char*>(&data.metrics.code_size_score), sizeof(data.metrics.code_size_score));
-    file.read(reinterpret_cast<char*>(&data.metrics.performance_score), sizeof(data.metrics.performance_score));
-    file.read(reinterpret_cast<char*>(&data.metrics.energy_score), sizeof(data.metrics.energy_score));
-    file.read(reinterpret_cast<char*>(&data.metrics.overall_fitness), sizeof(data.metrics.overall_fitness));
-    file.read(reinterpret_cast<char*>(&data.energy_state), sizeof(data.energy_state));
-    file.read(reinterpret_cast<char*>(&data.code_hash), sizeof(data.code_hash));
-    
-    size_t weights_size;
-    file.read(reinterpret_cast<char*>(&weights_size), sizeof(weights_size));
-    data.best_weights.resize(weights_size);
-    if (weights_size > 0) {
-        file.read(reinterpret_cast<char*>(data.best_weights.data()), 
-                 weights_size * sizeof(double));
-    }
-    
-    std::cout << "Evolution state loaded from " << dumpPath + filename << std::endl;
-    return data;
-}
 
 // Поиск похожих записей
 std::vector<size_t> MemoryManager::findSimilar(const std::string& component, 
@@ -246,12 +183,21 @@ std::vector<size_t> MemoryManager::findSimilar(const std::string& component,
 }
 
 // Сохранение вектора MemoryRecord с правильной сериализацией
+// В MemoryManager.cpp - исправленный saveToFile
+
 void MemoryManager::saveToFile(const std::string& filename, const std::vector<MemoryRecord>& data) {
-    if (data.empty()) return;  // не сохраняем пустые файлы
+    if (data.empty()) return;
     
-    std::ofstream file(dumpPath + filename, std::ios::binary);
+    // Получаем путь для компонента
+    std::string comp_path = getComponentPath(data[0].component);
+    std::string full_dir = dumpPath + comp_path + "/";
+    std::filesystem::create_directories(full_dir);
+    
+    std::string full_path = full_dir + filename;
+    
+    std::ofstream file(full_path, std::ios::binary);
     if (!file) {
-        std::cerr << "Failed to save to " << filename << std::endl;
+        std::cerr << "Failed to save to " << full_path << std::endl;
         return;
     }
     
@@ -298,11 +244,30 @@ void MemoryManager::saveToFile(const std::string& filename, const std::vector<Me
     }
 }
 
-// Загрузка вектора MemoryRecord с правильной десериализацией
+// В MemoryManager.cpp - исправленный loadFromFile
+
 void MemoryManager::loadFromFile(const std::string& filename, std::vector<MemoryRecord>& data) {
-    std::ifstream file(dumpPath + filename, std::ios::binary);
+    // Пытаемся загрузить из подпапки
+    std::string full_path = dumpPath + filename;
+    std::ifstream file(full_path, std::ios::binary);
+    
+    // Если файл не найден, пробуем искать в подпапках
     if (!file) {
-        std::cerr << "Failed to load from " << filename << std::endl;
+        // Ищем во всех подпапках
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(dumpPath)) {
+            if (entry.is_regular_file() && entry.path().filename() == filename) {
+                full_path = entry.path().string();
+                file.open(full_path, std::ios::binary);
+                if (file) {
+                    std::cout << "Found file in: " << full_path << std::endl;
+                    break;
+                }
+            }
+        }
+    }
+    
+    if (!file) {
+        std::cerr << "Failed to load from " << filename << " (file not found)" << std::endl;
         return;
     }
     
@@ -330,7 +295,7 @@ void MemoryManager::loadFromFile(const std::string& filename, std::vector<Memory
         // Читаем component
         size_t comp_len;
         file.read(reinterpret_cast<char*>(&comp_len), sizeof(comp_len));
-        if (comp_len > 256) {  // защита от поврежденных данных
+        if (comp_len > 256) {
             std::cerr << "Поврежденные данные в " << filename << std::endl;
             return;
         }
@@ -350,7 +315,7 @@ void MemoryManager::loadFromFile(const std::string& filename, std::vector<Memory
         // Читаем вектор данных
         size_t data_size;
         file.read(reinterpret_cast<char*>(&data_size), sizeof(data_size));
-        if (data_size > 1024) {  // защита от слишком больших векторов
+        if (data_size > 1024) {
             std::cerr << "Поврежденные данные в " << filename << std::endl;
             return;
         }
@@ -365,7 +330,7 @@ void MemoryManager::loadFromFile(const std::string& filename, std::vector<Memory
         // Читаем метаданные
         size_t meta_size;
         file.read(reinterpret_cast<char*>(&meta_size), sizeof(meta_size));
-        if (meta_size > 100) {  // защита от слишком большого количества метаданных
+        if (meta_size > 100) {
             std::cerr << "Поврежденные данные в " << filename << std::endl;
             return;
         }
@@ -396,60 +361,82 @@ void MemoryManager::loadFromFile(const std::string& filename, std::vector<Memory
         data.push_back(std::move(record));
     }
 }
-
 // Сохранение всего в файлы
+// В MemoryManager.cpp - исправленный saveAll
+
 void MemoryManager::saveAll() {
-    // Периодическая очистка перед сохранением
     cleanupOldRecords();
     
-    // Сохраняем только если есть данные
+    // Сохраняем кратковременную память
     if (!shortTermMemory.empty()) {
         saveToFile("short_term.bin", shortTermMemory);
     }
     
+    // Сохраняем долговременную память по компонентам
     for (const auto& [comp, records] : longTermMemory) {
         if (!records.empty()) {
-            saveToFile(comp + "_memory.bin", records);
+            // Используем имя компонента как имя файла (с заменой / на _)
+            std::string safe_filename = getComponentPath(comp) + ".bin";
+            saveToFile(safe_filename, records);
         }
     }
     
     std::cout << "All memory saved to " << dumpPath << std::endl;
 }
 
-// Загрузка из файлов
+// В MemoryManager.cpp - исправленный loadAll
+
 void MemoryManager::loadAll() {
-    // Загружаем с проверкой размера
+    // Загружаем кратковременную память
     loadFromFile("short_term.bin", shortTermMemory);
     
-    // Ограничиваем размер после загрузки
     if (shortTermMemory.size() > maxShortTermMemory) {
         shortTermMemory.erase(shortTermMemory.begin(), 
                              shortTermMemory.begin() + 
                              (shortTermMemory.size() - maxShortTermMemory));
     }
     
-    std::cout << "Loaded short-term memory from " << dumpPath << std::endl;
+    // Загружаем долговременную память из всех .bin файлов
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(dumpPath)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".bin") {
+            std::string filename = entry.path().filename().string();
+            
+            // Пропускаем short_term.bin (уже загружен)
+            if (filename == "short_term.bin") continue;
+            
+            std::vector<MemoryRecord> records;
+            loadFromFile(filename, records);
+            
+            if (!records.empty()) {
+                // Используем компонент из первой записи как ключ
+                std::string component = records[0].component;
+                longTermMemory[component] = std::move(records);
+                std::cout << "Loaded " << component << " (" << longTermMemory[component].size() << " records)" << std::endl;
+            }
+        }
+    }
+    
+    std::cout << "Loaded short-term memory (" << shortTermMemory.size() << " records)" << std::endl;
 }
 
 // Консолидация кратковременной памяти в долговременную
 void MemoryManager::consolidate(float threshold) {
-    // Защита от рекурсии
-    if (consolidating_.exchange(true)) {
-        std::cerr << "Рекурсивный вызов consolidate предотвращен" << std::endl;
-        return;
-    }
-    
-    // Защита от слишком частых вызовов
-    static auto last_call = std::chrono::steady_clock::now();
+    // ЗАЩИТА ОТ СЛИШКОМ ЧАСТЫХ ВЫЗОВОВ
+    static auto last_consolidate = std::chrono::steady_clock::now();
     auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_call).count();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_consolidate).count();
     
-    if (elapsed < 100) {  // минимум 100ms между вызовами
-        std::cerr << "consolidate вызывается слишком часто" << std::endl;
-        consolidating_ = false;
+    if (elapsed < 1000) {  // не чаще 1 раза в секунду
         return;
     }
-    last_call = now;
+    last_consolidate = now;
+    
+    // ПРОВЕРКА НА РЕКУРСИЮ
+    if (consolidating_.exchange(true)) {
+        return;
+    }
+    
+    std::lock_guard<std::mutex> lock(store_mutex_);
     
     if (shortTermMemory.empty()) {
         consolidating_ = false;
@@ -459,39 +446,40 @@ void MemoryManager::consolidate(float threshold) {
     try {
         size_t consolidated = 0;
         
-        // Сортируем по важности
+        // Сортируем по убыванию важности
         std::sort(shortTermMemory.begin(), shortTermMemory.end(),
                   [](const MemoryRecord& a, const MemoryRecord& b) {
-                      return a.importance < b.importance;
+                      return a.importance > b.importance;
                   });
-
-        // Проходим по записям
+        
+        // КОПИРУЕМ ДАННЫЕ перед очисткой
+        std::vector<MemoryRecord> to_consolidate;
+        to_consolidate.reserve(shortTermMemory.size());
+        
         for (auto& record : shortTermMemory) {
-            if (record.importance < threshold) {
-                // Применяем пороговое обнуление
+            if (record.importance >= 0.3f) {
                 pruneVector(record.data);
-                
-                // Сохраняем в долговременную память
-                longTermMemory[record.component].push_back(record);
+                to_consolidate.push_back(record);
                 consolidated++;
-                
-                // Ограничиваем размер
-                if (longTermMemory[record.component].size() > maxLongTermPerComponent) {
-                    size_t removeCount = longTermMemory[record.component].size() - maxLongTermPerComponent;
-                    longTermMemory[record.component].erase(
-                        longTermMemory[record.component].begin(),
-                        longTermMemory[record.component].begin() + removeCount
-                    );
-                    std::vector<MemoryRecord>(longTermMemory[record.component]).swap(longTermMemory[record.component]);
-                }
             }
         }
         
-        // Очищаем кратковременную память
+        // Применяем консолидацию
+        for (auto& record : to_consolidate) {
+            longTermMemory[record.component].push_back(record);
+            
+            if (longTermMemory[record.component].size() > maxLongTermPerComponent) {
+                longTermMemory[record.component].erase(
+                    longTermMemory[record.component].begin(),
+                    longTermMemory[record.component].begin() + 10
+                );
+            }
+        }
+        
+        // ОЧИЩАЕМ кратковременную память
         shortTermMemory.clear();
         std::vector<MemoryRecord>().swap(shortTermMemory);
         
-        // Очистка старых записей
         cleanupOldRecords();
         
         std::cout << "Memory consolidated: " << consolidated 
@@ -503,6 +491,7 @@ void MemoryManager::consolidate(float threshold) {
     
     consolidating_ = false;
 }
+
 // Сохранить веса нейросети
 void MemoryManager::saveWeights(const std::string& component, 
                                const std::vector<std::vector<double>>& weights,

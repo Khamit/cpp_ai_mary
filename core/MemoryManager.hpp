@@ -71,11 +71,12 @@ private:
     // Флаг для защиты от рекурсии
     static std::atomic<bool> consolidating_;
     static std::atomic<int> store_depth_;
+    static std::mutex store_mutex_; 
     
     // Вспомогательные методы
     void saveToFile(const std::string& filename, const std::vector<MemoryRecord>& data);
     void loadFromFile(const std::string& filename, std::vector<MemoryRecord>& data);
-    void cleanupOldRecords();  // новый метод
+
 
     // Функция квантования
     CompressedData quantize(const std::vector<float>& data) {
@@ -162,14 +163,27 @@ public:
     std::vector<MemoryRecord> getRecordsByIndices(
     const std::string& component,
     const std::vector<size_t>& indices) const;
+    void cleanupOldRecords();  // новый метод
+    bool isConsolidating() const { return consolidating_.load(); }
 
     // Добавьте правильный метод getRecords (которого не хватает!)
     std::vector<MemoryRecord> getRecords(const std::string& component) const {
+        // Защита от пустого компонента
+        if (component.empty()) {
+            return {};
+        }
+        
         auto it = longTermMemory.find(component);
         if (it != longTermMemory.end()) {
             return it->second;
         }
         return {};
+    }
+    std::string getComponentPath(const std::string& component) {
+        // Заменяем '/' на разделитель пути
+        std::string path = component;
+        std::replace(path.begin(), path.end(), '/', '_');
+        return path;
     }
 
     // Сохранить сжатое состояние (только латентный код + ошибка)
@@ -190,10 +204,6 @@ public:
                const std::vector<float>& data, 
                float importance = 1.0f,
                const std::map<std::string, std::string>& metadata = {});
-    
-    // Специализированное сохранение для эволюционных данных
-    void saveEvolutionState(const EvolutionDumpData& data, const std::string& filename = "evolution_dump.bin");
-    EvolutionDumpData loadEvolutionState(const std::string& filename = "evolution_dump.bin");
     
     // Поиск похожих записей
     std::vector<size_t> findSimilar(const std::string& component, 

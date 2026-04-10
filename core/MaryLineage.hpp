@@ -1,7 +1,7 @@
 #pragma once
 #include "MaryIdentity.hpp"
 #include "NeuralGroup.hpp"
-#include "MemoryManager.hpp"
+#include "EmergentCore.hpp"
 #include "DaughterChannel.hpp"  // Новый include
 #include <map>
 #include <memory>
@@ -68,8 +68,8 @@ public:
     bool syncValues(const std::string& daughter_id);
     
     // Сохранение/загрузка состояния
-    void save(MemoryManager& memory) const;
-    void load(MemoryManager& memory);
+    void save(EmergentMemory& memory) const;
+    void load(EmergentMemory& memory);
     
     // Получить ID матери
     std::string getMotherId() const { return mother_id; }

@@ -190,8 +190,8 @@ bool MaryLineage::recognize(const std::string& candidate_id, const std::vector<d
     
     return recognized;
 }
-
-void MaryLineage::save(MemoryManager& memory) const
+/*
+void MaryLineage::save(EmergentMemory& memory) const
 {
     // Сохраняем веса identity_group
     std::vector<float> flatWeights;
@@ -205,7 +205,7 @@ void MaryLineage::save(MemoryManager& memory) const
     // Аналогично для coordination_group
 }
 
-void MaryLineage::load(MemoryManager& memory)
+void MaryLineage::load(EmergentCore& memory)
 {
     auto records = memory.getRecords("identity");
     if (!records.empty()) {
@@ -213,6 +213,7 @@ void MaryLineage::load(MemoryManager& memory)
         // восстановить веса в identity_group
     }
 }
+    */
 // Адская тренировка)))
 void MaryLineage::trainIdentity(const std::vector<std::vector<double>>& positive_examples,
                                 const std::vector<std::vector<double>>& negative_examples,

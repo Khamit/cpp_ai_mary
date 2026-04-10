@@ -5,7 +5,8 @@
 #include "Component.hpp"
 #include "Config.hpp"
 #include "DeviceProbe.hpp"
-#include "MemoryManager.hpp"
+#include "EmergentCore.hpp"
+//#include "MemoryManager.hpp"
 #include "NeuralFieldSystem.hpp"
 #include "ImmutableCore.hpp"
 #include "MaryLineage.hpp"
@@ -17,7 +18,6 @@
 #include "EnterpriseAuth.hpp"
 #include "PersonalAuth.hpp"
 
-class EvolutionModule;
 class MetaCognitiveModule;
 
 class CoreSystem {
@@ -27,7 +27,7 @@ private:
     
     // Ядро системы
     Config config;
-    MemoryManager memory;
+    EmergentMemory memory;
     ImmutableCore immutableCore;
     EventSystem eventSystem;
     std::unique_ptr<NeuralFieldSystem> neuralSystem;
@@ -61,7 +61,7 @@ public:
     
     // Доступ к ядру
     NeuralFieldSystem& getNeuralSystem() { return *neuralSystem; }
-    MemoryManager& getMemory() { return memory; }
+    EmergentMemory& getMemory() { return memory; }
     ImmutableCore& getImmutableCore() { return immutableCore; }
     PersonnelDatabase& getPersonnelDB() { return personnel_db; }
     EventSystem& getEventSystem() { return eventSystem; }
@@ -104,6 +104,16 @@ public:
         }
         return nullptr;
     }
+
+        // Добавить метод для доступа к EmergentController
+    EmergentController& getEmergentController() { 
+        return neuralSystem->emergentMutable(); 
+    }
+    
+    const EmergentController& getEmergentController() const { 
+        return neuralSystem->emergent(); 
+    }
+
     
 private:
     void loadModulesForDevice();

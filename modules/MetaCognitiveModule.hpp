@@ -3,7 +3,6 @@
 
 #include "../core/NeuralFieldSystem.hpp"
 #include "../core/Component.hpp" 
-#include "EvolutionModule.hpp"  // Добавляем для доступа к fitness
 #include <string>
 #include <vector>
 #include <fstream>
@@ -14,18 +13,14 @@
 class MetaCognitiveModule : public Component {
 private:
     NeuralFieldSystem& neural_system;
-    EvolutionModule* evolution;  // простой указатель, не unique_ptr!
     std::vector<std::string> insights;
     std::vector<float> insight_quality;
     std::mt19937 rng;
     
 public:
     MetaCognitiveModule(NeuralFieldSystem& ns) 
-        : neural_system(ns), rng(std::random_device{}()), evolution(nullptr) {}
+        : neural_system(ns), rng(std::random_device{}()) {}
     
-    void setEvolutionModule(EvolutionModule* ev) {
-        evolution = ev;  // просто сохраняем указатель, не владеем
-    }
     
     std::string getName() const override { return "MetaCognitiveModule"; }
     
@@ -41,38 +36,10 @@ public:
     void update(float dt) override {
         think();
     }
-    
-    void saveState(MemoryManager& memory) override {
-        std::vector<float> data;
-        data.push_back(static_cast<float>(insights.size()));
-        data.push_back(static_cast<float>(insight_quality.size()));
-        
-        std::map<std::string, std::string> metadata;
-        metadata["module"] = "metacognitive";
-        
-        memory.store(getName(), "state", data, 0.8f, metadata);
-    }
-    
-    void loadState(MemoryManager& memory) override {
-        // Загрузка состояния - можно реализовать позже
-    }
-    
     // ИСПРАВЛЕННЫЙ МЕТОД think
 void think() {
     auto state = neural_system.getReflectionState();
     
-    // Реально влиять на систему
-    if (evolution) {
-        float current_fitness = evolution->getOverallFitness();
-        // НЕ ВЛИЯЕМ НА FITNESS, ТОЛЬКО НА ОБУЧЕНИЕ
-        if (current_fitness < 0.3f) {
-            neural_system.setGoal("improve_learning");
-            // Увеличить активность в группах 16-21 (семантических)
-            for (int i = 16; i <= 21; i++) {
-                neural_system.strengthenInterConnection(31, i, 0.01);
-            }
-        }
-    }
         // Если система в замешательстве
         if (state.confusion > 0.7f) {
             tryNewStrategy();
