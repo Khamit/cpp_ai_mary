@@ -321,7 +321,7 @@ std::string LanguageModule::readResponseFromNeuralSystem() {
     return "";
 }
 
-// Остальные методы остаются без изменений...
+
 float LanguageModule::evaluateResponse(const std::string& input, const std::string& response) {
     std::string input_lower = toLower(input);
     std::string response_lower = toLower(response);

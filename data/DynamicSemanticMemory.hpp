@@ -547,11 +547,21 @@ void cleanupOldRecords() {
     }
     
     void activateLetters(const std::string& text) {
-        auto& group0 = neural_system.getGroupsNonConst()[0];
+        auto& groups = neural_system.getGroupsNonConst();
         
-        for (int i = 0; i < 32; i++) {
-            group0.getPhiNonConst()[i] *= 0.7f;
+        // Декей всех групп (кроме self-model)
+        for (int g = 0; g < 32; g++) {
+            // Пропускаем self-model группы
+            if (groups[g].isSelfModelGroup()) continue;
+            
+            auto& phi = groups[g].getPhiNonConst();
+            for (int i = 0; i < 32; i++) {
+                phi[i] *= 0.7f;
+            }
         }
+        
+        // Активируем буквы ТОЛЬКО в группе 0 (input group)
+        auto& group0 = groups[0];
         
         for (char c : text) {
             char lower = std::tolower(c);
@@ -566,16 +576,22 @@ void cleanupOldRecords() {
     }
     
     uint32_t activateWord(const std::string& word, UserProfile& profile) {
-        // ФИКСИРОВАННЫЙ паттерн для каждого слова!
+        auto& groups = neural_system.getGroupsNonConst();
         
+        // Пропускаем, если группа 1 (word group) - self-model
+        // НО! self-model группы — это 28-31, а группа 1 — это обычная группа слов
+        // Поэтому эта проверка не нужна! Удаляем её.
+        // Вместо этого, убедимся, что мы не активируем self-model группы
+        // Но группа 1 НЕ ЯВЛЯЕТСЯ self-model (self-model это 28-31)
         
+        // Фиксированный паттерн для каждого слова
         auto it = word_neuron_map.find(word);
         if (it == word_neuron_map.end()) {
             std::hash<std::string> hasher;
             size_t hash = hasher(word);
             
             std::vector<int> neurons;
-            for (int i = 0; i < 4; i++) {  // всегда 4 нейрона
+            for (int i = 0; i < 4; i++) {
                 int neuron_idx = (hash >> (i * 8)) % 32;
                 neurons.push_back(neuron_idx);
             }
@@ -583,15 +599,13 @@ void cleanupOldRecords() {
             it = word_neuron_map.find(word);
         }
         
-        // ИСПРАВЛЕНО: используем правильную переменную group1
-        auto& group1 = neural_system.getGroupsNonConst()[1];
-        
-        // ВСЕГДА активируем одни и те же нейроны
+        // Активируем слова в группе 1 (не self-model!)
+        auto& group1 = groups[1];
         for (int neuron_idx : it->second) {
             group1.getPhiNonConst()[neuron_idx] = 1.0f;
         }
         
-        // Обновляем запись слова (частота и важность)
+        // Обновляем запись слова
         auto word_it = word_records.find(word);
         if (word_it == word_records.end()) {
             WordRecord record;
@@ -610,6 +624,7 @@ void cleanupOldRecords() {
         std::hash<std::string> hasher;
         return static_cast<uint32_t>(hasher(word));
     }
+
     std::vector<uint32_t> detectPatterns(const std::deque<std::string>& recent_words) {
         std::vector<uint32_t> pattern_hashes;
         

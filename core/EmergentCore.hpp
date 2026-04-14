@@ -448,7 +448,7 @@ public:
         EmergentMemory::Config mc;
         mc.stm_capacity    = 128;
         mc.ltm_capacity    = 1024;
-        mc.consolidation_threshold = 0.55f;
+        mc.consolidation_threshold = 0.25f;
         mc.discard_threshold       = 0.04f;
         memory = EmergentMemory(mc);
     }
@@ -467,11 +467,10 @@ public:
 
         // 2. Write current state to STM
         float entropy = computeEntropy(group_averages);
-        memory.writeSTM(group_averages,
-                        /*importance=*/ 0.3f + 0.5f * external_reward + 0.2f * (1.f - sig.surprise),
-                        entropy,
-                        "state",
-                        step);
+        float importance = 0.4f                          // базовая — всегда что-то запоминает
+                 + 0.4f * external_reward        // бонус за награду
+                 + 0.2f * (1.f - sig.surprise);  // бонус за низкую неожиданность
+        memory.writeSTM(group_averages, importance, entropy, "state", step);
 
         // 3. Self-evaluate
         // Blend external reward with prediction-based reward

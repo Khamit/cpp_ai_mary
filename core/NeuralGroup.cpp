@@ -98,13 +98,18 @@ void NeuralGroup::evolve() {
     if (step_counter_ % 10 == 0) {
         for (int i = 0; i < size; i++) {
             // Квантовое туннелирование - шанс спонтанного повышения
+            // Только туннелирование ВВЕРХ, и только когда энергия позволяет
             if (wave_amplitude[i] > 1.5 && orbit_level[i] < 4) {
-                static std::mt19937 rng(std::random_device{}());
-                if (std::uniform_real_distribution<>(0, 1)(rng) < 0.02) {
-                    std::cout << "  Quantum tunneling! Neuron " << i 
-                              << " jumps to orbit " << (orbit_level[i] + 1) << std::endl;
-                    orbit_level[i]++;
-                    target_radius[i] = getOrbitRadius(orbit_level[i]);
+                double energy = getNeuronEnergy(i);
+                double required_energy = getOrbitRadius(orbit_level[i] + 1) * 0.5;
+                if (energy > required_energy) {  // ← проверка энергии
+                    static std::mt19937 rng(std::random_device{}());
+                    if (std::uniform_real_distribution<>(0, 1)(rng) < 0.002) {  // 0.002 вместо 0.02
+                        std::cout << "  Quantum tunneling! Neuron " << i 
+                                << " jumps to orbit " << (orbit_level[i] + 1) << std::endl;
+                        orbit_level[i]++;
+                        target_radius[i] = getOrbitRadius(orbit_level[i]);
+                    }
                 }
             }
         }

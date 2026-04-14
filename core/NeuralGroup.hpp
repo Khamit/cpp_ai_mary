@@ -321,6 +321,9 @@ public:
         }
     }
 
+    void setSelfModelGroup(bool v) { is_self_model_group_ = v; }
+    bool isSelfModelGroup() const  { return is_self_model_group_; }
+
     // ===== НОВЫЕ ПОЛЯ ДЛЯ МЕТОДА ТЬЮРИНГА =====
     std::vector<double> inhibitor;          // Ингибиторное поле (второй компонент)
     double diffusion_strength = 0.02;       // Коэффициент диффузии (D)
@@ -942,6 +945,8 @@ private:
     std::vector<int> promotion_count;   // сколько раз повышался
     // Для перебалансировки понадобятся вспомогательные методы
     void rebalanceOrbits();   // вызовется периодически
+
+    bool is_self_model_group_ = false;
     
     // ===== СВЯЗИ =====
     std::vector<std::vector<double>> W_intra;      // внутригрупповые веса
@@ -1019,7 +1024,7 @@ private:
         // Минимум из орбитального лимита и насыщения
         double mass_cap = std::min(orbit_limit, saturation);
         
-        return std::max(mass_cap, homeo.min_mass);
+        return std::max(mass_cap, homeo.min_mass * 2.0);
     }
     
     void promoteToEliteOrbit(int i) {

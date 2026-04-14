@@ -35,6 +35,15 @@ void NeuralFieldSystem::initializeWithLimits(std::mt19937& rng, const MassLimits
         if (g == 0) groups.back().setInputGroup(true);
     }
 
+    // Mark groups 28-31 as self-model groups (so DynamicSemanticMemory doesn't touch them)
+    for (int g = SelfSignalSampler::SELF_GROUP_START;
+         g < SelfSignalSampler::SELF_GROUP_START + SelfSignalSampler::SELF_GROUP_COUNT;
+         ++g) {
+        if (g < (int)groups.size()) {
+            groups[g].setSelfModelGroup(true);
+        }
+    }
+
     for (auto& group : groups)
         group.setMemoryManager(memory_manager);
 
@@ -89,6 +98,26 @@ void NeuralFieldSystem::step(float external_reward, int stepNumber) {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    // PHASE 2b: Self-model — sample introspective signals, inject into groups 28-31
+    // ═══════════════════════════════════════════════════════════════════════
+    {
+        auto snap = self_sampler_.sample(*this, lastSignal_, stepNumber);
+        self_sampler_.inject(*this, snap);
+
+        // PHASE 2c: Generate goal signal from self-model + emergent state
+        last_goal_ = goal_gen_.generate(snap, lastSignal_, emergent_.memory, stepNumber);
+
+        // Log dominant drive occasionally
+        if (stepNumber % 500 == 0) {
+            std::cout << "[Goal] drive=" << last_goal_.dominant_drive
+                      << " boredom=" << last_goal_.boredom
+                      << " urgency=" << last_goal_.urgency
+                      << " satiation=" << last_goal_.satiation
+                      << std::endl;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // PHASE 3: Geometry (Ricci flow) — adaptive frequency
     // More frequent when exploring (high surprise), less when consolidating
     // ═══════════════════════════════════════════════════════════════════════
@@ -109,7 +138,7 @@ void NeuralFieldSystem::step(float external_reward, int stepNumber) {
     // ═══════════════════════════════════════════════════════════════════════
     // PHASE 5: Reward routing — per-group STDP driven by prediction error
     // ═══════════════════════════════════════════════════════════════════════
-    routeRewards(lastSignal_, stepNumber);
+    routeRewards(lastSignal_, last_goal_, stepNumber);
 
     // ═══════════════════════════════════════════════════════════════════════
     // PHASE 6: Predictive coder (existing module, feeds semantic groups)
@@ -202,12 +231,10 @@ void NeuralFieldSystem::step(float external_reward, int stepNumber) {
 // ─────────────────────────────────────────────────────────────────────────────
 // routeRewards — the key fix: per-group reward from prediction error
 // ─────────────────────────────────────────────────────────────────────────────
-void NeuralFieldSystem::routeRewards(const EmergentSignal& sig, int step) {
-    // Base survival reward — tiny, always present
+void NeuralFieldSystem::routeRewards(const EmergentSignal& sig, const GoalSignal& goal, int step) {
     constexpr float SURVIVAL = 0.02f;
 
     for (int g = 0; g < NUM_GROUPS; ++g) {
-        // Prediction-based reward for this group
         float pred_reward = (g < (int)sig.per_group_reward.size())
                             ? sig.per_group_reward[g]
                             : 0.5f;
@@ -215,31 +242,35 @@ void NeuralFieldSystem::routeRewards(const EmergentSignal& sig, int step) {
         float reward;
 
         if (g == 0) {
-            // Input buffer — moderate base
             reward = SURVIVAL + 0.08f * pred_reward;
         } else if (g >= 16 && g <= 21) {
-            // Semantic groups — blended prediction + quality
             reward = pred_reward * 0.6f + sig.quality * 0.4f;
         } else if (g >= 3 && g <= 6) {
-            // "Management" / coordination groups
             reward = pred_reward * 0.5f + sig.quality * 0.3f;
         } else {
-            // All other sensory/motor groups
             reward = pred_reward * 0.4f + SURVIVAL;
         }
 
-        // If the system is exploring (high surprise) — give a curiosity bonus
-        // This means novel states are intrinsically rewarded.
         if (sig.should_explore)
             reward += 0.05f * sig.surprise;
 
+        // ===== НОВЫЙ КОД: ПРИМЕНЕНИЕ GOAL SIGNAL =====
+        // Apply curiosity weight from GoalGenerator
+        if (g < (int)goal.curiosity_weight.size()) {
+            float cw = goal.curiosity_weight[g];
+            reward = reward * (1.f + cw * goal_gen_.curiosity_strength);
+        }
+        // Urgency: temporarily boost all rewards when system is destabilising
+        if (goal.urgency > 0.5f) {
+            reward += (goal.urgency - 0.5f) * 0.1f;
+        }
+        // ===== КОНЕЦ НОВОГО КОДА =====
+
         reward = std::clamp(reward, 0.f, 1.f);
 
-        // One STDP call per group per step
         groups[g].learnSTDP(reward, step);
     }
 }
-
 // ─────────────────────────────────────────────────────────────────────────────
 // consolidateInterWeights — now takes a pressure [0,1] instead of being fixed
 // ─────────────────────────────────────────────────────────────────────────────
