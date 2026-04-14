@@ -7,6 +7,9 @@
 This project follows the principles described in the document:
 [**Declaration on the Constitutional Principles of Artificial Intelligence**](/docs/AI_CONSTITUTION_DECLARATION.md)
 
+⚠️ **EXPERIMENTAL RESEARCH SOFTWARE**
+This code was developed with AI assistance for research purposes.
+Not production-ready. Use at your own risk.
 ===============================================
 
 ### Core Architecture
