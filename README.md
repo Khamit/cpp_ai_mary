@@ -1,33 +1,37 @@
 # Neural Field System v4.0.1 - "Adaptive AI system - Mary"
 
-![Neural Field Simulation](docs/simulation_preview.png)
+[![License](https://img.shields.io/badge/License-Dual%20Non--Commercial%2FCommercial-blue)](LICENSE)
+[![Experimental](https://img.shields.io/badge/status-experimental-orange)]()
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)]()
 
 ## AI Constitutional Framework
 
 This project follows the principles described in the document:
 [**Declaration on the Constitutional Principles of Artificial Intelligence**](/docs/AI_CONSTITUTION_DECLARATION.md)
 
-⚠️ **EXPERIMENTAL RESEARCH SOFTWARE**
-This code was developed with AI assistance for research purposes.
+⚠️ **EXPERIMENTAL RESEARCH SOFTWARE**  
+This code was developed with AI assistance for research purposes.  
 Not production-ready. Use at your own risk.
-===============================================
+
+---
 
 ### Core Architecture
+
 A hybrid neuroevolutionary system with **1024 neurons (32 groups × 32 neurons)**, combining:
 
-|                 Component | Description                                         |
-|---------------------------|-----------------------------------------------------|
-| **Neural Field Dynamics** | Wilson-Cowan equations with reentry (recurnt fdbck) |
-| **STDP + Eligibility**    | Reward-modulated spike-timing dependent plasticity |
-| **Group Evolution**       | Genetic algorithms at group level |
-| **Entropy Regulation**    | Prevents mode collapse, maximizes information cpcty |
-| **π-Geometry**            | Spatial organization of connections with natural periodicity |
+| Component | Description |
+|-----------|-------------|
+| **Neural Field Dynamics** | Wilson-Cowan equations with reentry (recurrent feedback) |
+| **STDP + Eligibility** | Reward-modulated spike-timing dependent plasticity |
+| **Group Evolution** | Genetic algorithms at group level |
+| **Entropy Regulation** | Prevents mode collapse, maximizes information capacity |
+| **π-Geometry** | Spatial organization of connections with natural periodicity |
 
 ## Key Features
 
 ### 🔬 Advanced Learning Mechanisms
 - **STDP at synapses** (`learnSTDP`) with eligibility traces and reward modulation
-- **Entropy-based gradients** (replaces fixed `target = 0.5`)???(not fixed yet)
+- **Entropy-based gradients** (adaptive target entropy per group)
 - **Hebbian learning** (`learnHebbian`) with global reward
 - **Evolutionary mutations** at group level
 - **π-constrained initialization** for natural spatial patterns
@@ -47,15 +51,17 @@ double angle = 2π * distance / N;
 double weight = sin(angle) * geometric_factor;
 ```
 ### Three-Level Memory Architecture
-Level	Timescale	Mechanism
-L1: Fast	Every step	STDP, eligibility traces
-L2: Slow	Every 100 steps	Consolidation, pruning by elevation
-L3: Evolutionary	Every 5000 steps	Group mutations, architecture adaptation
+Level	Timescale	Mechanism:
+- L1: Fast	Every step	STDP, eligibility traces
+- L2: Slow	Every 100 steps	Consolidation, pruning by elevation
+- L3: Evolutionary	Every 5000 steps	Group mutations, architecture adaptation
+- 
 ### Immutable Core (ImmutableCore)
 Protects critical functions
 Enforces physical constraints (energy, CPU bounds)
 Entropy monitoring for system health
 Safety protocols with permission levels
+
 ### Unique Advantages
  Entropy-driven learning - prevents mode collapse, maximizes information
  π-geometric organization - natural spatial patterns like biological brains
@@ -72,7 +78,6 @@ Safety protocols with permission levels
 
 ### EvolutionModule - Self-Optimizing Code
 Real-time fitness evaluation based on:
-
 **Code Efficiency Score** - size and complexity
 **Performance Score** - computational efficiency
 **Energy Score** - power consumption
