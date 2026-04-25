@@ -350,7 +350,10 @@ public:
     // Call after each step with the current group averages and an external reward
     float evaluate(const std::vector<float>& state, float external_reward, int step) {
         float internal_score = computeInternalScore(state);
-        float combined = 0.7f * external_reward + 0.3f * internal_score;
+        float combined = std::clamp(
+            0.7f * external_reward + 0.3f * internal_score, 
+            0.f, 1.f  // ← добавить clamp
+        );
 
         // Update hall of fame
         if (combined > 0.6f) {

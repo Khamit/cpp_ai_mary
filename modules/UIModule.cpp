@@ -269,13 +269,16 @@ void UIModule::handleEvents(sf::RenderWindow& window, NeuralFieldSystem& system,
 
 // language modeule type text
 void UIModule::handleTextEntered(const sf::Event::TextEntered& event) {
+    last_keystroke_time_ = std::chrono::steady_clock::now(); 
+    user_is_typing_ = true;                                   
+
     if (event.unicode == 8) { // backspace
         if (!currentInput.empty())
             currentInput.pop_back();
     }
-    else if (event.unicode == 13) { // enter
+    else if (event.unicode == 13) {
+        user_is_typing_ = false;  // ← сброс при отправке
         sendMessage();
-        // НЕ добавляем \n в currentInput
     }
     else if (event.unicode < 128 && event.unicode != 13) { // игнорируем enter
         currentInput += static_cast<char>(event.unicode);

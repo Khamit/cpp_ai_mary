@@ -408,20 +408,29 @@ int main() {
 
         if (simulation_running) {
             ui.setSimulationRunning(true);
+
+            // Если пользователь сейчас набирает — пропускаем шаги нейросети
+            // Позволяем только каждый 10-й шаг чтобы не замирать полностью
+            bool user_typing = ui.isUserTyping();
+            bool should_step = !user_typing || (step % 10 == 0);
+
             coreHub.integrate(neuralSystem);
 
             auto start_time = std::chrono::high_resolution_clock::now();
 
-            OperatingMode::Type current_mode = ui.getCurrentOperatingMode();
-            neuralSystem.setOperatingMode(current_mode);
-            coreHub.integrate(neuralSystem);
-            neuralSystem.step(lastReward, step);
-            coreHub.learnSTDP(lastReward, step);
+            if (should_step) {
+                coreHub.integrate(neuralSystem);
+                
+                OperatingMode::Type current_mode = ui.getCurrentOperatingMode();
+                neuralSystem.setOperatingMode(current_mode);
+                coreHub.integrate(neuralSystem);
+                neuralSystem.step(lastReward, step);
+                coreHub.learnSTDP(lastReward, step);
+            }
             
             if (step % 100 == 0) {
                 neuralSystem.reflect();
                 if (metacog) metacog->think();
-                
                 if (neuralSystem.evaluateProgress()) {
                     std::cout << "Goal achieved!" << std::endl;
                 }
@@ -429,6 +438,7 @@ int main() {
 
             stats_collector.update(step);
             statistics.updateFromCollector();
+            statistics.update(neuralSystem, step, dt);
             
             auto end_time = std::chrono::high_resolution_clock::now();
             double step_time = std::chrono::duration<double>(end_time - start_time).count();

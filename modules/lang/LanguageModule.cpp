@@ -151,27 +151,37 @@ void LanguageModule::stopAutoLearning() {
 
 // ========== ОСНОВНОЙ МЕТОД (исправленный) ==========
 std::string LanguageModule::process(const std::string& input, const std::string& user_name) {
-    if (!dynamic_memory_) {
-        return "Error: Dynamic memory not initialized";
-    }
+    last_user_input_ = input;  // ← сохранить ДО processText
     
     static int step_counter = 0;
     step_counter++;
-    
-    last_user_input_ = input;
+
     dialogue_state_.last_question = input;
     
     // 1. АКТИВАЦИЯ через динамическую память
     auto meanings = dynamic_memory_->processText(input, user_name);
+
+    // Попытка ответить ДО эволюции (пока активация свежая)
+    // ПОЛУЧАЕМ ОТВЕТ ИЗ НЕЙРОСИСТЕМЫ
+    std::string response = readResponseFromNeuralSystem();
+
+        // Эволюция
+    for (int i = 0; i < 10; i++) neural_system.step(0.0f, step_counter + i);
+    
+    // Если нет ответа — пробуем после эволюции  
+    if (response.empty() || response == "...") {
+        response = contextualResponse(input, step_counter);
+    }
     
     // 2. Эволюция нейросистемы с эмерджентным управлением
+    // СТАРАЯ ЭВОЛЮЦИЯ
+    /*
+    состояние уходит слишком далеко от момента активации
+     перед тем как читается контекстный ответ.
     for (int evolve_step = 0; evolve_step < 10; evolve_step++) {
         neural_system.step(0.0f, step_counter + evolve_step);
     }
-    
-    // 3. ПОЛУЧАЕМ ОТВЕТ ИЗ НЕЙРОСИСТЕМЫ
-    std::string response = readResponseFromNeuralSystem();
-    
+    */
     // 4. Если нет ответа — пробуем контекст из LTM
     if (response.empty() || response == "...") {
         response = contextualResponse(input, step_counter);
@@ -236,141 +246,153 @@ std::string LanguageModule::process(const std::string& input, const std::string&
 }
 
 // ========== КОНТЕКСТНЫЙ ОТВЕТ ИЗ LTM ==========
-std::string LanguageModule::contextualResponse(const std::string& /*input*/, int step) {
-    if (!dynamic_memory_) return "";
-    
-    // Текущее состояние групп
+std::string LanguageModule::contextualResponse(const std::string& input, int step) {
     auto avgs_d = neural_system.getGroupAverages();
     std::vector<float> avgs_f(avgs_d.begin(), avgs_d.end());
     
-    // Запрос к LTM
-    auto matches = neural_system.emergent().memory.query(avgs_f, 3, step);
-    if (matches.empty()) return "";
+    auto matches = neural_system.emergent().memory.query(avgs_f, 5, step);
     
-    const auto* best = matches[0];
-    if (best->pattern.size() < 32) return "";
-    
-    // Поиск слова по тегу
-    if (!best->tag.empty() && best->tag != "state") {
-        return best->tag;
+    for (const auto* best : matches) {
+        if (best->tag.find("web_knowledge_") == 0) {
+            std::string answer;
+            size_t pos = 0;
+            while (pos < best->pattern.size() && best->pattern[pos] != 0.0f) pos++;
+            pos++;
+            while (pos < best->pattern.size() && best->pattern[pos] != 0.0f)
+                answer += static_cast<char>(best->pattern[pos++]);
+            if (answer.size() > 20) return answer;  // ← только если это реальный ответ
+        }
     }
-    
-    return "";
+    return "";  // ← не возвращать одиночные слова
 }
 
 // ========== ЧТЕНИЕ ОТВЕТА ИЗ НЕЙРОСЕТИ (ИСПРАВЛЕНО) ==========
 std::string LanguageModule::readResponseFromNeuralSystem() {
     if (!dynamic_memory_) return "";
     
-    const auto& groups = neural_system.getGroups();
+    // ШАГ 1: Получаем текущий контекст (что было во входе)
+    const std::string& last_input = last_user_input_;
     
-    // Вспомогательная лямбда для поиска лучшего нейрона
-    auto bestNeuron = [&](int g, float thresh) -> int {
-        int best_n = -1;
-        float best_v = thresh;
-        const auto& phi = groups[g].getPhi();
-        for (int i = 0; i < 32; ++i) {
-            if (phi[i] > best_v) {
-                best_v = phi[i];
-                best_n = i;
+    // ШАГ 2: Ищем в validated_knowledge WebTrainer'а
+    // Вместо: ищем по первому слову > 4 символов
+    // Нужно: подсчитать совпадения и брать лучшее
+
+    if (web_trainer_) {
+        // Прямое совпадение
+        const auto* knowledge = web_trainer_->getValidatedKnowledge(last_input);
+        if (knowledge) return knowledge->answer.substr(0, 200);
+        
+        // Совпадение по максимальному числу ключевых слов
+        auto input_words = split(last_input);
+        
+        const ValidatedKnowledge* best_match = nullptr;
+        int best_score = 0;
+        
+        for (const auto& word : input_words) {
+            if (word.length() < 4) continue;
+            const auto* k = web_trainer_->findKnowledgeByKeyword(word);
+            if (!k || k->validation_score < 0.7f) continue;
+            
+            // Считаем сколько слов из запроса есть в ключевых словах знания
+            int score = 0;
+            for (const auto& kw : k->keywords) {
+                for (const auto& iw : input_words) {
+                    if (kw == iw) score++;
+                }
+            }
+            if (score > best_score) {
+                best_score = score;
+                best_match = k;
             }
         }
-        return best_n;
-    };
+        
+        // Требуем минимум 2 совпадения чтобы избежать ложных срабатываний
+        if (best_match && best_score >= 2) {
+            return best_match->answer.substr(0, 200);
+        }
+    }
     
-    // ПРИОРИТЕТ 1: Группа 3 (смыслы/паттерны)
-    int pn = bestNeuron(3, 0.4f);
-    if (pn >= 0) {
-        const auto& all_words = dynamic_memory_->getAllWordRecords();
-        for (const auto& [word, rec] : all_words) {
-            const auto* neurons = dynamic_memory_->getWordNeurons(word);
-            if (!neurons) continue;
-            for (int n : *neurons) {
-                if (n == pn) return word;
-            }
+    // ШАГ 3: Ищем в EmergentMemory по текущему состоянию нейросети
+    auto avgs_d = neural_system.getGroupAverages();
+    std::vector<float> avgs_f(avgs_d.begin(), avgs_d.end());
+    int step = neural_system.getCurrentStep();
+    
+    auto matches = neural_system.emergent().memory.query(avgs_f, 5, step);
+    for (const auto* rec : matches) {
+        // Ищем записи с контентом (не просто "state")
+        if (rec->tag.find("web_knowledge_") == 0 && rec->importance > 0.5f) {
+            // Декодируем ответ из паттерна
+            // Формат: [query chars][0][answer chars][0]
+            std::string query_part, answer_part;
+            size_t pos = 0;
+            while (pos < rec->pattern.size() && rec->pattern[pos] != 0.0f)
+                query_part += static_cast<char>(rec->pattern[pos++]);
+            pos++;
+            while (pos < rec->pattern.size() && rec->pattern[pos] != 0.0f)
+                answer_part += static_cast<char>(rec->pattern[pos++]);
+            
+            if (!answer_part.empty()) return answer_part;
         }
     }
     
-    // ПРИОРИТЕТ 2: Группа 1 (слова)
-    int wn = bestNeuron(1, 0.45f);
-    if (wn >= 0) {
-        const auto& all_words = dynamic_memory_->getAllWordRecords();
-        for (const auto& [word, rec] : all_words) {
-            const auto* neurons = dynamic_memory_->getWordNeurons(word);
-            if (!neurons) continue;
-            for (int n : *neurons) {
-                if (n == wn) return word;
-            }
-        }
-    }
-    
-    // ПРИОРИТЕТ 3: Элитные семантические группы (16-21)
-    for (int g = 16; g <= 21; ++g) {
-        int en = bestNeuron(g, 0.55f);
-        if (en < 0) continue;
-        const auto& all_words = dynamic_memory_->getAllWordRecords();
-        for (const auto& [word, rec] : all_words) {
-            const auto* neurons = dynamic_memory_->getWordNeurons(word);
-            if (!neurons) continue;
-            for (int n : *neurons) {
-                if (n == en) return word;
-            }
-        }
-    }
+    // ШАГ 4: Fallback — generateResponse из DynamicSemanticMemory
+    std::vector<uint32_t> empty_meanings;
+    std::string dsm_response = dynamic_memory_->generateResponse(
+        default_user_, empty_meanings);
+    if (!dsm_response.empty() && dsm_response != "...") 
+        return dsm_response;
     
     return "";
 }
 
 
-float LanguageModule::evaluateResponse(const std::string& input, const std::string& response) {
-    std::string input_lower = toLower(input);
-    std::string response_lower = toLower(response);
-    
-    if (response.empty() || response == "...") {
+float LanguageModule::evaluateResponse(const std::string& input, 
+                                        const std::string& response) {
+    if (response.empty() || response == "..." || 
+        response == "... I'm still learning. Please continue teaching me.") {
         return 0.0f;
     }
+    
+    std::string input_lower = toLower(input);
+    std::string response_lower = toLower(response);
     
     float score = 0.0f;
     int total_checks = 0;
     
+    // Существующие проверки
     if (input_lower.find("your name") != std::string::npos) {
         total_checks++;
-        if (response_lower.find("mary") != std::string::npos) {
-            score += 1.0f;
-        } else if (response_lower.find("i am") != std::string::npos) {
-            score += 0.5f;
-        }
+        if (response_lower.find("mary") != std::string::npos) score += 1.0f;
+        else if (response_lower.find("i am") != std::string::npos) score += 0.5f;
     }
-    
     if (input_lower.find("hello") != std::string::npos ||
         input_lower.find("hi") != std::string::npos) {
         total_checks++;
         if (response_lower.find("hello") != std::string::npos ||
-            response_lower.find("hi") != std::string::npos) {
-            score += 1.0f;
-        } else if (!response_lower.empty()) {
-            score += 0.4f;
-        }
+            response_lower.find("hi") != std::string::npos) score += 1.0f;
+        else if (!response_lower.empty()) score += 0.4f;
     }
-    
     if (input_lower.find("how are you") != std::string::npos) {
         total_checks++;
         if (response_lower.find("good") != std::string::npos ||
             response_lower.find("fine") != std::string::npos ||
-            response_lower.find("well") != std::string::npos) {
-            score += 1.0f;
-        } else if (response_lower.find("i am") != std::string::npos) {
-            score += 0.6f;
-        }
+            response_lower.find("well") != std::string::npos) score += 1.0f;
+        else if (response_lower.find("i am") != std::string::npos) score += 0.6f;
     }
     
-    if (total_checks == 0 && !response.empty() && response != "...") {
-        return 0.5f;
-    }
+    if (total_checks > 0) return score / total_checks;
     
-    return total_checks > 0 ? score / total_checks : 0.0f;
+    // НОВОЕ: оценка для всех остальных ответов
+    // Ответ длиннее 30 символов — скорее всего реальный ответ из WebTrainer
+    if (response.size() > 30) return 0.75f;
+    
+    // Ответ из 1-2 слов — плохой
+    auto words = split(response);
+    if (words.size() <= 2) return 0.0f;
+    
+    // Средний ответ (3-30 символов)
+    return 0.4f;
 }
-
 std::string LanguageModule::formatResponse(const std::string& base_word) {
     return base_word;
 }
@@ -604,16 +626,10 @@ void LanguageModule::giveFeedback(float rating, bool autoFeedback) {
 
 double LanguageModule::getLanguageFitness() const {
     float externalScore = getExternalFeedbackAvg();
-    float diversityScore = 0.5f;
-    
-    if (external_feedback_count_ < 10) {
-        externalScore = 0.5f;
-    }
-    
-    if (externalScore > 0.95f) {
-        externalScore = 0.6f;
-    }
-    
+    if (external_feedback_count_ < 10) externalScore = 0.5f;
+
+    float diversityScore = dynamic_memory_ ? 
+        std::min(1.0f, dynamic_memory_->getWordCount() / 100.0f) : 0.5f;
     return 0.7f * externalScore + 0.3f * diversityScore;
 }
 

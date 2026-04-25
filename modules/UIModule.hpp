@@ -121,7 +121,14 @@ OperatingMode::Type getCurrentOperatingMode() const {
     return OperatingMode::NORMAL;
 }
 
-   void toggleDiffusion();      // переключение отображения диффузии
+    bool isUserTyping() const { 
+        if (!user_is_typing_) return false;
+        auto now = std::chrono::steady_clock::now();
+        float elapsed = std::chrono::duration<float>(now - last_keystroke_time_).count();
+        return elapsed < TYPING_PAUSE_SECONDS;
+    }
+
+    void toggleDiffusion();      // переключение отображения диффузии
     void toggleInhibitor();      // переключение отображения ингибитора
 
 private:
@@ -149,6 +156,11 @@ private:
     void drawStatistics(sf::RenderWindow& window, const StatisticsModule& stats);
     void drawBottomPanel(sf::RenderWindow& window, const ResourceMonitor& resources);
     std::string formatDouble(double value, int precision = 4) const;
+
+    std::chrono::steady_clock::time_point last_keystroke_time_;
+    bool user_is_typing_ = false;
+    static constexpr float TYPING_PAUSE_SECONDS = 1.5f; // пауза после последней клавиши
+
 
     // === AI CHAT ===
     LanguageModule* languageModule = nullptr;

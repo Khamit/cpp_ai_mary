@@ -602,7 +602,7 @@ void cleanupOldRecords() {
         // Активируем слова в группе 1 (не self-model!)
         auto& group1 = groups[1];
         for (int neuron_idx : it->second) {
-            group1.getPhiNonConst()[neuron_idx] = 1.0f;
+            group1.getPhiNonConst()[neuron_idx] = 1.0f; // ← всегда 1.0
         }
         
         // Обновляем запись слова
@@ -747,7 +747,7 @@ std::vector<uint32_t> updateMeanings(const std::vector<uint32_t>& pattern_hashes
         auto& profile = getUserProfile(user_name);
         profile.updateMood(feedback);
         
-        if (feedback > 0.7f) {
+        if (feedback >= 0.7f) {
             profile.trust_level = std::min(1.0f, profile.trust_level + 0.05f);
         } else if (feedback < 0.3f) {
             profile.trust_level = std::max(0.0f, profile.trust_level - 0.1f);
@@ -767,8 +767,10 @@ std::vector<uint32_t> updateMeanings(const std::vector<uint32_t>& pattern_hashes
                 }
             }
             
+            if (!active_neurons.empty()) {
+                group3.learnSTDP(feedback, current_step);  // один вызов вне цикла
+            }
             for (int neuron : active_neurons) {
-                group3.learnSTDP(feedback, current_step);
                 float current_mass = group3.getMass(neuron);
                 group3.setMass(neuron, current_mass * 1.05f);
             }

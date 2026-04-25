@@ -443,6 +443,35 @@ public:
         }
     }
 
+    // ======= Передача памяти ======   
+    struct PatternRecord {
+        std::vector<double> weights;  // срез W_intra[i][:]
+        int orbit_level;
+        double importance;
+    };
+    
+    void savePatternBeforeDeath(int i) {
+        if (pattern_pool_.size() > 50) pattern_pool_.pop_front();
+        PatternRecord rec;
+        rec.weights = std::vector<double>(W_intra[i].begin(), W_intra[i].end());
+        rec.orbit_level = orbit_level[i];
+        rec.importance = getNeuronEnergy(i);
+        pattern_pool_.push_back(rec);
+    }
+    
+    void inheritBestPattern(int i) {
+        if (pattern_pool_.empty()) return;
+        // Берём лучший паттерн похожего орбитального уровня
+        auto best = std::max_element(pattern_pool_.begin(), pattern_pool_.end(),
+            [&](const PatternRecord& a, const PatternRecord& b) {
+                return a.importance < b.importance;
+            });
+        // Частично копируем (не полностью — оставляем место для эволюции)
+        for (int j = 0; j < size; j++) {
+            W_intra[i][j] = W_intra[i][j] * 0.3 + best->weights[j] * 0.7;
+        }
+    }
+
     // ===== Entropy ==============
 
     // MASS
@@ -901,7 +930,7 @@ private:
     OperatingMode::Type current_mode_ = OperatingMode::NORMAL;
     EmergentMemory* memory_manager = nullptr;
     bool is_input_group_ = false;
-
+    std::vector<int> wall_hits_; 
     // ===== ФУНДАМЕНТАЛЬНЫЕ ПАРАМЕТРЫ =====
     int size;                       // количество нейронов
     double dt;                      // шаг времени
@@ -909,6 +938,7 @@ private:
     int step_counter_ = 0;
     // счетчик выбросов
     int ejection_count_ = 0;
+    std::deque<PatternRecord> pattern_pool_;  // max 50 записей
     // Счетчик связей 
     // Счетчики использования связей
     std::vector<std::vector<int>> connection_usage_count;

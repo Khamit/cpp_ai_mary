@@ -94,6 +94,12 @@ void NeuralFieldSystem::step(float external_reward, int stepNumber) {
     // Apply temperature suggestion from emergent controller
     {
         float new_temp = attention.temperature + lastSignal_.temperature_delta;
+        // Ограничиваем рост: если surprise высокий долго — не позволяем температуре
+        // расти бесконечно, иначе система никогда не выйдет из режима explore
+        if (lastSignal_.surprise > 0.9f) {
+            // При постоянно высоком surprise — держим температуру умеренной
+            new_temp = std::min(new_temp, 2.0f);  // было 5.0f
+        }
         attention.temperature = std::clamp(new_temp, 0.1f, 5.0f);
     }
 

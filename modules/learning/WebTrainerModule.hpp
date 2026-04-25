@@ -467,6 +467,20 @@ public:
             std::cout << "\nLocal knowledge base size: " << local_knowledge_base.size() << std::endl;
         }
     }
+
+    const ValidatedKnowledge* findKnowledgeByKeyword(const std::string& keyword) const {
+        // Сначала ищем по ключевым словам
+        for (const auto& [query, knowledge] : validated_knowledge) {
+            for (const auto& kw : knowledge.keywords) {
+                if (kw == keyword) return &knowledge;
+            }
+            // Затем по тексту ответа
+            if (knowledge.answer.find(keyword) != std::string::npos) {
+                return &knowledge;
+            }
+        }
+        return nullptr;
+    }
     
     void addQuestion(const std::string& question) {
         // Проверяем в validated_knowledge

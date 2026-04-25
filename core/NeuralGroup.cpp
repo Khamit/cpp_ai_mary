@@ -42,6 +42,8 @@ NeuralGroup::NeuralGroup(int size, double dt, std::mt19937& rng,
       wave_phase(size, 0.0),
       wave_amplitude(size, 1.0)
 {
+    rebirth_count.resize(size, 0);
+    wall_hits_.resize(size, 0);
     // Инициализация ингибиторного поля
     inhibitor.resize(size, 0.0);
     // Небольшой случайный шум для инициализации паттернов
@@ -135,7 +137,7 @@ void NeuralGroup::evolve() {
     }
     
     // Обновление орбитальных уровней (раз в 10 шагов)
-    if (step_counter_ % 10 == 0) {
+    if (step_counter_ % 50 == 0) {
         updateOrbitLevels();
         updateHomeostasis();
     }
@@ -300,6 +302,7 @@ void NeuralGroup::checkForEscape(int i, std::mt19937& rng) {
     
     // Если нейрон слишком далеко - он "сбежал"
     if (r > HARD_LIMIT) {
+        savePatternBeforeDeath(i);
         // УБИРАЕМ вывод для каждого нейрона, оставляем только для отладки
         // std::cout << "  Neuron " << i << " escaped to infinity at r=" << r 
         //          << "! Resetting to singularity..." << std::endl;
@@ -319,10 +322,11 @@ void NeuralGroup::checkForEscape(int i, std::mt19937& rng) {
         mass[i] = homeo.min_mass;
         
         // Сильно ослабляем все связи (забывает всё)
+        float escape_decay = 0.5f;  // сохраняем 50% — не 10% и не 70%
         for (int j = 0; j < size; j++) {
             if (i != j) {
-                W_intra[i][j] *= 0.1;  // теряет 90% связей
-                W_intra[j][i] *= 0.1;
+                W_intra[i][j] *= escape_decay;
+                W_intra[j][i] *= escape_decay;  // симметрично!
             }
         }
         
@@ -514,12 +518,13 @@ void NeuralGroup::computeDerivatives() {
         
         if (r < CRITICAL_RADIUS) {
             Vec3 radial;
+            static std::mt19937 singularity_rng(std::random_device{}());
             
             // ИСПРАВЛЕНИЕ: фиксируем направление при r→0
             if (r < 1e-4) {
                 // Случайное направление для избежания "мертвой точки"
-                static std::mt19937 rng(std::random_device{}());
-                radial = Vec3::randomOnSphere(rng);
+                
+                radial = Vec3::randomOnSphere(singularity_rng);
             } else {
                 radial = pos[i].normalized();
             }
@@ -537,8 +542,7 @@ void NeuralGroup::computeDerivatives() {
             vel[i] += radial * impulse_strength;
             
             // Добавляем случайную компоненту
-            static std::mt19937 rng(std::random_device{}());
-            Vec3 random_dir = Vec3::randomOnSphere(rng);
+            Vec3 random_dir = Vec3::randomOnSphere(singularity_rng);
             vel[i] += random_dir * impulse_strength * 0.3;
             
             // Логируем редкие события
@@ -628,16 +632,15 @@ void NeuralGroup::applyOrbitalForces() {
         // ВНЕШНИЙ ПОТЕНЦИАЛ (стенка на больших расстояниях)
         double outer_wall = 0.0;
         double outer_limit = OrbitalParams::OUTER_ORBIT * 1.5;  // предел: 3.9
-        static int wall_hits[32] = {0};
 
         if (r > outer_limit) {
-            wall_hits[i]++;
-            if (wall_hits[i] > 500) {  // слишком долго у стенки
+            wall_hits_[i]++;
+            if (wall_hits_[i] > 500) {    // ← везде wall_hits_
                 ejectFromSingularity(i);
-                wall_hits[i] = 0;
+                wall_hits_[i] = 0;
             }
         } else {
-            wall_hits[i] = 0;
+            wall_hits_[i] = 0;
         }
         
         if (r > outer_limit) {
@@ -946,24 +949,16 @@ void NeuralGroup::updateOrbitLevels() {
                 promotion_threshold_ = 0.6;
                 demotion_threshold_ = 0.4;
             }
-            
-            // Используем пороги при принятии решения о повышении/понижении
-            if (target_level > old_level && functional_importance > promotion_threshold_) {
-                // Повышение (ваш существующий код)
-            }
-            else if (target_level < old_level && functional_importance < demotion_threshold_) {
-                // Понижение (ваш существующий код)
-            }
         }
                         
         // ===== 3. КОНКУРЕНЦИЯ: НА ВЫСОКИХ ОРБИТАХ МЕСТО ОГРАНИЧЕНО =====
         // Вычисляем, сколько нейронов уже на целевой орбите
         int capacity = getOrbitCapacity(target_level);
+        // Перед циклом:
+        std::vector<int> orbit_counts(5, 0);
+        for (int k = 0; k < size; k++) orbit_counts[orbit_level[k]]++;
         
-        int current_on_target = 0;
-        for (int k = 0; k < size; k++) {
-            if (orbit_level[k] == target_level) current_on_target++;
-        }
+        int current_on_target = orbit_counts[target_level];
         
         // Если место занято, нужно вытеснить кого-то
         bool can_enter = (current_on_target < capacity);
@@ -979,7 +974,7 @@ void NeuralGroup::updateOrbitLevels() {
 
         if (target_level > old_level && (can_enter || has_to_leave)) {
             // ПОВЫШЕНИЕ - нужно доказать свою важность
-            double importance_threshold = 0.6;
+            double importance_threshold = promotion_threshold_;
             if (functional_importance > importance_threshold && 
                 time_on_orbit[i] > 10.0) {
                 
@@ -995,7 +990,7 @@ void NeuralGroup::updateOrbitLevels() {
         }
         else if (target_level < old_level) {
             // ПОНИЖЕНИЕ - если важность упала, освобождаем место
-            double importance_threshold = 0.3;
+            double importance_threshold = demotion_threshold_;  
             if (functional_importance < importance_threshold || 
                 (stability < 0.3 && time_on_orbit[i] > 50.0)) {
                 
@@ -1271,6 +1266,12 @@ void NeuralGroup::ejectFromSingularity(int i) {
     wave_phase[i] = 2.0 * M_PI * (rng() % 1000) / 1000.0;
     wave_function[i] = std::polar(wave_amplitude[i], wave_phase[i]);
     
+    // Наследуем паттерн с вероятностью 33%
+    static std::mt19937 inherit_rng(std::random_device{}());
+    if (!pattern_pool_.empty() && 
+        std::uniform_int_distribution<>(0, 2)(inherit_rng) == 0) {
+        inheritBestPattern(i);
+    }
     syncSynapsesFromWeights();
     
     // После установки новой орбиты
@@ -2124,7 +2125,7 @@ void NeuralGroup::learnSTDP(float reward, int currentStep) {
                 // Но только для значительных изменений
                 if (std::abs(weight_change) > 0.001f) {
                     // Положительное подкрепление увеличивает массу
-                    if (reward > 0) {
+                    if (reward > 0 && weight_change > 0) {  // ← добавить проверку знака
                         mass[i] += weight_change * 10.0f;
                         mass[j] += weight_change * 10.0f;
                     }
@@ -2188,8 +2189,13 @@ void NeuralGroup::learnSTDP(float reward, int currentStep) {
                     norm += W_intra[i][j] * W_intra[i][j];
                 }
                 norm = std::sqrt(norm + 1e-6);
-                for (int j = 0; j < size; j++) {
-                    W_intra[i][j] /= norm;
+                // Нормализуем только положительные, или нормализуем по L1-норме отдельно:
+                if (norm > 2.0) {  // нормализуем только при явном перегреве
+                    for (int j = 0; j < size; j++) {
+                        W_intra[i][j] = std::clamp(W_intra[i][j] / norm, 
+                                                    -(double)params.maxWeight, 
+                                                    (double)params.maxWeight);
+                    }
                 }
             }
             syncSynapsesFromWeights();
@@ -2375,10 +2381,9 @@ double NeuralGroup::scalarCurvature() const {
             }
         }
     }
-    return triangles > 0 ? total_curvature / triangles : 0.0;
-    // КЭШИРУЕМ
     cached_curvature_ = triangles > 0 ? total_curvature / triangles : 0.0;
-    return cached_curvature_;  // <-- ВАЖНО: возвращаем закэшированное значение
+    curvature_step_ = step_counter_;  // ← это тоже нужно обновлять!
+    return cached_curvature_;
 }
 
 double NeuralGroup::computeEntropyTarget() const {
@@ -2934,7 +2939,8 @@ void NeuralGroup::performExperiments() {
                 learnSTDP(reward * 2.0f, step_counter_);  // было просто 1.05
                 std::cout << "Successful experiment by neuron " << i << std::endl;
             }
-            if (orbit_level[i] <= 2 && random() < 0.01) {
+            std::uniform_real_distribution<double> prob(0.0, 1.0);
+            if (orbit_level[i] <= 2 && prob(rng) < 0.01) {
                 pos[i] += Vec3::randomOnSphere(rng) * 0.05;
             }
         }
@@ -2999,6 +3005,10 @@ void NeuralGroup::generateCuriosityConnections() {
 // ============================================================================
 
 double NeuralGroup::computeNovelty(int i) const {
+    /*
+    При size=32 это 32×32×32 = ~33000 операций каждые 50 шагов на группу,
+     умноженные на 32 группы = ~1М операций. Не катастрофа, но стоит кэшировать.
+    */
     if (i < 0 || i >= size) return 0.0;
     
     double novelty = 0.0;
