@@ -1,20 +1,4 @@
 #pragma once
-// EmergentCore.hpp
-// The central missing piece: a gating system that decides what to remember,
-// what to discard, and how to route reward signals based on prediction error.
-//
-// Architecture:
-//   STM (Short-Term Memory)  — recent activations, high plasticity, decays fast
-//   LTM (Long-Term Memory)   — consolidated patterns, low plasticity, decays slow
-//   Gate                     — prediction-error-driven consolidation decision
-//   Self-evaluator           — compares current output to stored "good" patterns
-//
-// The emergent loop (called once per step):
-//   1. Compute prediction error against STM
-//   2. If error HIGH  → explore (increase temperature, weaken consolidation)
-//   3. If error LOW   → consolidate (move STM→LTM, prune LTM redundancies)
-//   4. Discard LTM entries whose activation has been zero for N steps
-//   5. Emit a per-group reward signal (not a flat global reward)
 
 #include <vector>
 #include <deque>
@@ -23,125 +7,302 @@
 #include <cmath>
 #include <algorithm>
 #include <numeric>
-#include <iostream>
 #include <cassert>
+#include <random>
+#include <memory>
 
-// ──────────────────────────────────────────────────────────────────────────────
-// MemoryRecord — one item that can live in STM or LTM
-// ──────────────────────────────────────────────────────────────────────────────
-struct MemoryRecord {
-    std::vector<float> pattern;   // feature vector (e.g. group averages, 32 floats)
-    float importance  = 0.5f;     // learned importance [0,1]
-    float decay_rate  = 0.01f;    // how fast importance falls per step without reactivation
-    int   age         = 0;        // steps since creation
-    int   last_hit    = 0;        // step at which it was last reactivated
-    float entropy     = 0.5f;     // pattern entropy at time of storage
-    std::string tag;              // semantic label (optional)
+// Forward declarations
+class NeuralGroup;
 
-    // Similarity in [0,1] — cosine similarity
-    float similarity(const std::vector<float>& other) const {
-        if (pattern.size() != other.size()) return 0.f;
+// ============================================================================
+// НОВАЯ СТРУКТУРА ПАМЯТИ — КОРРЕЛИРУЕТСЯ С НЕЙРОНАМИ
+// ============================================================================
+
+/**
+ * @struct SynapticSignature
+ * @brief "Отпечаток пальца" нейрона — его синаптические веса
+ * 
+ * Позволяет сравнивать нейроны не по позиции в пространстве,
+ * а по их функциональной роли (с кем они связаны).
+ */
+struct SynapticSignature {
+    std::vector<float> incoming;  // веса от других нейронов (пре)
+    std::vector<float> outgoing;  // веса к другим нейронам (пост)
+    float firing_rate;            // средняя частота спайков
+    float spike_timing_pattern;   // грубая характеристика временного паттерна
+    
+    // Нормализованное косинусное расстояние между двумя сигнатурами
+    static float cosineSimilarity(const SynapticSignature& a, const SynapticSignature& b) {
+        size_t sz = std::min(a.incoming.size(), b.incoming.size());
         float dot = 0.f, na = 0.f, nb = 0.f;
-        for (size_t i = 0; i < pattern.size(); ++i) {
-            dot += pattern[i] * other[i];
-            na  += pattern[i] * pattern[i];
-            nb  += other[i]   * other[i];
+        
+        for (size_t i = 0; i < sz; ++i) {
+            dot += a.incoming[i] * b.incoming[i];
+            na += a.incoming[i] * a.incoming[i];
+            nb += b.incoming[i] * b.incoming[i];
+        }
+        
+        for (size_t i = 0; i < sz; ++i) {
+            dot += a.outgoing[i] * b.outgoing[i];
+            na += a.outgoing[i] * a.outgoing[i];
+            nb += b.outgoing[i] * b.outgoing[i];
+        }
+        
+        // Добавляем частоту спайков
+        dot += a.firing_rate * b.firing_rate;
+        na += a.firing_rate * a.firing_rate;
+        nb += b.firing_rate * b.firing_rate;
+        
+        float denom = std::sqrt(na) * std::sqrt(nb);
+        return (denom < 1e-9f) ? 0.f : std::clamp(dot / denom, 0.f, 1.f);
+    }
+};
+
+/**
+ * @struct NeuroMemoryRecord
+ * @brief Запись памяти, коррелирующаяся с состоянием нейронов
+ * 
+ * В отличие от старой MemoryRecord (которая хранила только активности групп),
+ * эта структура хранит полную сигнатуру нейрона, включая синаптические веса.
+ */
+struct NeuroMemoryRecord {
+    // Идентификация
+    int group_id;                      // в какой группе был нейрон
+    int neuron_id;                     // индекс нейрона в группе
+    
+    // Сигнатура нейрона (функциональный отпечаток)
+    SynapticSignature signature;
+    
+    // Метаданные
+    float importance = 0.5f;           // важность [0,1]
+    float decay_rate = 0.01f;          // скорость затухания
+    int age = 0;                       // шагов с момента создания
+    int last_accessed = 0;             // последний шаг доступа
+    float trophic_history = 0.0f;      // история трофических сигналов
+    
+    // Семантическая информация
+    std::string tag;                   // "sensory", "motor", "semantic", etc.
+    std::vector<float> embedding;      // эмбеддинг из semantic групп (16-21)
+    
+    // Статистика
+    float avg_firing_rate = 0.0f;      // средняя частота спайков
+    float spike_variability = 0.0f;    // вариативность интервалов
+    
+    // Вычисление релевантности для текущего нейрона
+    float relevanceTo(const SynapticSignature& query, int current_step) const {
+        float recency = std::exp(-decay_rate * (current_step - last_accessed));
+        float sig_sim = SynapticSignature::cosineSimilarity(signature, query);
+        return importance * recency * sig_sim;
+    }
+    // Обновление сигнатуры из живого нейрона
+    void captureFromNeuron(const NeuralGroup& group, int neuron_idx, int step);
+};
+
+// ============================================================================
+// LONG-TERM POTENTIATION CACHE — для быстрого доступа к часто используемым паттернам
+// ============================================================================
+
+/**
+ * @class LTMCache
+ * @brief Кэш для LTM, ускоряющий поиск релевантных паттернов
+ * 
+ * Хранит предвычисленные эмбеддинги для быстрого косинусного сравнения.
+ */
+class LTMCache {
+public:
+    struct CachedEntry {
+        int record_id;
+        std::vector<float> embedding;
+        float importance;
+    };
+    
+    void rebuild(const std::deque<NeuroMemoryRecord>& ltm) {
+        cache_.clear();
+        id_to_idx_.clear();
+        
+        for (size_t i = 0; i < ltm.size(); ++i) {
+            CachedEntry entry;
+            entry.record_id = i;
+            entry.embedding = ltm[i].embedding;
+            entry.importance = ltm[i].importance;
+            cache_.push_back(entry);
+            id_to_idx_[i] = i;
+        }
+    }
+    
+    std::vector<int> findSimilar(const std::vector<float>& query_embedding, 
+                                  int top_k, float min_similarity = 0.5f) {
+        std::vector<std::pair<float, int>> scored;
+        for (size_t i = 0; i < cache_.size(); ++i) {
+            float sim = cosineSimilarity(query_embedding, cache_[i].embedding);
+            if (sim > min_similarity) {
+                scored.push_back({sim, i});
+            }
+        }
+        
+        std::sort(scored.begin(), scored.end(),
+                  [](const auto& a, const auto& b) { return a.first > b.first; });
+        
+        std::vector<int> result;
+        for (int i = 0; i < top_k && i < (int)scored.size(); ++i) {
+            result.push_back(cache_[scored[i].second].record_id);
+        }
+        return result;
+    }
+    
+private:
+    std::vector<CachedEntry> cache_;
+    std::unordered_map<int, int> id_to_idx_;
+    
+    static float cosineSimilarity(const std::vector<float>& a, const std::vector<float>& b) {
+        size_t sz = std::min(a.size(), b.size());
+        float dot = 0.f, na = 0.f, nb = 0.f;
+        for (size_t i = 0; i < sz; ++i) {
+            dot += a[i] * b[i];
+            na += a[i] * a[i];
+            nb += b[i] * b[i];
         }
         float denom = std::sqrt(na) * std::sqrt(nb);
         return (denom < 1e-9f) ? 0.f : std::clamp(dot / denom, 0.f, 1.f);
     }
-
-    // Relevance = importance × recency × pattern match
-    float relevance(const std::vector<float>& query, int current_step) const {
-        float recency = std::exp(-decay_rate * (current_step - last_hit));
-        return importance * recency * similarity(query);
-    }
 };
 
-// ──────────────────────────────────────────────────────────────────────────────
-// EmergentMemory — STM + LTM with gated consolidation
-// ──────────────────────────────────────────────────────────────────────────────
+// ============================================================================
+// EMERGENT MEMORY — НОВАЯ ВЕРСИЯ С СИГНАТУРАМИ НЕЙРОНОВ
+// ============================================================================
+
 class EmergentMemory {
 public:
-    // Tunable knobs
     struct Config {
-        size_t stm_capacity    = 64;     // max items in STM
-        size_t ltm_capacity    = 512;    // max items in LTM
-        float  consolidation_threshold = 0.6f; // min importance to move STM→LTM
-        float  discard_threshold       = 0.05f; // LTM items below this are pruned
-        float  similarity_merge        = 0.92f; // merge LTM items above this similarity
-        int    min_age_for_ltm         = 20;    // STM item must be at least this old
-        float  stm_decay               = 0.05f; // importance decay per step in STM
-        float  ltm_decay               = 0.002f;// importance decay per step in LTM
+        size_t stm_capacity = 256;           // максимальный размер STM
+        size_t ltm_capacity = 2048;          // максимальный размер LTM
+        
+        // Пороги консолидации
+        float consolidation_threshold = 0.4f; // min importance для STM→LTM
+        float discard_threshold = 0.03f;       // LTM элементы ниже этого удаляются
+        float similarity_merge = 0.85f;        // выше этого — объединять
+        
+        // Временные параметры
+        int min_age_for_ltm = 50;              // сколько шагов STM элемент должен прожить
+        float stm_decay = 0.03f;               // затухание важности в STM
+        float ltm_decay = 0.001f;              // затухание важности в LTM
+        
+        // Для трофической регуляции
+        float trophic_boost = 0.2f;            // насколько трофины увеличивают важность
     };
-
+    
     Config cfg;
-
+    
     EmergentMemory() = default;
     explicit EmergentMemory(Config c) : cfg(std::move(c)) {}
-
-    // ── Write to STM ──────────────────────────────────────────────────────────
+    
+    // ===== ЗАПИСЬ В STM (из состояния нейрона) =====
+    void writeSTM(const NeuroMemoryRecord& record, int step) {
+        // Проверяем, есть ли похожий элемент
+        for (auto& r : stm_) {
+            float sim = SynapticSignature::cosineSimilarity(r.signature, record.signature);
+            if (sim > cfg.similarity_merge) {
+                // Объединяем: усредняем веса, повышаем важность
+                mergeRecords(r, record);
+                r.last_accessed = step;
+                r.importance = std::clamp(r.importance + 0.1f, 0.f, 1.f);
+                return;
+            }
+        }
+        
+        stm_.push_back(record);
+        enforceSTMCapacity();
+    }
+    
+    // ===== ЗАПИСЬ ИЗ ВЕКТОРА АКТИВНОСТЕЙ (для обратной совместимости) =====
     void writeSTM(const std::vector<float>& pattern,
                   float importance,
                   float entropy,
                   const std::string& tag = "",
                   int step = 0) {
-        // Check if an existing STM item is very similar → just update it
-        for (auto& r : stm_) {
-            if (r.similarity(pattern) > cfg.similarity_merge) {
-                r.importance = std::clamp(r.importance + 0.1f, 0.f, 1.f);
-                r.last_hit   = step;
-                r.entropy    = entropy;
-                return;
-            }
-        }
-        MemoryRecord rec;
-        rec.pattern    = pattern;
+        // Создаём "пустую" запись с эмбеддингом из pattern
+        NeuroMemoryRecord rec;
+        rec.embedding = pattern;
         rec.importance = importance;
-        rec.decay_rate = cfg.stm_decay;
-        rec.entropy    = entropy;
-        rec.tag        = tag;
-        rec.age        = 0;
-        rec.last_hit   = step;
-        stm_.push_back(std::move(rec));
+        rec.tag = tag;
+        rec.last_accessed = step;
+        
+        // Для совместимости — инициализируем сигнатуру нулями
+        rec.signature.incoming.resize(pattern.size(), 0.f);
+        rec.signature.outgoing.resize(pattern.size(), 0.f);
+        rec.signature.firing_rate = 0.f;
+        
+        stm_.push_back(rec);
         enforceSTMCapacity();
     }
-
-    // ── Query: returns top-k relevant records from STM+LTM ───────────────────
-    std::vector<const MemoryRecord*> query(const std::vector<float>& pattern,
-                                           int top_k,
-                                           int current_step) const {
-        std::vector<std::pair<float, const MemoryRecord*>> scored;
-        for (const auto& r : stm_)
-            scored.push_back({r.relevance(pattern, current_step), &r});
-        for (const auto& r : ltm_)
-            scored.push_back({r.relevance(pattern, current_step), &r});
+    
+    // ===== ЗАПРОС: найти top-k релевантных записей =====
+    std::vector<const NeuroMemoryRecord*> query(const SynapticSignature& query,
+                                                int top_k,
+                                                int current_step) const {
+        std::vector<std::pair<float, const NeuroMemoryRecord*>> scored;
+        
+        for (const auto& r : stm_) {
+            scored.push_back({r.relevanceTo(query, current_step), &r});
+        }
+        for (const auto& r : ltm_) {
+            scored.push_back({r.relevanceTo(query, current_step), &r});
+        }
+        
         std::sort(scored.begin(), scored.end(),
-                  [](const auto& a, const auto& b){ return a.first > b.first; });
-        std::vector<const MemoryRecord*> out;
-        for (int i = 0; i < top_k && i < (int)scored.size(); ++i)
+                  [](const auto& a, const auto& b) { return a.first > b.first; });
+        
+        std::vector<const NeuroMemoryRecord*> out;
+        for (int i = 0; i < top_k && i < (int)scored.size(); ++i) {
             out.push_back(scored[i].second);
+        }
         return out;
     }
-
-    // ── Step: decay, consolidate, prune ──────────────────────────────────────
-    // Returns number of items consolidated, number discarded
-    std::pair<int,int> step(int current_step) {
+    
+    // ===== ЗАПРОС ПО ЭМБЕДДИНГУ (для быстрого поиска) =====
+    std::vector<const NeuroMemoryRecord*> queryByEmbedding(const std::vector<float>& embedding,
+                                                           int top_k,
+                                                           int current_step) const {
+        std::vector<std::pair<float, const NeuroMemoryRecord*>> scored;
+        
+        for (const auto& r : stm_) {
+            float sim = cosineSimilarity(embedding, r.embedding);
+            scored.push_back({sim * r.importance, &r});
+        }
+        for (const auto& r : ltm_) {
+            float sim = cosineSimilarity(embedding, r.embedding);
+            scored.push_back({sim * r.importance, &r});
+        }
+        
+        std::sort(scored.begin(), scored.end(),
+                  [](const auto& a, const auto& b) { return a.first > b.first; });
+        
+        std::vector<const NeuroMemoryRecord*> out;
+        for (int i = 0; i < top_k && i < (int)scored.size(); ++i) {
+            out.push_back(scored[i].second);
+        }
+        return out;
+    }
+    
+    // ===== ШАГ: затухание, консолидация, прунинг =====
+    std::pair<int, int> step(int current_step) {
         int consolidated = 0, discarded = 0;
-
-        // 1. Decay STM importance
+        
+        // 1. Затухание STM
         for (auto& r : stm_) {
             r.age++;
             r.importance *= (1.f - cfg.stm_decay);
+            r.trophic_history *= 0.99f;
         }
-
-        // 2. Attempt consolidation: STM → LTM
-        std::deque<MemoryRecord> remaining_stm;  // ← changed from vector to deque
+        
+        // 2. Консолидация STM → LTM
+        std::deque<NeuroMemoryRecord> remaining_stm;
         for (auto& r : stm_) {
-            bool old_enough  = (r.age >= cfg.min_age_for_ltm);
-            bool important   = (r.importance >= cfg.consolidation_threshold);
-            if (old_enough && important) {
-                r.decay_rate = cfg.ltm_decay;
+            bool old_enough = (r.age >= cfg.min_age_for_ltm);
+            bool important = (r.importance >= cfg.consolidation_threshold);
+            bool has_trophic = (r.trophic_history > 0.1f);
+            
+            if ((old_enough && important) || has_trophic) {
                 consolidateToLTM(std::move(r), current_step);
                 ++consolidated;
             } else if (r.importance > cfg.discard_threshold) {
@@ -150,145 +311,224 @@ public:
                 ++discarded;
             }
         }
-        stm_ = std::move(remaining_stm); 
+        stm_ = std::move(remaining_stm);
         
-        // 3. Decay LTM importance
+        // 3. Затухание LTM
         for (auto& r : ltm_) {
             r.age++;
             r.importance *= (1.f - cfg.ltm_decay);
+            r.trophic_history *= 0.995f;
         }
-
-        // 4. Prune LTM items that have decayed below threshold
+        
+        // 4. Прунинг LTM
         size_t before = ltm_.size();
         ltm_.erase(std::remove_if(ltm_.begin(), ltm_.end(),
-            [&](const MemoryRecord& r){
+            [&](const NeuroMemoryRecord& r) {
                 return r.importance < cfg.discard_threshold;
             }), ltm_.end());
         discarded += (int)(before - ltm_.size());
-
-        // 5. Enforce LTM capacity — keep highest importance
+        
+        // 5. Ограничение ёмкости
         enforceLTMCapacity();
-
+        
+        // 6. Обновляем кэш, если LTM изменился значительно
+        if (consolidated > 0 || discarded > 0) {
+            ltm_cache_.rebuild(ltm_);
+        }
+        
         return {consolidated, discarded};
     }
-
-    // ── Reinforce: boost importance of items similar to pattern ──────────────
-    void reinforce(const std::vector<float>& pattern, float boost, int step) {
+    
+    // ===== ПОДКРЕПЛЕНИЕ: повышаем важность похожих записей =====
+    void reinforce(const SynapticSignature& query, float boost, int step) {
         for (auto& r : stm_) {
-            float sim = r.similarity(pattern);
+            float sim = SynapticSignature::cosineSimilarity(r.signature, query);
             if (sim > 0.5f) {
                 r.importance = std::clamp(r.importance + boost * sim, 0.f, 1.f);
-                r.last_hit = step;
+                r.last_accessed = step;
             }
         }
         for (auto& r : ltm_) {
-            float sim = r.similarity(pattern);
+            float sim = SynapticSignature::cosineSimilarity(r.signature, query);
             if (sim > 0.5f) {
                 r.importance = std::clamp(r.importance + boost * sim * 0.5f, 0.f, 1.f);
-                r.last_hit = step;
+                r.last_accessed = step;
             }
         }
     }
-
-    // ── Weaken: reduce importance of items similar to pattern ────────────────
-    void weaken(const std::vector<float>& pattern, float penalty) {
+    
+    // ===== ТРОФИЧЕСКОЕ ПОДКРЕПЛЕНИЕ (от выживших нейронов) =====
+    void trophicReinforce(int neuron_id, int group_id, float trophic_signal, int step) {
+        for (auto& r : stm_) {
+            if (r.neuron_id == neuron_id && r.group_id == group_id) {
+                r.trophic_history += trophic_signal;
+                r.importance = std::clamp(r.importance + trophic_signal * cfg.trophic_boost, 0.f, 1.f);
+                r.last_accessed = step;
+                break;
+            }
+        }
         for (auto& r : ltm_) {
-            float sim = r.similarity(pattern);
-            if (sim > 0.7f)
-                r.importance = std::clamp(r.importance - penalty * sim, 0.f, 1.f);
+            if (r.neuron_id == neuron_id && r.group_id == group_id) {
+                r.trophic_history += trophic_signal;
+                r.importance = std::clamp(r.importance + trophic_signal * cfg.trophic_boost * 0.5f, 0.f, 1.f);
+                r.last_accessed = step;
+                break;
+            }
         }
     }
-
-    // ── Stats ─────────────────────────────────────────────────────────────────
+    
+    // ===== ОСЛАБЛЕНИЕ (для отрицательного подкрепления) =====
+    void weaken(const SynapticSignature& query, float penalty) {
+        for (auto& r : ltm_) {
+            float sim = SynapticSignature::cosineSimilarity(r.signature, query);
+            if (sim > 0.7f) {
+                r.importance = std::clamp(r.importance - penalty * sim, 0.f, 1.f);
+            }
+        }
+    }
+    
+    // ===== СТАТИСТИКА =====
     size_t stmSize() const { return stm_.size(); }
     size_t ltmSize() const { return ltm_.size(); }
-
+    
     float averageSTMImportance() const { return averageImportance(stm_); }
     float averageLTMImportance() const { return averageImportance(ltm_); }
-
-    const std::deque<MemoryRecord>& getLTM() const { return ltm_; }
-    const std::deque<MemoryRecord>& getSTM() const { return stm_; }
-
+    
+    const std::deque<NeuroMemoryRecord>& getLTM() const { return ltm_; }
+    const std::deque<NeuroMemoryRecord>& getSTM() const { return stm_; }
+    const LTMCache& getCache() const { return ltm_cache_; }
+    
+    // ===== ПОИСК ПО ТЕГУ =====
+    std::vector<const NeuroMemoryRecord*> findByTag(const std::string& tag) const {
+        std::vector<const NeuroMemoryRecord*> result;
+        for (const auto& r : ltm_) {
+            if (r.tag == tag) result.push_back(&r);
+        }
+        return result;
+    }
+    
+    // ===== ПОЛУЧЕНИЕ КОНТЕКСТА ДЛЯ ДЕЙСТВИЙ =====
+    std::vector<std::vector<float>> getContextPatterns(int top_k, const std::vector<float>& current_embedding) const {
+        auto matches = queryByEmbedding(current_embedding, top_k, 0);
+        std::vector<std::vector<float>> contexts;
+        for (const auto* m : matches) {
+            if (!m->embedding.empty()) {
+                contexts.push_back(m->embedding);
+            }
+        }
+        return contexts;
+    }
+    
 private:
-    std::deque<MemoryRecord> stm_;  // fast, lossy
-    std::deque<MemoryRecord> ltm_;  // slow, persistent
-
+    std::deque<NeuroMemoryRecord> stm_;
+    std::deque<NeuroMemoryRecord> ltm_;
+    LTMCache ltm_cache_;
+    
     void enforceSTMCapacity() {
         while (stm_.size() > cfg.stm_capacity) {
-            // Drop the least important
             auto it = std::min_element(stm_.begin(), stm_.end(),
-                [](const MemoryRecord& a, const MemoryRecord& b){
+                [](const NeuroMemoryRecord& a, const NeuroMemoryRecord& b) {
                     return a.importance < b.importance;
                 });
             stm_.erase(it);
         }
     }
-
+    
     void enforceLTMCapacity() {
         while (ltm_.size() > cfg.ltm_capacity) {
             auto it = std::min_element(ltm_.begin(), ltm_.end(),
-                [](const MemoryRecord& a, const MemoryRecord& b){
+                [](const NeuroMemoryRecord& a, const NeuroMemoryRecord& b) {
                     return a.importance < b.importance;
                 });
             ltm_.erase(it);
         }
     }
-
-    void consolidateToLTM(MemoryRecord rec, int step) {
-        // Check for mergeable item already in LTM
+    
+    void consolidateToLTM(NeuroMemoryRecord rec, int step) {
+        rec.last_accessed = step;
+        rec.decay_rate = cfg.ltm_decay;
+        
+        // Проверяем на слияние с существующим LTM
         for (auto& r : ltm_) {
-            if (r.similarity(rec.pattern) > cfg.similarity_merge) {
-                // Merge: weighted average pattern, boost importance
-                float w1 = r.importance, w2 = rec.importance;
-                float total = w1 + w2 + 1e-9f;
-                for (size_t i = 0; i < r.pattern.size(); ++i)
-                    r.pattern[i] = (r.pattern[i] * w1 + rec.pattern[i] * w2) / total;
+            float sim = SynapticSignature::cosineSimilarity(r.signature, rec.signature);
+            if (sim > cfg.similarity_merge) {
+                mergeRecords(r, rec);
+                r.last_accessed = step;
                 r.importance = std::clamp(r.importance + rec.importance * 0.3f, 0.f, 1.f);
-                r.last_hit   = step;
                 return;
             }
         }
-        rec.last_hit = step;
+        
         ltm_.push_back(std::move(rec));
     }
-
-    float averageImportance(const std::deque<MemoryRecord>& pool) const {
+    
+    void mergeRecords(NeuroMemoryRecord& target, const NeuroMemoryRecord& source) {
+        float w1 = target.importance, w2 = source.importance;
+        float total = w1 + w2 + 1e-9f;
+        
+        // Усредняем сигнатуры
+        for (size_t i = 0; i < std::min(target.signature.incoming.size(), source.signature.incoming.size()); ++i) {
+            target.signature.incoming[i] = (target.signature.incoming[i] * w1 + source.signature.incoming[i] * w2) / total;
+            target.signature.outgoing[i] = (target.signature.outgoing[i] * w1 + source.signature.outgoing[i] * w2) / total;
+        }
+        
+        // Усредняем эмбеддинги
+        for (size_t i = 0; i < std::min(target.embedding.size(), source.embedding.size()); ++i) {
+            target.embedding[i] = (target.embedding[i] * w1 + source.embedding[i] * w2) / total;
+        }
+        
+        target.signature.firing_rate = (target.signature.firing_rate * w1 + source.signature.firing_rate * w2) / total;
+        target.trophic_history = (target.trophic_history * w1 + source.trophic_history * w2) / total;
+    }
+    
+    float averageImportance(const std::deque<NeuroMemoryRecord>& pool) const {
         if (pool.empty()) return 0.f;
         float sum = 0.f;
         for (const auto& r : pool) sum += r.importance;
         return sum / pool.size();
     }
+    
+    static float cosineSimilarity(const std::vector<float>& a, const std::vector<float>& b) {
+        size_t sz = std::min(a.size(), b.size());
+        float dot = 0.f, na = 0.f, nb = 0.f;
+        for (size_t i = 0; i < sz; ++i) {
+            dot += a[i] * b[i];
+            na += a[i] * a[i];
+            nb += b[i] * b[i];
+        }
+        float denom = std::sqrt(na) * std::sqrt(nb);
+        return (denom < 1e-9f) ? 0.f : std::clamp(dot / denom, 0.f, 1.f);
+    }
 };
 
-// ──────────────────────────────────────────────────────────────────────────────
-// PredictionUnit — online linear predictor per group
-// Predicts next group average from current, computes error,
-// returns a per-group reward signal.
-// ──────────────────────────────────────────────────────────────────────────────
+// ============================================================================
+// PREDICTION UNIT — С УЧЁТОМ СИГНАТУР НЕЙРОНОВ
+// ============================================================================
+
 class PredictionUnit {
 public:
     static constexpr int N = 32; // NUM_GROUPS
-
+    
     PredictionUnit() {
         weights_.assign(N * N, 0.f);
         bias_.assign(N, 0.f);
         prev_state_.assign(N, 0.5f);
     }
-
-    // Returns per-group reward in [0,1]: 1 = perfect prediction, 0 = total surprise
+    
+    // Предсказание на основе групповых активностей
     std::vector<float> step(const std::vector<float>& current_state) {
         assert((int)current_state.size() == N);
-
-        // Predict from prev_state_
+        
         std::vector<float> predicted(N, 0.f);
         for (int j = 0; j < N; ++j) {
             float val = bias_[j];
-            for (int i = 0; i < N; ++i)
+            for (int i = 0; i < N; ++i) {
                 val += weights_[j * N + i] * prev_state_[i];
+            }
             predicted[j] = std::tanh(val);
         }
-
-        // Per-group error
+        
+        // Ошибка
         std::vector<float> error(N);
         float total_error = 0.f;
         for (int j = 0; j < N; ++j) {
@@ -297,46 +537,45 @@ public:
             total_error += error[j];
         }
         last_total_error_ = total_error / N;
-
-        // Online Hebbian update (δ-rule) — only if we have a prev state
+        
+        // Online обучение (только если есть предыдущее состояние)
         if (step_count_ > 0) {
             float lr = 0.01f;
             for (int j = 0; j < N; ++j) {
                 float delta = current_state[j] - predicted[j];
                 bias_[j] += lr * delta;
-                for (int i = 0; i < N; ++i)
+                for (int i = 0; i < N; ++i) {
                     weights_[j * N + i] += lr * delta * prev_state_[i];
+                }
             }
         }
-
+        
         prev_state_ = current_state;
         ++step_count_;
-
-        // Convert error to reward: high error → low reward
+        
+        // Награда: высокая если ошибка мала
         std::vector<float> reward(N);
-        for (int j = 0; j < N; ++j)
-            reward[j] = std::exp(-error[j] * 5.f); // sharp sigmoid, error > 0.2 → reward ~0
+        for (int j = 0; j < N; ++j) {
+            reward[j] = std::exp(-error[j] * 5.f);
+        }
         return reward;
     }
-
+    
     float getLastError() const { return last_total_error_; }
-
-    // Global surprise: [0,1], 1 = complete surprise (high error)
     float getSurprise() const { return std::tanh(last_total_error_ * 3.f); }
-
+    
 private:
     std::vector<float> weights_;
     std::vector<float> bias_;
     std::vector<float> prev_state_;
     float last_total_error_ = 0.f;
-    int   step_count_ = 0;
+    int step_count_ = 0;
 };
 
-// ──────────────────────────────────────────────────────────────────────────────
-// SelfEvaluator — compares current output to the best known outputs
-// Maintains a "hall of fame" of high-quality response patterns.
-// Returns a quality score [0,1] for the current state.
-// ──────────────────────────────────────────────────────────────────────────────
+// ============================================================================
+// SELF EVALUATOR — СРАВНЕНИЕ С ЭТАЛОНАМИ
+// ============================================================================
+
 class SelfEvaluator {
 public:
     struct GoodPattern {
@@ -344,36 +583,29 @@ public:
         float score;
         int step;
     };
-
+    
     static constexpr int HALL_SIZE = 32;
-
-    // Call after each step with the current group averages and an external reward
+    
     float evaluate(const std::vector<float>& state, float external_reward, int step) {
         float internal_score = computeInternalScore(state);
-        float combined = std::clamp(
-            0.7f * external_reward + 0.3f * internal_score, 
-            0.f, 1.f  // ← добавить clamp
-        );
-
-        // Update hall of fame
+        float combined = std::clamp(0.7f * external_reward + 0.3f * internal_score, 0.f, 1.f);
+        
+        // Обновляем зал славы
         if (combined > 0.6f) {
             hall_.push_back({state, combined, step});
             if ((int)hall_.size() > HALL_SIZE) {
-                // Remove worst
                 auto it = std::min_element(hall_.begin(), hall_.end(),
-                    [](const GoodPattern& a, const GoodPattern& b){ return a.score < b.score; });
+                    [](const GoodPattern& a, const GoodPattern& b) { return a.score < b.score; });
                 hall_.erase(it);
             }
         }
-
-        // Trend: is the system improving?
+        
         score_history_.push_back(combined);
         if (score_history_.size() > 200) score_history_.pop_front();
-
+        
         return combined;
     }
-
-    // Are we improving over the last window?
+    
     float improvementTrend(int window = 50) const {
         if ((int)score_history_.size() < window * 2) return 0.f;
         float recent = 0.f, old = 0.f;
@@ -382,30 +614,29 @@ public:
         for (int i = n - window * 2; i < n - window; ++i) old += score_history_[i];
         return (recent - old) / window;
     }
-
+    
     float bestScore() const {
         if (hall_.empty()) return 0.f;
         return std::max_element(hall_.begin(), hall_.end(),
-            [](const GoodPattern& a, const GoodPattern& b){ return a.score < b.score; })->score;
+            [](const GoodPattern& a, const GoodPattern& b) { return a.score < b.score; })->score;
     }
-
+    
     const std::vector<GoodPattern>& getHall() const { return hall_; }
-
+    
 private:
     std::vector<GoodPattern> hall_;
     std::deque<float> score_history_;
-
+    
     float computeInternalScore(const std::vector<float>& state) const {
         if (hall_.empty()) return 0.5f;
-
-        // Best match to hall of fame
+        
         float best_sim = 0.f;
         for (const auto& g : hall_) {
             float dot = 0.f, na = 0.f, nb = 0.f;
             for (size_t i = 0; i < std::min(state.size(), g.state.size()); ++i) {
                 dot += state[i] * g.state[i];
-                na  += state[i] * state[i];
-                nb  += g.state[i] * g.state[i];
+                na += state[i] * state[i];
+                nb += g.state[i] * g.state[i];
             }
             float sim = (na > 0 && nb > 0) ? dot / (std::sqrt(na) * std::sqrt(nb)) : 0.f;
             best_sim = std::max(best_sim, sim * g.score);
@@ -414,129 +645,59 @@ private:
     }
 };
 
-// ──────────────────────────────────────────────────────────────────────────────
-// EmergentController — ties everything together.
-// Call tick() once per simulation step.
-// It returns an EmergentSignal that NeuralFieldSystem uses
-// instead of a flat globalReward.
-// ──────────────────────────────────────────────────────────────────────────────
+// ============================================================================
+// EMERGENT CONTROLLER — НОВАЯ ВЕРСИЯ
+// ============================================================================
+
 struct EmergentSignal {
-    std::vector<float> per_group_reward; // size NUM_GROUPS
-    float   surprise;           // [0,1] how unexpected the current state is
-    float   quality;            // [0,1] self-evaluated output quality
-    float   temperature_delta;  // suggest how much to change attention temperature
-    float   consolidation_pressure; // [0,1] how urgently to consolidate STM→LTM
-    bool    should_explore;     // true = high surprise → exploration mode
-    bool    should_consolidate; // true = low surprise, good quality → consolidate
-    int     ltm_size;
-    int     stm_size;
-    float   improvement_trend;
+    std::vector<float> per_group_reward;  // размер NUM_GROUPS
+    float surprise;                        // [0,1] неожиданность
+    float quality;                         // [0,1] качество текущего состояния
+    float temperature_delta;               // изменение температуры внимания
+    float consolidation_pressure;          // [0,1] срочность консолидации
+    bool should_explore;                   // режим исследования
+    bool should_consolidate;               // режим консолидации
+    int ltm_size;
+    int stm_size;
+    float improvement_trend;
+    
+    // Дополнительные поля для нейрон-ориентированной памяти
+    std::vector<float> context_embedding;  // релевантный контекст из LTM
+    int neurons_consolidated = 0;
+    int neurons_discarded = 0;
 };
+// EmergentCore.hpp - оставить только объявление метода
 
 class EmergentController {
 public:
-    EmergentMemory  memory;
-    PredictionUnit  predictor;
-    SelfEvaluator   evaluator;
-
+    EmergentMemory memory;
+    PredictionUnit predictor;
+    SelfEvaluator evaluator;
+    
     struct Config {
-        float surprise_explore_threshold   = 0.4f;  // above: explore
-        float surprise_consolidate_threshold = 0.15f;// below: consolidate
-        float quality_consolidate_threshold  = 0.5f; // min quality to consolidate
-        float temperature_explore_boost    = 0.05f;
-        float temperature_exploit_decay    = 0.03f;
+        float surprise_explore_threshold = 0.4f;
+        float surprise_consolidate_threshold = 0.15f;
+        float quality_consolidate_threshold = 0.5f;
+        float temperature_explore_boost = 0.05f;
+        float temperature_exploit_decay = 0.03f;
+        float context_retrieval_k = 5;
     } cfg;
-
-    EmergentController() {
-        EmergentMemory::Config mc;
-        mc.stm_capacity    = 128;
-        mc.ltm_capacity    = 1024;
-        mc.consolidation_threshold = 0.25f;
-        mc.discard_threshold       = 0.04f;
-        memory = EmergentMemory(mc);
-    }
-
-    // group_averages: current activity of each of the 32 groups
-    // external_reward: signal from outside (0 if unsupervised)
-    // step: global step counter
+    
+    EmergentController();
+    
+    // Только объявления, без реализации
+    EmergentSignal tick(const std::vector<float>& group_averages,
+                        const std::vector<NeuralGroup>& groups,
+                        float external_reward,
+                        int step);
+    
     EmergentSignal tick(const std::vector<float>& group_averages,
                         float external_reward,
-                        int   step) {
-        EmergentSignal sig;
-
-        // 1. Predict → per-group reward
-        sig.per_group_reward = predictor.step(group_averages);
-        sig.surprise         = predictor.getSurprise();
-
-        // 2. Write current state to STM
-        float entropy = computeEntropy(group_averages);
-        float importance = 0.4f                          // базовая — всегда что-то запоминает
-                 + 0.4f * external_reward        // бонус за награду
-                 + 0.2f * (1.f - sig.surprise);  // бонус за низкую неожиданность
-        memory.writeSTM(group_averages, importance, entropy, "state", step);
-
-        // 3. Self-evaluate
-        // Blend external reward with prediction-based reward
-        float blended_reward = std::max(external_reward,
-                                        1.f - sig.surprise); // low surprise = good
-        sig.quality = evaluator.evaluate(group_averages, blended_reward, step);
-
-        // 4. Gate decision
-        sig.should_explore    = (sig.surprise > cfg.surprise_explore_threshold);
-        sig.should_consolidate= (sig.surprise < cfg.surprise_consolidate_threshold &&
-                                 sig.quality   > cfg.quality_consolidate_threshold);
-
-        // 5. Temperature suggestion
-        if (sig.should_explore)
-            sig.temperature_delta = +cfg.temperature_explore_boost;
-        else if (sig.should_consolidate)
-            sig.temperature_delta = -cfg.temperature_exploit_decay;
-        else
-            sig.temperature_delta = 0.f;
-
-        // 6. Consolidation pressure
-        sig.consolidation_pressure = sig.should_consolidate ? sig.quality : 0.f;
-
-        // 7. Memory step (decay, consolidate, prune)
-        auto [cons, disc] = memory.step(step);
-        if ((cons > 0 || disc > 0) && step % 500 == 0) {
-            std::cout << "[Emergent] step=" << step
-                      << " STM=" << memory.stmSize()
-                      << " LTM=" << memory.ltmSize()
-                      << " consolidated=" << cons
-                      << " discarded=" << disc
-                      << " surprise=" << sig.surprise
-                      << " quality=" << sig.quality
-                      << std::endl;
-        }
-
-        // 8. Reinforce memory with current state if quality is good
-        if (sig.quality > 0.6f)
-            memory.reinforce(group_averages, 0.1f * sig.quality, step);
-
-        // 9. Stats
-        sig.ltm_size  = (int)memory.ltmSize();
-        sig.stm_size  = (int)memory.stmSize();
-        sig.improvement_trend = evaluator.improvementTrend();
-
-        return sig;
-    }
-
-    // Query LTM for context relevant to current state
-    std::vector<const MemoryRecord*> queryContext(const std::vector<float>& state,
-                                                  int top_k, int step) const {
-        return memory.query(state, top_k, step);
-    }
-
+                        int step);
+    
+    std::vector<const NeuroMemoryRecord*> queryContext(const std::vector<float>& state, int top_k) const;
+    std::vector<const NeuroMemoryRecord*> getPatternsByTag(const std::string& tag) const;
+    
 private:
-    static float computeEntropy(const std::vector<float>& v) {
-        float H = 0.f, total = 0.f;
-        for (float x : v) total += x;
-        if (total < 1e-9f) return 0.f;
-        for (float x : v) {
-            float p = x / total;
-            if (p > 1e-9f) H -= p * std::log2(p);
-        }
-        return std::clamp(H / std::log2((float)v.size()), 0.f, 1.f);
-    }
+    static float computeEntropy(const std::vector<float>& v);
 };

@@ -1,4 +1,3 @@
-// NeuralFieldSystem.hpp — rewritten to integrate EmergentCore
 #pragma once
 
 #include "NeuralGroup.hpp"
@@ -9,22 +8,18 @@
 #include <deque>
 #include <algorithm>
 #include <cmath>
-#include "EventSystem.hpp"
-#include "core/INeuralGroupAccess.hpp"
-#include "DynamicParams.hpp"
-#include "core/EmergentCore.hpp"
+#include "INeuralGroupAccess.hpp"
 #include <mutex>
+#include <memory>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
-#include "PredictiveCoder.hpp"
 #include "SelfSignalSampler.hpp"
-#include "GoalGenerator.hpp"
 
 // ──────────────────────────────────────────────────────────────────────────────
-// AttentionMechanism
+// AttentionMechanism — упрощённая версия (только softmax)
 // ──────────────────────────────────────────────────────────────────────────────
 struct AttentionMechanism {
     std::vector<double> attention_weights;
@@ -60,22 +55,10 @@ struct AttentionMechanism {
             if (w > 1e-12) entropy -= w * std::log(static_cast<double>(w));
         }
     }
-
-    std::vector<double> computeSphericalAttention(const std::vector<double>& g) {
-        const size_t n = g.size();
-        std::vector<double> res(n, 0.0);
-        double norm = 0.0;
-        for (double a : g) norm += a * a;
-        if (norm < 1e-12) return res;
-        norm = std::sqrt(norm);
-        double area = 2.0 * std::pow(M_PI, n / 2.0) / std::tgamma(n / 2.0 + 1);
-        for (size_t i = 0; i < n; ++i) res[i] = (g[i] / norm) / area;
-        return res;
-    }
 };
 
 // ──────────────────────────────────────────────────────────────────────────────
-// NeuralFieldSystem
+// NeuralFieldSystem — новая версия без орбит
 // ──────────────────────────────────────────────────────────────────────────────
 class NeuralFieldSystem : public INeuralGroupAccess {
 public:
@@ -83,63 +66,95 @@ public:
     static constexpr int GROUP_SIZE   = 32;
     static constexpr int TOTAL_NEURONS = NUM_GROUPS * GROUP_SIZE;
 
-    NeuralFieldSystem(double dt, EventSystem& events);
+    // Роли групп (фиксированные)
+    static constexpr int INPUT_GROUP       = 0;
+    static constexpr int SENSORY_START     = 1;
+    static constexpr int SENSORY_END       = 3;
+    static constexpr int MOTOR_START       = 4;
+    static constexpr int MOTOR_END         = 7;
+    static constexpr int ASSOCIATIVE_START = 8;
+    static constexpr int ASSOCIATIVE_END   = 15;
+    static constexpr int SEMANTIC_START    = 16;
+    static constexpr int SEMANTIC_END      = 21;
+    static constexpr int CONTEXT_START     = 22;
+    static constexpr int CONTEXT_END       = 27;
+    static constexpr int SELF_MODEL_START  = 28;
+    static constexpr int SELF_MODEL_END    = 31;
 
-    void initializeRandom(std::mt19937& rng) { initializeWithLimits(rng, MassLimits()); }
-    void initializeWithLimits(std::mt19937& rng, const MassLimits& limits);
+    NeuralFieldSystem(double dt);
+    ~NeuralFieldSystem() = default;
 
+    void initialize(std::mt19937& rng);
+    
     NeuralFieldSystem(const NeuralFieldSystem&) = delete;
     NeuralFieldSystem& operator=(const NeuralFieldSystem&) = delete;
     
-    const GoalSignal& lastGoal() const { return last_goal_; }
+    // ==== Аудит агентов ==== //
+    // Новый метод для логирования шага агента
+    void ingestAgentStep(const std::string& thought, 
+                        const std::string& action, 
+                        const std::string& observation,
+                        const std::string& toolName,
+                        bool stepSuccessful);
 
     void step(float external_reward, int stepNumber);
     int getCurrentStep() const { return stepCounter; }
 
+    // Состояние системы
     const std::vector<double>& getPhi() const { rebuildFlatVectors(); return flatPhi; }
     const std::vector<double>& getPi()  const { rebuildFlatVectors(); return flatPi; }
-    const std::vector<std::vector<double>> getWeights() const { return {}; }
     std::vector<double> getGroupAverages() const;
     const std::vector<std::vector<double>>& getInterWeights() const { return interWeights; }
-
-    double computeTotalEnergy()  const;
+    
+    // Энтропия и энергия (упрощённые)
     double computeSystemEntropy() const;
-    double getUnifiedEntropy()   const;
+    double getUnifiedEntropy() const;
     double getTargetUnifiedEntropy() const;
 
+    // Emergent компоненты
     const EmergentSignal& lastSignal() const { return lastSignal_; }
     const EmergentController& emergent() const { return emergent_; }
     EmergentController& emergentMutable() { return emergent_; }
 
+    // Межгрупповые связи
     void strengthenInterConnection(int from, int to, double delta);
     void weakenInterConnection(int from, int to, double delta);
 
-    std::vector<float> getFeatures() const;
-
+    // Доступ к группам
     std::vector<NeuralGroup>& getGroupsNonConst() { return groups; }
     const std::vector<NeuralGroup>& getGroups()   const { return groups; }
+    
+    std::vector<float> getFeatures() const;
 
+    // Режимы работы
     void setOperatingMode(OperatingMode::Type mode);
     bool isTrainingMode() const { return training_mode_; }
     void setTrainingMode(bool e) { training_mode_ = e; }
 
+    // Внимание
     float  getAttentionTemperature() const { return attention.temperature; }
     void   setAttentionTemperature(float t) { attention.temperature = t; }
     double getAttentionEntropy() const { return attention.entropy; }
     const std::vector<double>& getAttentionWeights() const { return attention.attention_weights; }
 
+    // Управление памятью
     void setMemoryManager(EmergentMemory* mm) { memory_manager = mm; }
-
+    
+    // Внешние воздействия
     void applyResourcePenalty(float penalty);
     void enterLowPowerMode();
     void applyTargetPattern(const std::vector<float>& target);
     void applyTargetedMutation(double strength, int targetType);
-    void applyLateralInhibition();
-    void maintainCriticality();
+    void setInputText(const std::vector<float>& sig);
+    void addExternalInput(const std::vector<float>& in) { external_inputs_ = in; }
+    void clearExternalInputs() { external_inputs_.clear(); }
+    
+    // Диагностика
     void diagnoseCriticality();
+    void logSystemHealth();
     double computeOptimalStructure();
-    void logOrbitalHealth();
 
+    // Рефлексия (заглушки для совместимости)
     struct ReflectionState {
         double confidence, curiosity, satisfaction, confusion;
         std::vector<double> attention_map;
@@ -150,6 +165,7 @@ public:
     bool evaluateProgress();
     void learnFromReflection(float outcome);
 
+    // INeuralGroupAccess
     std::vector<NeuralGroup*>& getHubGroups() override {
         static std::vector<NeuralGroup*> ptrs;
         ptrs.clear();
@@ -169,18 +185,7 @@ public:
         if (g >= 0 && g < (int)groups.size()) hubIndices.push_back(g);
     }
 
-    void initializePredictiveCoder(EmergentMemory& memory) {
-        predictive_coder = std::make_unique<PredictiveCoder>(*this, memory);
-    }
-
-    void setInputText(const std::vector<float>& sig) {
-        auto& g = groups[0].getPhiNonConst();
-        for (int i = 0; i < 32; ++i) g[i] = sig[i];
-        for (int t = 16; t <= 21; ++t) strengthenInterConnection(0, t, 0.1);
-    }
-    void addExternalInput(const std::vector<float>& in) { external_inputs_ = in; }
-    void clearExternalInputs() { external_inputs_.clear(); }
-
+    // Потокобезопасность
     void lock()   { system_mutex_.lock(); }
     void unlock() { system_mutex_.unlock(); }
     std::mutex& getMutex() { return system_mutex_; }
@@ -193,46 +198,58 @@ public:
     };
 
 private:
+    // Основные компоненты
     EmergentController emergent_;
     EmergentSignal     lastSignal_;
-
     AttentionMechanism attention;
-    EventSystem&       events;
     OperatingMode::Type current_mode_ = OperatingMode::NORMAL;
     EmergentMemory*     memory_manager = nullptr;
-
-    std::unique_ptr<PredictiveCoder> predictive_coder;
     
-    // Self-model fields
+    // Self-model
     SelfSignalSampler self_sampler_;
-    GoalGenerator     goal_gen_;
-    GoalSignal        last_goal_{};
     
+    // Мьютекс
     mutable std::mutex system_mutex_;
 
-    double dt;
-    std::vector<NeuralGroup>               groups;
-    std::vector<std::vector<double>>       interWeights;
+    // Группы нейронов
+    double dt_;
+    std::vector<NeuralGroup> groups;
+    std::vector<std::vector<double>> interWeights;
 
+    // Кэши для внешнего доступа
     mutable std::vector<double> flatPhi, flatPi;
     mutable bool flatDirty = true;
     void rebuildFlatVectors() const;
 
-    int  stepCounter        = 0;
-    bool training_mode_     = false;
-    bool pendingEvolution_  = false;
-    std::vector<int>  hubIndices;
+    // Счётчики и состояние
+    int stepCounter = 0;
+    bool training_mode_ = false;
+    bool pendingEvolution_ = false;
+    std::vector<int> hubIndices;
     std::vector<float> external_inputs_;
     std::string current_goal;
-
-    void applyReentry(int iterations);
-    void applyRicciFlow();
-    void consolidateInterWeights(float pressure);
-    void applyPruningByElevation();
-    float computeGlobalImportance();
-
-    void routeRewards(const EmergentSignal& sig, const GoalSignal& goal, int step);
-
+    
+    // История энтропии
     std::deque<double> entropy_history;
     static constexpr int HISTORY_SIZE = 200;
+
+    // Приватные методы
+    void applyLateralInhibition();
+    void applyPruningByElevation();
+    void consolidateInterWeights(float pressure);
+    void routeRewards(const EmergentSignal& sig, int step);
+    
+    // Вспомогательные
+    void setupFixedInterConnections();
+    void setupGroupSpecializations();
+    
+    // Устаревшие методы (заглушки для совместимости)
+    void applyReentry(int) {}
+    void applyRicciFlow() {}
+    void maintainCriticality() {}
+    void logOrbitalHealth() { logSystemHealth(); }
+    bool checkForResourceExhaustion() { return false; }
+    void generateGentleBurst() {}
+    float computeGlobalImportance() { return 0.5f; }
+    double computeTotalEnergy() const { return 0.0; }  // устарело
 };

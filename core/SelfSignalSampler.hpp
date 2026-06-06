@@ -1,141 +1,205 @@
 #pragma once
 // SelfSignalSampler.hpp
 //
-// Reads the neural field and produces a compact introspective signal vector.
-// This vector is then injected back into dedicated "self-model" groups as
-// ordinary input — not as a separate symbolic layer.
+// Адаптирован для новой архитектуры (без орбит, с LIF нейронами)
 //
-// Signal categories (each mapped to one float in [0,1]):
-//   Topology signals  — orbit distribution, curvature, connectivity pressure
-//   Energy signals    — total energy, per-tier averages, dissipation rate
-//   Memory signals    — STM/LTM sizes, consolidation rate, discard rate
-//   Learning signals  — surprise (prediction error), improvement trend, quality
-//   Homeostasis       — entropy, temperature, deviation from target
+// Собирает статистику о состоянии системы и инжектирует её обратно
+// в self-model группы (28-31) для создания замкнутого контура самонаблюдения.
 //
-// Total: 32 signals → injected into groups 28–31 (8 neurons each × 4 groups)
+// Сигналы (32 штуки):
+//   - Активность нейронов (средняя частота спайков по группам) — 16 сигналов
+//   - Память (STM/LTM заполненность, важность) — 4 сигнала
+//   - Обучение (surprise, quality, exploration) — 4 сигнала
+//   - Гомеостаз (энтропия, температура, трофины) — 4 сигнала
+//   - Диагностика (апоптоз, консолидация) — 4 сигнала
 
 #include <vector>
 #include <deque>
 #include <cmath>
 #include <algorithm>
 #include <numeric>
+#include <array>
 
-// Forward declarations (include the real headers in the .cpp)
+// Forward declarations
 class NeuralFieldSystem;
 struct EmergentSignal;
 
-// ── One snapshot of the system's self-knowledge ──────────────────────────────
+// ============================================================================
+// СНАПШОТ СОСТОЯНИЯ СИСТЕМЫ (32 сигнала)
+// ============================================================================
+
 struct SelfSnapshot {
-    // ── Topology (8 signals) ──────────────────────────────────────────────
-    float orbit0_fraction;     // fraction of neurons in singularity
-    float orbit1_fraction;     // fraction in inner orbit
-    float orbit2_fraction;     // fraction in base orbit (words)
-    float orbit3_fraction;     // fraction in coordination orbit
-    float orbit4_fraction;     // fraction in elite orbit
-    float avg_curvature;       // mean scalar curvature across groups, normalised
-    float connectivity_density;// fraction of weight matrix that is non-zero
-    float orbit_balance;       // 1 = ideal pyramid, 0 = collapsed
-
-    // ── Energy (6 signals) ────────────────────────────────────────────────
-    float total_energy_norm;   // total energy / historical max
-    float energy_elite;        // avg energy in orbit 4
-    float energy_mid;          // avg energy in orbits 2–3
-    float energy_low;          // avg energy in orbits 0–1
-    float energy_change_rate;  // |E_now - E_prev| / E_prev
-    float mass_pressure;       // avg mass / max_mass (saturation signal)
-
-    // ── Memory (6 signals) ───────────────────────────────────────────────
-    float stm_fullness;        // stm_size / stm_capacity
-    float ltm_fullness;        // ltm_size / ltm_capacity
-    float ltm_avg_importance;  // average LTM record importance
-    float consolidation_rate;  // consolidated_per_step (EMA), normalised
-    float discard_rate;        // discarded_per_step (EMA), normalised
-    float novelty_pressure;    // fraction of STM items that are new (similarity<0.5)
-
-    // ── Learning / prediction (6 signals) ────────────────────────────────
-    float surprise;            // prediction error (from EmergentSignal)
-    float quality;             // self-evaluated output quality
-    float improvement_trend;   // positive = getting better, normalised to [0,1]
-    float explore_flag;        // 1 if should_explore, 0 otherwise
-    float consolidate_flag;    // 1 if should_consolidate, 0 otherwise
-    float attention_temperature; // attention temperature, normalised
-
-    // ── Homeostasis / entropy (6 signals) ────────────────────────────────
-    float system_entropy;      // unified entropy [0,1]
-    float entropy_error;       // |current - target| entropy
-    float avg_group_elevation; // mean elevation across all groups
-    float burst_pressure;      // fraction of groups with burst pending
-    float singularity_escape_rate; // recent ejection_count normalised
-    float wave_coherence;      // mean |phase difference| across elite neurons
-
-    // Flat serialisation (32 floats in defined order)
+    // ── Активность нейронов (16 сигналов) ────────────────────────────────
+    // Средняя частота спайков для каждой из 16 ключевых групп
+    // (сенсорные 1-3, моторные 4-7, семантические 16-21, остальные объединены)
+    float sensory_avg_rate;      // средняя частота сенсорных групп (1-3)
+    float motor_avg_rate;        // средняя частота моторных групп (4-7)
+    std::array<float, 6> semantic_rates;  // частоты семантических групп (16-21)
+    std::array<float, 4> associative_rates; // частоты ассоциативных групп (8-11, 12-15 объединены)
+    float context_avg_rate;      // средняя частота контекстных групп (22-27)
+    float self_model_avg_rate;   // средняя частота self-model групп (28-31)
+    
+    // ── Память (4 сигнала) ────────────────────────────────────────────────
+    float stm_fullness;          // заполненность STM (0-1)
+    float ltm_fullness;          // заполненность LTM (0-1)
+    float ltm_avg_importance;    // средняя важность записей в LTM
+    float memory_consolidation_rate; // скорость консолидации (EMA)
+    
+    // ── Обучение (4 сигнала) ──────────────────────────────────────────────
+    float surprise;              // неожиданность (из EmergentSignal)
+    float quality;               // качество текущего состояния
+    float improvement_trend;     // тренд улучшения
+    float exploration_pressure;  // давление к исследованию (surprise + boredom)
+    
+    // ── Гомеостаз (4 сигнала) ────────────────────────────────────────────
+    float system_entropy;        // энтропия системы [0,1]
+    float entropy_error;         // отклонение от целевой энтропии
+    float attention_temperature; // температура внимания (нормализованная)
+    float avg_trophic_level;     // средний уровень трофинов
+    
+    // ── Диагностика (4 сигнала) ──────────────────────────────────────────
+    float apoptosis_rate;        // скорость апоптоза (смертей нейронов)
+    float neurogenesis_rate;     // скорость нейрогенеза (рождений)
+    float avg_firing_rate;       // средняя частота спайков по всем нейронам
+    float network_activity;      // общая активность сети (доля активных нейронов)
+    
+    // ── Преобразование в плоский вектор (32 float) ───────────────────────
     std::vector<float> toVector() const {
-        return {
-            orbit0_fraction, orbit1_fraction, orbit2_fraction,
-            orbit3_fraction, orbit4_fraction, avg_curvature,
-            connectivity_density, orbit_balance,
-
-            total_energy_norm, energy_elite, energy_mid, energy_low,
-            energy_change_rate, mass_pressure,
-
-            stm_fullness, ltm_fullness, ltm_avg_importance,
-            consolidation_rate, discard_rate, novelty_pressure,
-
-            surprise, quality, improvement_trend,
-            explore_flag, consolidate_flag, attention_temperature,
-
-            system_entropy, entropy_error, avg_group_elevation,
-            burst_pressure, singularity_escape_rate, wave_coherence
-        };
+        std::vector<float> result;
+        result.reserve(32);
+        
+        // Активность (16)
+        result.push_back(sensory_avg_rate);
+        result.push_back(motor_avg_rate);
+        for (float v : semantic_rates) result.push_back(v);
+        for (float v : associative_rates) result.push_back(v);
+        result.push_back(context_avg_rate);
+        result.push_back(self_model_avg_rate);
+        
+        // Память (4)
+        result.push_back(stm_fullness);
+        result.push_back(ltm_fullness);
+        result.push_back(ltm_avg_importance);
+        result.push_back(memory_consolidation_rate);
+        
+        // Обучение (4)
+        result.push_back(surprise);
+        result.push_back(quality);
+        result.push_back(improvement_trend);
+        result.push_back(exploration_pressure);
+        
+        // Гомеостаз (4)
+        result.push_back(system_entropy);
+        result.push_back(entropy_error);
+        result.push_back(attention_temperature);
+        result.push_back(avg_trophic_level);
+        
+        // Диагностика (4)
+        result.push_back(apoptosis_rate);
+        result.push_back(neurogenesis_rate);
+        result.push_back(avg_firing_rate);
+        result.push_back(network_activity);
+        
+        return result;
+    }
+    
+    // Конструктор с значениями по умолчанию
+    SelfSnapshot() {
+        sensory_avg_rate = 0.0f;
+        motor_avg_rate = 0.0f;
+        semantic_rates.fill(0.0f);
+        associative_rates.fill(0.0f);
+        context_avg_rate = 0.0f;
+        self_model_avg_rate = 0.0f;
+        
+        stm_fullness = 0.0f;
+        ltm_fullness = 0.0f;
+        ltm_avg_importance = 0.0f;
+        memory_consolidation_rate = 0.0f;
+        
+        surprise = 0.0f;
+        quality = 0.0f;
+        improvement_trend = 0.0f;
+        exploration_pressure = 0.0f;
+        
+        system_entropy = 0.0f;
+        entropy_error = 0.0f;
+        attention_temperature = 0.0f;
+        avg_trophic_level = 0.0f;
+        
+        apoptosis_rate = 0.0f;
+        neurogenesis_rate = 0.0f;
+        avg_firing_rate = 0.0f;
+        network_activity = 0.0f;
     }
 };
 
-// ── SelfSignalSampler ─────────────────────────────────────────────────────────
+// ============================================================================
+// SELF SIGNAL SAMPLER — НОВАЯ ВЕРСИЯ
+// ============================================================================
+
 class SelfSignalSampler {
 public:
-    // Which groups receive self-signals (treated as ordinary input groups)
+    // Группы для инжекции self-signals
     static constexpr int SELF_GROUP_START = 28;
-    static constexpr int SELF_GROUP_COUNT = 4;   // groups 28, 29, 30, 31
-    static constexpr int SIGNALS_PER_GROUP = 8;  // 4 × 8 = 32 total
-    static constexpr int TOTAL_SIGNALS = SELF_GROUP_COUNT * SIGNALS_PER_GROUP; // == 32
-
-    // Injection strength: how strongly the self-signal overrides existing phi
-    // 0.2 = gentle nudge, 0.8 = strong override
+    static constexpr int SELF_GROUP_COUNT = 4;      // группы 28, 29, 30, 31
+    static constexpr int SIGNALS_PER_GROUP = 8;     // 4 × 8 = 32 сигнала
+    static constexpr int TOTAL_SIGNALS = SELF_GROUP_COUNT * SIGNALS_PER_GROUP; // = 32
+    
+    // Сила инжекции (0 = не влияет, 1 = полностью заменяет)
     float injection_strength = 0.25f;
-
-    // EMA alpha for smoothing rates
+    
+    // Константы для EMA
     float ema_alpha = 0.05f;
-
-    SelfSignalSampler() {
-        consolidation_ema_ = 0.f;
-        discard_ema_       = 0.f;
-        energy_history_.assign(64, 0.f);
-        energy_max_        = 1.f;
-    }
-
-    // Call once per step AFTER the emergent tick but BEFORE STDP
+    
+    SelfSignalSampler();
+    
+    // Сбор снапшота (вызывается после эволюции нейронов)
     SelfSnapshot sample(const NeuralFieldSystem& sys,
                         const EmergentSignal&    sig,
                         int                      step);
-
-    // Inject the snapshot back into groups 28–31 as ordinary phi values
-    // (does NOT call learnSTDP — that happens in routeRewards as usual)
+    
+    // Инжекция снапшота в self-model группы
     void inject(NeuralFieldSystem& sys, const SelfSnapshot& snap);
-
-    // Returns the last computed snapshot (useful for diagnostics)
+    
+    // Получить последний снапшот (для диагностики)
     const SelfSnapshot& last() const { return last_snap_; }
-
+    
+    // Сброс истории (при перезагрузке системы)
+    void reset();
+    
 private:
     SelfSnapshot last_snap_{};
-    float consolidation_ema_ = 0.f;
-    float discard_ema_       = 0.f;
-    std::deque<float> energy_history_;
-    float energy_max_  = 1.f;
-    int   last_stm_size_ = 0;
-    int   last_ltm_size_ = 0;
-
-    // Moving average
-    float ema(float old_val, float new_val) const {
-        return old_val * (1.f - ema_alpha) + new_val * ema_alpha;
-    }
+    
+    // EMA для сглаживания
+    float apoptosis_ema_ = 0.0f;
+    float neurogenesis_ema_ = 0.0f;
+    float consolidation_ema_ = 0.0f;
+    mutable float firing_rate_ema_ = 0.0f;
+    
+    // История для вычисления трендов
+    std::deque<float> quality_history_;
+    std::deque<float> entropy_history_;
+    std::deque<int> apoptosis_history_;
+    std::deque<int> neurogenesis_history_;
+    
+    // Последние значения для вычисления дельт
+    int last_apoptosis_count_ = 0;
+    int last_neurogenesis_count_ = 0;
+    size_t last_ltm_size_ = 0;
+    float last_avg_firing_rate_ = 0.0f;
+    int step_counter_ = 0;
+    
+    // Вспомогательные методы
+    float computeEma(float old_val, float new_val) const;
+    float computeTrend(const std::deque<float>& history, int window) const;
+    float computeActivityLevel(const NeuralFieldSystem& sys) const;
+    float computeAverageFiringRate(const NeuralFieldSystem& sys) const;
+    float computeAverageTrophicLevel(const NeuralFieldSystem& sys) const;
+    int countApoptosisEvents(const NeuralFieldSystem& sys) const;
+    int countNeurogenesisEvents(const NeuralFieldSystem& sys) const;
+    
+    // Константы
+    static constexpr int TREND_WINDOW = 50;
+    static constexpr int HISTORY_MAX = 200;
 };
