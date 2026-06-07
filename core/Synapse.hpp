@@ -65,11 +65,11 @@ struct PlasticityParams
     float minWeight;           // минимум |weight| (обычно 0)
 
     PlasticityParams()
-        : stdpRate(0.5f),        // было 0.2, увеличили
-        hebbianRate(0.02f),     // было 0.01
-        consolidationRate(0.005f), // было 0.002
-        A_plus(0.5f),           // было 0.3
-        A_minus(0.6f),          // было 0.36
+        : stdpRate(0.5f),
+        hebbianRate(0.02f),   
+        consolidationRate(0.005f),
+        A_plus(0.5f),         
+        A_minus(0.6f),  
         tau_plus(20.0f),
         tau_minus(20.0f),
         eligibilityDecay(0.95f),

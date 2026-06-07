@@ -27,10 +27,11 @@ NeuralFieldSystem::NeuralFieldSystem(double dt)
 
 void NeuralFieldSystem::initialize(std::mt19937& rng) {
     // Создаём группы с новой сигнатурой (без MassLimits)
+    auto shared_rng = std::make_shared<std::mt19937>(rng);
     groups.clear();
     groups.reserve(NUM_GROUPS);
     for (int g = 0; g < NUM_GROUPS; ++g) {
-        groups.emplace_back(GROUP_SIZE, dt_, rng);
+        groups.emplace_back(GROUP_SIZE, dt_, shared_rng);
     }
     
     // Настраиваем специализации групп
