@@ -11,6 +11,7 @@
 // 5. Логировать все шаги для анализа
 #include <string>
 #include <vector>
+#include <map>
 #include <deque>
 #include <unordered_map>
 #include <chrono>
@@ -341,6 +342,54 @@ public:
     // ===== СОХРАНЕНИЕ/ЗАГРУЗКА =====
     bool loadMemoryState();
     bool saveMemoryState();
+
+    // ===== API для получения последнего действия =====
+    struct LastActionInfo {
+        std::string action;
+        float risk = 0.0f;
+        bool allowed = true;
+        std::string reason;
+    
+    nlohmann::json toJson() const {
+            nlohmann::json j;
+            j["action"] = action;
+            j["risk"] = risk;
+            j["allowed"] = allowed;
+            j["reason"] = reason;
+            return j;
+        }
+    };
+    
+    LastActionInfo getLastActionInfo() const {
+        LastActionInfo info;
+        if (!history_.empty()) {
+            info.action = history_.back().first.action;
+            info.risk = history_.back().second.hallucination_risk;
+            info.allowed = history_.back().second.allowed;
+            info.reason = history_.back().second.reason;
+        }
+        return info;
+    }
+    
+    std::map<std::string, bool> getConstraintsStatus() const {
+        std::map<std::string, bool> status;
+        auto active = constraints_.getActiveConstraints();
+        for (const auto& c : active) {
+            status[c.name] = true;
+        }
+        // Добавляем выключенные
+        status["response_length_300"] = constraints_.response_length_limit_300.enabled;
+        status["response_length_600"] = constraints_.response_length_limit_600.enabled;
+        status["response_length_1000"] = constraints_.response_length_limit_1000.enabled;
+        status["confidence_30"] = constraints_.confidence_threshold_30.enabled;
+        status["confidence_50"] = constraints_.confidence_threshold_50.enabled;
+        status["confidence_70"] = constraints_.confidence_threshold_70.enabled;
+        status["confidence_90"] = constraints_.confidence_threshold_90.enabled;
+        status["max_steps_per_second"] = constraints_.max_steps_per_second.enabled;
+        status["max_tokens_per_response"] = constraints_.max_tokens_per_response.enabled;
+        status["max_tool_calls_per_cycle"] = constraints_.max_tool_calls_per_cycle.enabled;
+        return status;
+    }
     
 private:
     std::string generateActionId();

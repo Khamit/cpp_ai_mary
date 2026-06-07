@@ -62,6 +62,11 @@ struct SelfSnapshot {
     float neurogenesis_rate;     // скорость нейрогенеза (рождений)
     float avg_firing_rate;       // средняя частота спайков по всем нейронам
     float network_activity;      // общая активность сети (доля активных нейронов)
+
+    // НОВЫЕ СИГНАЛЫ ДЛЯ ЭНЕРГИИ (добавить в конец)
+    float system_energy;           // полная энергия системы
+    float energy_conservation_error; // ошибка сохранения энергии
+    float hamiltonian_risk;        // риск на основе нарушения Гамильтона
     
     // ── Преобразование в плоский вектор (32 float) ───────────────────────
     std::vector<float> toVector() const {
@@ -131,6 +136,10 @@ struct SelfSnapshot {
         neurogenesis_rate = 0.0f;
         avg_firing_rate = 0.0f;
         network_activity = 0.0f;
+        // Новые поля
+        system_energy = 0.0f;
+        energy_conservation_error = 0.0f;
+        hamiltonian_risk = 0.0f;
     }
 };
 

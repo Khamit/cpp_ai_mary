@@ -665,6 +665,12 @@ struct EmergentSignal {
     std::vector<float> context_embedding;  // релевантный контекст из LTM
     int neurons_consolidated = 0;
     int neurons_discarded = 0;
+
+    // риск галлюцинации на основе Lagrangian аудита
+    float hallucination_risk = 0.0f;
+    
+    // сохранённая энергия системы
+    double system_energy = 0.0;
 };
 // EmergentCore.hpp - оставить только объявление метода
 

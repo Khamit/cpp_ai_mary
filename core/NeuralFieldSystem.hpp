@@ -11,6 +11,9 @@
 #include "INeuralGroupAccess.hpp"
 #include <mutex>
 #include <memory>
+#include "LagrangianAuditor.hpp"
+#include <map>
+#include <nlohmann/json.hpp>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -185,10 +188,21 @@ public:
         if (g >= 0 && g < (int)groups.size()) hubIndices.push_back(g);
     }
 
+    // НОВЫЕ МЕТОДЫ:
+    void setEnergyAuditEnabled(bool enabled) { energy_audit_enabled_ = enabled; }
+    bool isEnergyAuditEnabled() const { return energy_audit_enabled_; }
+    const LagrangianAuditor& getLagrangianAuditor() const { return lagrangian_auditor_; }
+    LagrangianAuditor& getLagrangianAuditorNonConst() { return lagrangian_auditor_; }
+    const CanonicalState& getCanonicalState() const { return canonical_state_; }
+
     // Потокобезопасность
     void lock()   { system_mutex_.lock(); }
     void unlock() { system_mutex_.unlock(); }
     std::mutex& getMutex() { return system_mutex_; }
+
+    float getEnergyBasedHallucinationRisk() const {
+        return static_cast<float>(lagrangian_auditor_.getEnergyError());
+    }
 
     class ScopedLock {
         NeuralFieldSystem& s_;
@@ -196,6 +210,57 @@ public:
         ScopedLock(NeuralFieldSystem& s) : s_(s) { s_.lock(); }
         ~ScopedLock() { s_.unlock(); }
     };
+
+    // ==== API ДЛЯ HTTP СЕРВЕРА ====
+    struct SystemSnapshot {
+        double energy = 0.0;
+        double kinetic = 0.0;
+        double potential = 0.0;
+        double energy_error = 0.0;
+        double entropy = 0.0;
+        double target_entropy = 0.5;
+        double surprise = 0.0;
+        double quality = 0.0;
+        double temperature = 1.0;
+        size_t stm_size = 0;
+        size_t ltm_size = 0;
+        int violations = 0;
+        std::map<std::string, bool> constraints;
+        
+        nlohmann::json toJson() const {
+            nlohmann::json j;
+            j["energy"] = energy;
+            j["kinetic"] = kinetic;
+            j["potential"] = potential;
+            j["energy_error"] = energy_error;
+            j["entropy"] = entropy;
+            j["target_entropy"] = target_entropy;
+            j["surprise"] = surprise;
+            j["quality"] = quality;
+            j["temperature"] = temperature;
+            j["stm_size"] = stm_size;
+            j["ltm_size"] = ltm_size;
+            j["violations"] = violations;
+            j["constraints"] = constraints;
+            return j;
+        }
+    };
+    
+    SystemSnapshot getSystemSnapshot() const {
+        SystemSnapshot snap;
+        snap.energy = lagrangian_auditor_.getReferenceEnergy();
+        snap.energy_error = lagrangian_auditor_.getEnergyError();
+        snap.violations = static_cast<int>(lagrangian_auditor_.getConservationViolations());
+        snap.entropy = getUnifiedEntropy();
+        snap.target_entropy = getTargetUnifiedEntropy();
+        snap.surprise = lastSignal_.surprise;
+        snap.quality = lastSignal_.quality;
+        snap.temperature = attention.temperature;
+        snap.stm_size = emergent_.memory.stmSize();
+        snap.ltm_size = emergent_.memory.ltmSize();
+        // constraints нужно заполнить извне или добавить поле в EmergentSignal
+        return snap;
+    }
 
 private:
     // Основные компоненты
@@ -252,4 +317,14 @@ private:
     void generateGentleBurst() {}
     float computeGlobalImportance() { return 0.5f; }
     double computeTotalEnergy() const { return 0.0; }  // устарело
+
+    // НОВОЕ: Lagrangian аудитор
+    LagrangianAuditor lagrangian_auditor_;
+    
+    // НОВОЕ: каноническое состояние для отслеживания
+    CanonicalState canonical_state_;
+    CanonicalState previous_canonical_state_;
+    
+    // НОВОЕ: включение/выключение аудита
+    bool energy_audit_enabled_ = true;
 };
