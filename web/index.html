@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neural Agent Audit - Dashboard</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+<div class="app">
+    <aside class="sidebar">
+        <div class="logo">Neural Audit</div>
+        <nav class="nav">
+            <a href="/" class="nav-item active">Dashboard</a>
+            <a href="/agents.html" class="nav-item">Agents</a>
+            <a href="/auditor.html" class="nav-item">Auditor</a>
+            <a href="/analytics.html" class="nav-item">Analytics</a>
+        </nav>
+    </aside>
+
+    <main class="content">
+        <header class="topbar">
+            <div>
+                <h1>System Dashboard</h1>
+                <p>Real-time AI safety monitoring</p>
+            </div>
+            <div class="live-status">
+                <span class="dot"></span>
+                Live
+            </div>
+        </header>
+
+        <section class="kpi-grid">
+            <div class="kpi-card">
+                <span class="label">Hallucination Risk</span>
+                <h2 id="risk-value">0%</h2>
+                <div class="risk-indicator">
+                    <div class="risk-dot" id="risk-dot" style="background: #71717a;"></div>
+                    <span id="risk-text">Low Risk</span>
+                </div>
+            </div>
+            <div class="kpi-card">
+                <span class="label">Energy Error</span>
+                <h2 id="energy-error-value">0%</h2>
+                <div class="progress-bar"><div class="progress-fill risk" id="energy-bar" style="width:0%"></div></div>
+            </div>
+            <div class="kpi-card">
+                <span class="label">Entropy</span>
+                <h2 id="entropy-value">0%</h2>
+                <div class="trend" id="entropy-trend">--</div>
+            </div>
+            <div class="kpi-card">
+                <span class="label">Quality</span>
+                <h2 id="quality-value">0%</h2>
+                <div class="trend trend-up" id="quality-trend">--</div>
+            </div>
+        </section>
+
+        <section class="dashboard-grid">
+            <div class="system-card">
+                <div class="system-card-header">System Status</div>
+                <div class="system-card-content">
+                    <div class="system-row">
+                        <span>Environment</span>
+                        <span id="env-status" class="badge neutral">WAITING</span>
+                    </div>
+                    <div class="system-row">
+                        <span>Agent Status</span>
+                        <span id="agent-status" class="badge neutral">-</span>
+                    </div>
+                    <div class="system-row">
+                        <span>Active Session</span>
+                        <span id="session-id">-</span>
+                    </div>
+                    <div class="system-row">
+                        <span>Temperature</span>
+                        <span id="temperature">1.00</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="system-card">
+                <div class="system-card-header">Memory</div>
+                <div class="system-card-content">
+                    <div class="system-row">
+                        <span>STM</span>
+                        <span id="stm-size">0/256</span>
+                    </div>
+                    <div class="system-row">
+                        <span>LTM</span>
+                        <span id="ltm-size">0/2048</span>
+                    </div>
+                    <div class="system-row">
+                        <span>Violations</span>
+                        <span id="violations" class="badge neutral">0</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <div class="footer">Neural Agent Audit System v3.0 | Real-time AI Agent Observability</div>
+    </main>
+</div>
+
+<script>
+    let eventSource = null;
+    
+    function updateRiskIndicator(risk) {
+        const dot = document.getElementById('risk-dot');
+        const text = document.getElementById('risk-text');
+        if (risk > 0.7) {
+            dot.style.background = '#ef4444';
+            text.textContent = 'High Risk';
+            text.style.color = '#ef4444';
+        } else if (risk > 0.3) {
+            dot.style.background = '#f59e0b';
+            text.textContent = 'Medium Risk';
+            text.style.color = '#f59e0b';
+        } else {
+            dot.style.background = '#22c55e';
+            text.textContent = 'Low Risk';
+            text.style.color = '#22c55e';
+        }
+    }
+    
+    function initEventSource() {
+        if (eventSource) eventSource.close();
+        eventSource = new EventSource('/api/events');
+        eventSource.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            const risk = data.risk || 0;
+            
+            document.getElementById('env-status').innerHTML = data.agent_running ? '<span class="badge success">ACTIVE</span>' : '<span class="badge neutral">WAITING</span>';
+            const agentStatusHtml = risk > 0.7 ? '<span class="badge danger">DANGER</span>' : (risk > 0.3 ? '<span class="badge warning">WARNING</span>' : '<span class="badge success">OK</span>');
+            document.getElementById('agent-status').innerHTML = agentStatusHtml;
+            document.getElementById('session-id').innerText = data.session_id || '-';
+            document.getElementById('risk-value').innerHTML = Math.round(risk * 100) + '%';
+            updateRiskIndicator(risk);
+            document.getElementById('energy-error-value').innerHTML = Math.round((data.energy_error || 0) * 100) + '%';
+            document.getElementById('energy-bar').style.width = (data.energy_error || 0) * 100 + '%';
+            document.getElementById('entropy-value').innerHTML = Math.round((data.entropy || 0.5) * 100) + '%';
+            document.getElementById('quality-value').innerHTML = Math.round((data.quality || 0.5) * 100) + '%';
+            document.getElementById('temperature').innerText = (data.temperature || 1.0).toFixed(2);
+            document.getElementById('stm-size').innerHTML = (data.stm_size || 0) + '/256';
+            document.getElementById('ltm-size').innerHTML = (data.ltm_size || 0) + '/2048';
+            document.getElementById('violations').innerHTML = '<span class="badge ' + ((data.violations || 0) > 10 ? 'danger' : 'neutral') + '">' + (data.violations || 0) + '</span>';
+        };
+        eventSource.onerror = () => setTimeout(initEventSource, 3000);
+    }
+    
+    function fetchStatus() {
+        fetch('/api/status').then(r => r.json()).then(d => {
+            if (d.energy_error) document.getElementById('energy-bar').style.width = d.energy_error * 100 + '%';
+        }).catch(e => {});
+    }
+    
+    initEventSource();
+    fetchStatus();
+    setInterval(fetchStatus, 2000);
+</script>
+</body>
+</html>

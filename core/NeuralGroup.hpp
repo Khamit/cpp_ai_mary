@@ -22,7 +22,7 @@
 class EmergentMemory;
 
 // ============================================================================
-// НОВАЯ АРХИТЕКТУРА — БЕЗ ОРБИТ, БЕЗ ФИЗИКИ
+// НОВАЯ АРХИТЕКТУРА
 // ============================================================================
 
 /**
@@ -150,6 +150,39 @@ public:
     int getSize() const { return size_; }
     int getStepCounter() const { return step_counter_; }
     void logStats() const;
+
+        // Вычисление "энергии" состояния нейрона
+    double computeNeuralLagrangian(int neuron_idx) const {
+        // L = T - V, где T — "кинетическая" (активность), V — "потенциальная" (связи)
+        double kinetic = getFiringRate(neuron_idx);  // текущая активность
+        
+        double potential = 0.0;
+        for (int j = 0; j < size_; ++j) {
+            potential += std::abs(W_[neuron_idx][j]) * getFiringRate(j);
+        }
+        
+        return kinetic - 0.5 * potential;  // Lagrangian
+    }
+    
+    // Сохранение энергии — ОГРАНИЧЕНИЕ, а не цель
+    void enforceEnergyConservation() {
+        double current_energy = 0.0;
+        for (int i = 0; i < size_; ++i) {
+            current_energy += computeNeuralLagrangian(i);
+        }
+        
+        // Если энергия упала — восстановить
+        if (current_energy < conserved_energy_ * 0.95) {
+            double deficit = conserved_energy_ - current_energy;
+            // Распределить дефицит как "толчок"
+            for (int i = 0; i < size_; ++i) {
+                if (getFiringRate(i) < 0.5) {
+                    V_[i] += deficit * 0.01 * dt_;
+                }
+            }
+        }
+        conserved_energy_ = conserved_energy_ * 0.999 + current_energy * 0.001;
+    }
     
 private:
     // ===== ФУНДАМЕНТАЛЬНЫЕ ПАРАМЕТРЫ =====
@@ -208,6 +241,9 @@ private:
     bool is_input_group_ = false;
     bool is_self_model_group_ = false;
     std::shared_ptr<std::mt19937> rng_;  // shared_ptr
+    // новые переменные для ии
+    double conserved_energy_;  // "Lagrangian" группы
+    std::vector<double> canonical_momentum_;  // обобщённый импульс
     
     // ===== ПРИВАТНЫЕ МЕТОДЫ =====
     void updateMembranePotentials();           // обновление V, спайки

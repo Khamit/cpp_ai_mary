@@ -7,6 +7,7 @@
 #include <random>
 #include <map>
 #include <string>
+#include "LagrangianAuditor.hpp"
 
 // Константы
 static constexpr int MIN_CONSOLIDATION_INTERVAL = 20;
@@ -200,6 +201,39 @@ void NeuralFieldSystem::step(float external_reward, int stepNumber) {
                 phi[n] = std::clamp(phi[n] + dt_ * diff * 0.1, 0.0, 1.0);
             }
         }
+    }
+
+    // ===== НОВАЯ ФАЗА 4.5: LAGRANGIAN АУДИТ =====
+    if (energy_audit_enabled_) {
+        // Сохраняем предыдущее состояние
+        previous_canonical_state_ = canonical_state_;
+        
+        // Получаем текущее каноническое состояние
+        canonical_state_ = lagrangian_auditor_.toCanonical(groups, interWeights, dt_);
+        
+        // Аудируем сохранение энергии
+        bool energy_conserved = lagrangian_auditor_.auditEnergyConservation(canonical_state_, dt_);
+        
+        if (!energy_conserved && lagrangian_auditor_.getConfig().auto_correct) {
+            // Корректируем состояние
+            lagrangian_auditor_.correctState(canonical_state_, 0.0, interWeights);
+            
+            // Применяем коррекцию к группам
+            for (int g = 0; g < NUM_GROUPS; ++g) {
+                double target_q = canonical_state_.q[g];
+                double current_q = groups[g].getAverageActivity();
+                double delta = target_q - current_q;
+                
+                auto& phi = groups[g].getPhiNonConst();
+                for (int n = 0; n < GROUP_SIZE; ++n) {
+                    phi[n] = std::clamp(phi[n] + delta * 0.1, 0.0, 1.0);
+                }
+            }
+        }
+        
+        // Обновляем lastSignal_ с риском на основе энергии
+        float energy_risk = static_cast<float>(lagrangian_auditor_.getEnergyError());
+        lastSignal_.hallucination_risk = std::max(lastSignal_.hallucination_risk, energy_risk);
     }
     
     // ===== ФАЗА 5: Распределение наград =====

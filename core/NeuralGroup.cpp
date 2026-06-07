@@ -58,6 +58,9 @@ void NeuralGroup::evolve() {
     // 1. Обновление мембранных потенциалов и спайков
     updateMembranePotentials();
     
+    // 1.5 Сохранение энергии (Lagrangian constraint)
+    enforceEnergyConservation();
+    
     // 2. Трофические сигналы (раз в 10 шагов для эффективности)
     if (step_counter_ % 10 == 0) {
         updateTrophicSignals();

@@ -336,6 +336,13 @@ AuditVerdict AgentAuditBridge::auditAction(const AgentAction& action) {
         if (audit_callback_) audit_callback_(action, verdict);
         return verdict;
     }
+
+    // 4.6 НОВОЕ: Получить риск из Lagrangian аудитора
+    float energy_risk = neural_system_.getEnergyBasedHallucinationRisk();
+    
+    // 4.7 Вычисление риска галлюцинации (объединяем с существующим)
+    float computed_risk = computeHallucinationRisk(action, cached_surprise_);
+    verdict.hallucination_risk = std::max(computed_risk, energy_risk);
     
     // 5. Оценка вклада в энтропию
     auto embedding = actionToEmbedding(action);
