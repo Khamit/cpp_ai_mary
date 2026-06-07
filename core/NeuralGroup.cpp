@@ -10,9 +10,12 @@
 // КОНСТРУКТОР
 // ============================================================================
 
-NeuralGroup::NeuralGroup(int size, double dt, std::mt19937& rng)
-    : size_(size), dt_(dt), rng_(&rng)
+NeuralGroup::NeuralGroup(int size, double dt, std::shared_ptr<std::mt19937> rng)
+    : size_(size), dt_(dt), rng_(std::move(rng))
 {
+    if (!rng_) {
+        throw std::runtime_error("NeuralGroup: RNG is null");
+    }
     // Инициализация мембранных полей
     V_.resize(size_, membrane_params_.v_rest);
     V_threshold_.resize(size_, membrane_params_.v_threshold_base);
@@ -29,13 +32,14 @@ NeuralGroup::NeuralGroup(int size, double dt, std::mt19937& rng)
     apoptosis_timer_.resize(size_, 0);
     critical_period_remaining_.resize(size_, 0);
     plasticity_boost_.resize(size_, 1.0f);
+    low_rate_timer_.resize(size_, 0);
     
     // Инициализация весов (слабые случайные)
     W_.assign(size_, std::vector<double>(size_, 0.0));
     std::uniform_real_distribution<double> weight_dist(-0.1, 0.1);
     for (int i = 0; i < size_; ++i) {
         for (int j = i + 1; j < size_; ++j) {
-            double w = weight_dist(rng);
+            double w = weight_dist(*rng_);
             W_[i][j] = w;
             W_[j][i] = w;
         }
@@ -86,7 +90,15 @@ void NeuralGroup::evolve() {
 // ----------------------------------------------------------------------------
 
 void NeuralGroup::updateMembranePotentials() {
-    // Сначала обновляем рефрактерность
+    // Оптимизация: сбор активных спайков
+    std::vector<int> active_spikes;
+    active_spikes.reserve(size_);
+    for (int j = 0; j < size_; ++j) {
+        if (spike_[j] && step_counter_ - last_spike_step_[j] == 1) {
+            active_spikes.push_back(j);
+        }
+    }
+    
     for (int i = 0; i < size_; ++i) {
         if (refractory_[i] > 0) {
             refractory_[i]--;
@@ -94,42 +106,28 @@ void NeuralGroup::updateMembranePotentials() {
             continue;
         }
         
-        // Вычисляем синаптический вход
         double I_syn = 0.0;
-        for (int j = 0; j < size_; ++j) {
-            // Если пресинаптический нейрон спайкнул на прошлом шаге
-            if (spike_[j] && step_counter_ - last_spike_step_[j] == 1) {
-                I_syn += W_[j][i];
-            }
+        for (int j : active_spikes) {
+            I_syn += W_[j][i];
         }
         
-        // Утечка
         double I_leak = -membrane_params_.g_leak * (V_[i] - membrane_params_.v_rest);
-        
-        // Обновление потенциала (явная схема Эйлера)
         V_[i] += dt_ * (I_syn + I_leak) / membrane_params_.c_m;
         
-        // Пороговая активация
         if (V_[i] > V_threshold_[i]) {
             spike_[i] = true;
             last_spike_step_[i] = step_counter_;
             refractory_[i] = membrane_params_.refractory_period;
             V_[i] = membrane_params_.v_reset;
-            
-            // Адаптация порога (spike-rate adaptation)
             V_threshold_[i] += membrane_params_.spike_adaptation;
             V_threshold_[i] = std::min(V_threshold_[i], membrane_params_.v_threshold_max);
         } else {
             spike_[i] = false;
-            // Порог медленно возвращается к базовому
             V_threshold_[i] = V_threshold_[i] * membrane_params_.threshold_decay 
                             + membrane_params_.v_threshold_base * (1.0 - membrane_params_.threshold_decay);
         }
-        if (spike_[i]) {
-            spike_history_[i].push_back(true);
-        } else {
-            spike_history_[i].push_back(false);
-        }
+        
+        spike_history_[i].push_back(spike_[i]);
         if (spike_history_[i].size() > SPIKE_HISTORY_WINDOW) {
             spike_history_[i].pop_front();
         }
@@ -201,11 +199,16 @@ void NeuralGroup::checkApoptosis() {
         }
         
         // Условие 2: слишком низкая частота спайков (менее 0.1 Гц) долгое время
+        // отслеживает низкую активность
         if (!should_die && step_counter_ > 10000) {
             double rate = getFiringRateImpl(i);
             if (rate < 0.1 && trophic_accumulator_[i] < 0.1) {
-                static int low_rate_timer[MAX_NEURONS] = {0};  // упрощённо
-                // В реальности нужно хранить отдельный таймер
+                low_rate_timer_[i]++;
+                if (low_rate_timer_[i] > 10000) {
+                    should_die = true;
+                }
+            } else {
+                low_rate_timer_[i] = 0;
             }
         }
         
@@ -297,60 +300,60 @@ void NeuralGroup::inheritBestPattern(int i) {
 // ----------------------------------------------------------------------------
 
 void NeuralGroup::learnSTDP(float reward, int currentStep) {
+    // Использование LUT для оптимизации
+    static const auto exp_plus = getExpPlus();
+    static const auto exp_minus = []() {
+        std::array<float, 21> arr{};
+        for (int dt = 0; dt <= 20; ++dt) {
+            arr[dt] = std::exp(-static_cast<float>(dt) / 20.0f);
+        }
+        return arr;
+    }();
+    
     int synIndex = 0;
     
     for (int i = 0; i < size_; ++i) {
         for (int j = i + 1; j < size_; ++j) {
-            if (synIndex >= (int)synapses_.size()) break;
+            if (synIndex >= static_cast<int>(synapses_.size())) break;
             
             auto& syn = synapses_[synIndex++];
             
-            // Запись времени спайков
-            if (spike_[i]) syn.lastPreFire = currentStep;
-            if (spike_[j]) syn.lastPostFire = currentStep;
+            if (spike_[i]) syn.lastPreFire = static_cast<float>(currentStep);
+            if (spike_[j]) syn.lastPostFire = static_cast<float>(currentStep);
             
             float dt = syn.lastPostFire - syn.lastPreFire;
             float delta = 0.0f;
             
-            // Классическое окно STDP
-            if (dt > 0 && dt < 20.0f) {
-                delta = params_.A_plus * std::exp(-dt / params_.tau_plus);
-            } else if (dt < 0 && dt > -20.0f) {
-                delta = -params_.A_minus * std::exp(dt / params_.tau_minus);
+            int dt_int = static_cast<int>(std::abs(dt));
+            if (dt > 0 && dt_int <= 20) {
+                delta = params_.A_plus * exp_plus[dt_int];
+            } else if (dt < 0 && dt_int <= 20) {
+                delta = -params_.A_minus * exp_minus[dt_int];
             }
             
-            // Модуляция наградой
             float reward_factor = std::min(1.0f, reward);
-            
-            // Критический период — ускоренное обучение
             float boost = 1.0f;
             if (critical_period_remaining_[i] > 0) boost *= plasticity_boost_[i];
             if (critical_period_remaining_[j] > 0) boost *= plasticity_boost_[j];
             
             float weight_change = params_.stdpRate * reward_factor * delta * boost;
             
-            // Обновление eligibility trace
             syn.eligibility = syn.eligibility * params_.eligibilityDecay + delta;
             syn.eligibility = std::clamp(syn.eligibility, -0.1f, 0.1f);
             
-            // Применяем изменение
             syn.weight += weight_change;
             syn.weight = std::clamp(syn.weight, -params_.maxWeight, params_.maxWeight);
             
             W_[i][j] = syn.weight;
             W_[j][i] = syn.weight;
-            
-            // Запись использования для future pruning
-            // (опущено для краткости, можно добавить)
         }
     }
     
-    // Затухание неиспользуемых связей
     if (step_counter_ % 100 == 0) {
         for (int i = 0; i < size_; ++i) {
             for (int j = i + 1; j < size_; ++j) {
-                if (std::abs(W_[i][j]) < 0.01) {
-                    W_[i][j] *= 0.99;
+                if (std::abs(W_[i][j]) < 0.01f) {
+                    W_[i][j] *= 0.99f;
                     W_[j][i] = W_[i][j];
                 }
             }

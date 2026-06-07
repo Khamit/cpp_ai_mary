@@ -10,6 +10,9 @@
 #include "Synapse.hpp"
 #include "OperatingMode.hpp"
 
+#include <memory>  // для shared_ptr
+#include <array>   // для LUT
+
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -49,6 +52,8 @@ struct MembraneParams {
     int refractory_period = 5;  // шагов рефрактерности
     double spike_adaptation = 5.0; // увеличение порога после спайка (мВ)
     double threshold_decay = 0.999; // возврат порога к базовому
+
+    MembraneParams() = default;
 };
 
 /**
@@ -64,7 +69,9 @@ struct MembraneParams {
  */
 class NeuralGroup {
 public:
-    NeuralGroup(int size, double dt, std::mt19937& rng);
+    // используем shared_ptr для безопасного владения RNG
+    NeuralGroup(int size, double dt, std::shared_ptr<std::mt19937> rng);
+
     ~NeuralGroup() = default;
     
     // Запрет копирования, разрешаем перемещение
@@ -169,6 +176,7 @@ private:
     std::vector<int> apoptosis_timer_;      // счётчик до смерти
     std::vector<int> critical_period_remaining_; // шагов до конца критического периода
     std::vector<float> plasticity_boost_;   // множитель обучения
+    std::vector<int> low_rate_timer_;       // таймер для низкой активности
     
     struct PatternWill {
         std::vector<double> incoming;  // кто на меня влиял (пре)
@@ -199,7 +207,7 @@ private:
     EmergentMemory* memory_manager_ = nullptr;
     bool is_input_group_ = false;
     bool is_self_model_group_ = false;
-    std::mt19937* rng_ = nullptr;  // внешний RNG
+    std::shared_ptr<std::mt19937> rng_;  // shared_ptr
     
     // ===== ПРИВАТНЫЕ МЕТОДЫ =====
     void updateMembranePotentials();           // обновление V, спайки
@@ -215,6 +223,18 @@ private:
     // Вспомогательные
     double computeTrophicOutput(int i) const;  // сколько трофина выделяет нейрон
     double getFiringRateImpl(int i) const;     // частота спайков (Гц)
+
+    // STDP LUT для оптимизации
+    static const std::array<float, 21> getExpPlus() {
+        static const std::array<float, 21> arr = []() {
+            std::array<float, 21> a{};
+            for (int dt = 0; dt <= 20; ++dt) {
+                a[dt] = std::exp(-static_cast<float>(dt) / 20.0f);
+            }
+            return a;
+        }();
+        return arr;
+    }
 };
 
 // ============================================================================
